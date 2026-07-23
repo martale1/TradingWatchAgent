@@ -13,6 +13,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 
 ```text
 agent_portfolio_manager.py      # CLI agente OpenAI SDK
+chatgpt_playwright_demo.py      # news/report via ChatGPT nel browser con Playwright
 stock_chart_ai_analysis.py      # grafici + analisi ChatGPT via Playwright
 finance_charts/                 # indicatori e grafici tecnici
 finance_tools/                  # tool portfolio, scanner, news, chart
@@ -91,6 +92,8 @@ Poi:
 ```bash
 python agent_portfolio_manager.py --stocks "VOD.L" --live-news
 ```
+
+In questa modalita il tool news richiama `chatgpt_playwright_demo.py`, quindi usa Playwright e il tuo login ChatGPT nel browser. Non usa `OPENAI_API_KEY`.
 
 ## Note
 
