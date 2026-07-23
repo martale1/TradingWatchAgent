@@ -197,6 +197,8 @@ def build_agent(model=DEFAULT_MODEL):
             "se i candidati hanno score simili, o se il rischio non e chiaro. "
             "Quando approfondisci piu candidati, procedi in sequenza: chiama un solo tool alla volta, attendi il risultato, "
             "riassumi cosa hai imparato e solo dopo decidi se chiamare il tool per il candidato successivo. "
+            "Analizza un titolo selezionato alla volta: completa grafico, eventuali news, sintesi e giudizio provvisorio "
+            "per quel ticker prima di iniziare qualsiasi tool sul ticker successivo. "
             "Non chiamare mai piu tool Playwright nello stesso passaggio di ragionamento. "
             "Se non approfondisci con Playwright, devi spiegare perche non era necessario. "
             "Se un tool restituisce dati mancanti, dichiaralo chiaramente e continua con i dati disponibili. "
@@ -401,6 +403,7 @@ def main():
             request += (
                 f"Prima di presentare la proposta finale, conferma i primi {args.deep_confirm_limit} "
                 "candidati migliori con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Se la conferma visuale smentisce un candidato, dichiaralo e riduci la convinzione. "
             )
         elif not args.no_auto_deep_confirmation:
@@ -408,6 +411,7 @@ def main():
                 f"Prima di presentare la proposta finale, valuta autonomamente i migliori candidati e, "
                 f"se serve conferma o se stai allocando capitale, approfondisci fino a {args.deep_confirm_limit} "
                 "candidati con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Riporta quali candidati hai approfondito e quali no, con motivazione. "
             )
         request += (
@@ -447,6 +451,7 @@ def main():
             request += (
                 f"Dopo lo scan devi confermare i primi {args.deep_confirm_limit} candidati migliori "
                 "chiamando confirm_candidate_chart_with_playwright con no_telegram=True per ciascuno. "
+                "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Solo dopo questa conferma visuale puoi indicare quali metteresti in proposta. "
             )
         elif not args.no_auto_deep_confirmation:
@@ -454,6 +459,7 @@ def main():
                 f"Dopo lo scan valuta autonomamente se approfondire fino a {args.deep_confirm_limit} candidati "
                 "con confirm_candidate_chart_with_playwright(no_telegram=True). "
                 "Se il risultato deve diventare una proposta o una raccomandazione operativa, approfondisci i migliori candidati. "
+                "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Se non lo fai, spiega chiaramente perche lo score numerico e sufficiente. "
             )
         request += (

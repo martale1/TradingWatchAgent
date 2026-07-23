@@ -153,7 +153,7 @@ python agent_portfolio_manager.py --stocks "VOD.L" --live-news
 
 In questa modalita il tool news richiama `chatgpt_playwright_demo.py`, quindi usa Playwright e il tuo login ChatGPT nel browser. Non usa `OPENAI_API_KEY`.
 
-L'agente e configurato con `parallel_tool_calls=False`: analizza i candidati in sequenza e aspetta il risultato di un tool prima di lanciare il successivo. In piu, i tool che usano Playwright vengono messi in coda: una sola sessione Chrome/ChatGPT alla volta. Questo evita blocchi quando l'agente decide di approfondire piu candidati.
+L'agente e configurato con `parallel_tool_calls=False`: analizza i candidati in sequenza e aspetta il risultato di un tool prima di lanciare il successivo. La regola operativa e "un ticker alla volta": completa grafico, eventuali news, sintesi e giudizio provvisorio di un candidato prima di passare al candidato successivo. In piu, i tool che usano Playwright vengono messi in coda: una sola sessione Chrome/ChatGPT alla volta. Questo evita blocchi quando l'agente decide di approfondire piu candidati.
 
 ## Note
 
