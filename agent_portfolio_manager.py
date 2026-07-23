@@ -211,14 +211,34 @@ def build_agent(model=DEFAULT_MODEL):
     )
 
 
-def run_agent_once(agent, request):
+def run_agent_once(agent, request, display_request=None):
     log_step("Prompt operativo inviato all'agente:")
-    log_step(request)
+    log_step(display_request or request)
     log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
     result = Runner.run_sync(agent, request, max_turns=20)
     log_step("Risposta finale agente ricevuta")
     print("\n" + str(result.final_output).strip() + "\n", flush=True)
     return result
+
+
+def build_contextual_request(history, user_text, max_turns=6):
+    recent_history = history[-max_turns:]
+    if not recent_history:
+        return user_text
+
+    lines = [
+        "Questa e una sessione interattiva. Usa il contesto recente per risolvere riferimenti come "
+        "'questi titoli', 'i candidati', 'il precedente elenco', 'la proposta'.",
+        "",
+        "Contesto recente:",
+    ]
+    for item in recent_history:
+        lines.append(f"Utente: {item['user']}")
+        lines.append(f"Agente: {item['assistant']}")
+        lines.append("")
+    lines.append("Nuova richiesta utente:")
+    lines.append(user_text)
+    return "\n".join(lines)
 
 
 def print_interactive_help():
@@ -255,6 +275,7 @@ def run_interactive_loop(model):
         print("Per partire puoi scrivere, ad esempio: il portafoglio e vuoto, voglio investire 10000 euro")
     print_interactive_help()
     agent = build_agent(model=model)
+    history = []
     while True:
         try:
             user_text = input("\nTu> ").strip()
@@ -270,7 +291,14 @@ def run_interactive_loop(model):
         if user_text.lower() in {"aiuto", "help", "?"}:
             print_interactive_help()
             continue
-        run_agent_once(agent, user_text)
+        contextual_request = build_contextual_request(history, user_text)
+        result = run_agent_once(agent, contextual_request, display_request=user_text)
+        history.append(
+            {
+                "user": user_text,
+                "assistant": str(result.final_output).strip(),
+            }
+        )
 
 
 def main():

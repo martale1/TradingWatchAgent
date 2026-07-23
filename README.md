@@ -9,6 +9,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - Le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
 - I candidati MIB30 possono essere prima filtrati con score tecnico locale e poi confermati con analisi visuale dei grafici via Playwright/ChatGPT.
+- In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
 
 ## Struttura
 
@@ -55,6 +56,24 @@ python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --deep-chart-confi
 In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati. Poi l'agente chiama `confirm_candidate_chart_with_playwright` sui migliori candidati, che usa `stock_chart_ai_analysis.py` per caricare i grafici in ChatGPT via Playwright e ottenere una conferma visuale.
 
 ## Portafoglio virtuale
+
+## Modalita interattiva
+
+Da PyCharm puoi lanciare:
+
+```bash
+python agent_portfolio_manager.py --interactive
+```
+
+In questa modalita puoi continuare la conversazione usando riferimenti al turno precedente. Esempio:
+
+```text
+Tu> scannerizza il MIB30 e proponi 5 candidati per 20000 euro
+Tu> cerca le news per questi 5 titoli
+Tu> conferma i migliori 3 con analisi grafica Playwright
+```
+
+La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
 
 Inizializza portafoglio:
 
