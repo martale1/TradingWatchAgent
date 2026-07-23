@@ -12,8 +12,10 @@ from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.news_tool import get_news_report_json
 from finance_tools.portfolio_store import (
+    add_monitored_condition,
     confirm_proposal as confirm_portfolio_proposal,
     init_portfolio,
+    list_monitored_conditions,
     list_pending_proposals,
     load_portfolio as load_portfolio_file,
     reject_proposal as reject_portfolio_proposal,
@@ -157,6 +159,50 @@ def list_portfolio_proposals() -> str:
 
 
 @function_tool
+def record_monitored_condition(
+    ticker: str,
+    condition: str,
+    reason: str,
+    action_if_met: str = "rivaluta per possibile proposta",
+    status: str = "waiting",
+) -> str:
+    """Persist a condition that must be monitored and re-evaluated later.
+
+    Args:
+        ticker: Stock ticker symbol.
+        condition: Concrete condition to monitor, for example close sopra 3.966 con volumi.
+        reason: Why the condition matters.
+        action_if_met: What the agent should do when the condition is met.
+        status: Condition status, usually waiting.
+    """
+    log_step(f"Tool record_monitored_condition chiamato | ticker={ticker} condition={condition}")
+    item = add_monitored_condition(
+        ticker=ticker,
+        condition=condition,
+        reason=reason,
+        action_if_met=action_if_met,
+        status=status,
+    )
+    return json.dumps({"status": "ok", "condition": item}, ensure_ascii=False, indent=2)
+
+
+@function_tool
+def list_conditions_to_monitor(status: str = "waiting") -> str:
+    """List conditions that the agent has saved for later monitoring.
+
+    Args:
+        status: Optional status filter, for example waiting. Empty string returns all conditions.
+    """
+    clean_status = status or None
+    log_step(f"Tool list_conditions_to_monitor chiamato | status={clean_status}")
+    return json.dumps(
+        {"status": "ok", "conditions": list_monitored_conditions(status=clean_status)},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@function_tool
 def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
     """Confirm and apply a pending portfolio proposal.
 
@@ -189,6 +235,14 @@ def build_agent(model=DEFAULT_MODEL):
             "Rispondi sempre in italiano. Non dare consulenza finanziaria personalizzata. "
             "Non modificare mai il portafoglio autonomamente: puoi solo creare proposte pending, "
             "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
+            "Se l'utente chiede una proposta o chiede se ci sono titoli da comprare, devi rispondere in modo operativo: "
+            "BUY CANDIDATE, WAIT/MONITOR oppure SCARTATO. "
+            "Prima di rifare analisi live, consulta load_virtual_portfolio, list_portfolio_proposals e list_conditions_to_monitor "
+            "per usare lo stato gia salvato. "
+            "Puoi dire BUY CANDIDATE solo dopo avere usato analisi dettagliata del grafico e news disponibili; "
+            "in quel caso crea una proposta pending se ci sono capitale e condizioni sufficienti, altrimenti chiedi il dato mancante. "
+            "Quando una condizione non e verificata ma il titolo resta interessante, salva la condizione con record_monitored_condition "
+            "e spiega quando andra rivalutata. "
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
             "Quando devi proporre titoli da mettere in portafoglio, usa prima lo scanner numerico. "
@@ -214,6 +268,8 @@ def build_agent(model=DEFAULT_MODEL):
             scan_mib30_for_candidates,
             propose_virtual_portfolio_from_mib30,
             list_portfolio_proposals,
+            record_monitored_condition,
+            list_conditions_to_monitor,
             confirm_portfolio_proposal_tool,
             reject_portfolio_proposal_tool,
         ],
@@ -257,6 +313,7 @@ def print_interactive_help():
     print("- scannerizzare i titoli MIB30 e trovare candidati interessanti")
     print("- decidere se confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
     print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
+    print("- salvare condizioni non ancora verificate e rivalutarle nei controlli successivi")
     print("- mostrare, confermare o rifiutare proposte pending")
     print("- analizzare uno o piu titoli con grafici tecnici")
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
@@ -266,6 +323,7 @@ def print_interactive_help():
     print("- il portafoglio e vuoto, voglio investire 10000 euro")
     print("- crea una proposta di portafoglio con 5 titoli e 15% cash")
     print("- mostra proposte pending")
+    print("- mostra condizioni da monitorare")
     print("- conferma proposta 20260723-203433")
     print("- analizza VOD.L con news live")
     print()
@@ -416,6 +474,8 @@ def main():
             )
         request += (
             "Presenta la proposta pending generata, con importi, percentuali, motivazioni e rischi. "
+            "Per ogni candidato analizzato assegna uno stato: BUY CANDIDATE, WAIT/MONITOR o SCARTATO. "
+            "Se lo stato e WAIT/MONITOR, salva almeno una condizione concreta con record_monitored_condition. "
             "Ricorda che serve conferma esplicita del proposal_id prima di applicarla."
         )
         if not os.getenv("OPENAI_API_KEY"):
@@ -464,7 +524,10 @@ def main():
             )
         request += (
             "Spiega i criteri tecnici, elenca i candidati migliori, riporta per ogni candidato se la conferma "
-            "Playwright e stata fatta o no, e indica quali metteresti in proposta."
+            "Playwright e stata fatta o no, e indica quali metteresti in proposta. "
+            "Per ogni candidato assegna uno stato: BUY CANDIDATE, WAIT/MONITOR o SCARTATO. "
+            "Se una condizione d'acquisto non e verificata ma il titolo resta interessante, "
+            "salvala con record_monitored_condition."
         )
     if args.stocks:
         log_step(f"Modalita analisi titoli | stocks={args.stocks} live_news={args.live_news}")

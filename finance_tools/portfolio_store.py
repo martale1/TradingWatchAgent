@@ -22,6 +22,7 @@ def default_portfolio(initial_capital):
         "cash": float(initial_capital),
         "positions": [],
         "watchlist": [],
+        "monitored_conditions": [],
         "pending_proposals": [],
         "closed_proposals": [],
     }
@@ -106,6 +107,44 @@ def list_pending_proposals(path=PORTFOLIO_FILE):
     if portfolio is None:
         return []
     return portfolio.get("pending_proposals", [])
+
+
+def add_monitored_condition(
+    ticker,
+    condition,
+    reason,
+    status="waiting",
+    action_if_met="rivaluta per possibile proposta",
+    metadata=None,
+    path=PORTFOLIO_FILE,
+):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
+    item = {
+        "id": datetime.now().strftime("%Y%m%d-%H%M%S"),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "ticker": ticker.strip().upper(),
+        "status": status,
+        "condition": condition,
+        "reason": reason,
+        "action_if_met": action_if_met,
+        "metadata": metadata or {},
+    }
+    portfolio.setdefault("monitored_conditions", []).append(item)
+    save_portfolio(portfolio, path)
+    return item
+
+
+def list_monitored_conditions(status=None, path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        return []
+    items = portfolio.get("monitored_conditions", [])
+    if status:
+        return [item for item in items if item.get("status") == status]
+    return items
 
 
 def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):

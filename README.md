@@ -7,6 +7,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - I tool locali non richiedono OpenAI API key.
 - L'agente OpenAI SDK richiede `OPENAI_API_KEY`.
 - Le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
+- Le condizioni non ancora verificate vengono salvate in `portfolio.json` come `monitored_conditions`, cosi possono essere rivalutate nei controlli successivi.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
 - I candidati MIB30 vengono prima filtrati con score tecnico locale; l'agente decide poi se confermare i migliori con analisi visuale dei grafici via Playwright/ChatGPT prima di proporre operazioni.
 - In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
@@ -98,6 +99,13 @@ Tu> conferma i migliori 3 con analisi grafica Playwright
 ```
 
 La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
+
+Quando un titolo e interessante ma non ancora acquistabile, l'agente deve salvarlo come condizione monitorata. Esempio: `HER.MI buy solo sopra 3,966 con volumi`. Nei turni successivi puoi chiedere:
+
+```text
+Tu> mostra condizioni da monitorare
+Tu> rivaluta le condizioni monitorate
+```
 
 Inizializza portafoglio:
 
