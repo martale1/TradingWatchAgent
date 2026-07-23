@@ -382,10 +382,11 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "con auto_apply_virtual_proposal_tool dopo avere creato una proposta pending motivata. "
             "Non puoi operare su broker reali o sistemi esterni. "
             f"Ogni nuova operazione autonoma deve rispettare il limite massimo del {max_auto_trade_pct:.1f}% del cash disponibile "
-            "al momento della decisione, salvo che si tratti di confermare una proposta pending gia esplicitamente creata dall'utente. "
+            "al momento della decisione. "
             "Prima di applicare un acquisto autonomo devi avere analisi tecnica aggiornata, news disponibili, e motivazione sintetica. "
             "Se il segnale e debole o contraddittorio, salva/aggiorna una condizione monitorata invece di applicare. "
-            "Dopo ogni operazione autonoma devi inviare o richiedere il riepilogo Telegram e dichiarare proposal_id, ticker, importo e motivo. "
+            "Non chiedere conferma all'utente in questa modalita: applica se le regole sono rispettate e notifica l'utente via Telegram. "
+            "Dopo ogni operazione autonoma devi chiamare send_monitoring_telegram_summary e dichiarare proposal_id, ticker, importo e motivo. "
         )
     else:
         operation_policy = (
@@ -437,7 +438,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "in quel caso crea una proposta pending se ci sono capitale e condizioni sufficienti, altrimenti chiedi il dato mancante. "
             "Se invece l'utente chiede esplicitamente di procedere con un acquisto anche se il segnale non e confermato, "
             "asseconda la richiesta creando una proposta pending con create_buy_proposal, includendo nel reason i rischi e "
-            "specificando che e una forzatura consapevole rispetto al filtro prudenziale. Non applicarla mai senza conferma proposal_id. "
+            "specificando che e una forzatura consapevole rispetto al filtro prudenziale. "
+            "Applicala solo se la policy operativa corrente lo consente, altrimenti attendi conferma proposal_id. "
             "Quando una condizione non e verificata ma il titolo resta interessante, salva la condizione con record_monitored_condition "
             "e spiega quando andra rivalutata. "
             "Il runner invia automaticamente un riepilogo Telegram quando condizioni monitorate o proposte cambiano "
@@ -507,10 +509,12 @@ def build_periodic_monitor_request(
     universe_hint = f"universe_limit={universe_limit}" if universe_limit else "universo completo"
     if auto_apply_virtual:
         operation_hint = (
-            "Modalita AUTONOMA VIRTUALE abilitata: puoi applicare operazioni simulate confermando le proposte che crei "
-            "con auto_apply_virtual_proposal_tool, solo se il segnale e chiaro e dopo analisi tecnica/news. "
+            "Modalita AUTONOMA VIRTUALE abilitata: non devi chiedere conferma all'utente. "
+            "Puoi applicare operazioni simulate usando auto_apply_virtual_proposal_tool dopo avere creato una proposta pending motivata, "
+            "solo se il segnale e chiaro e dopo analisi tecnica/news. "
             f"Limite per nuova operazione autonoma: massimo {max_auto_trade_pct:.1f}% del cash disponibile. "
             "Se il segnale non e netto, non applicare: mantieni o crea una condizione monitorata. "
+            "Dopo ogni operazione autonoma invia riepilogo Telegram. "
         )
     else:
         operation_hint = "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
@@ -855,6 +859,7 @@ def print_interactive_help(portfolio=None):
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
     print("- inviare riepilogo Telegram dei titoli monitorati e proposte pending")
     print("- avviare un monitor periodico che controlla portafoglio, condizioni e MIB30")
+    print("- avviare un monitor periodico autonomo virtuale che applica decisioni e notifica via Telegram")
     print()
     print("Comandi esempio:")
     print("- cosa posso fare adesso?")
@@ -870,6 +875,7 @@ def print_interactive_help(portfolio=None):
     print("- analizza VOD.L con news live")
     print("- invia riepilogo telegram")
     print("- monitor periodico ogni 30 minuti: usa da CLI --daemon-monitor --monitor-interval-minutes 30")
+    print("- monitor autonomo virtuale: usa --daemon-monitor --auto-apply-virtual --monitor-interval-minutes 30")
     print()
     print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")

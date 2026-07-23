@@ -6,7 +6,8 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 
 - I tool locali non richiedono OpenAI API key.
 - L'agente OpenAI SDK richiede `OPENAI_API_KEY`.
-- Le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
+- In modalita standard le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
+- In modalita autonoma virtuale l'agente puo applicare da solo operazioni simulate sul `portfolio.json`; l'utente viene notificato via Telegram.
 - Le condizioni non ancora verificate vengono salvate in `portfolio.json` come `monitored_conditions`, cosi possono essere rivalutate nei controlli successivi.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
 - I candidati MIB30 vengono prima filtrati con score tecnico locale; l'agente decide poi se confermare i migliori con analisi visuale dei grafici via Playwright/ChatGPT prima di proporre operazioni.
@@ -183,11 +184,11 @@ Le news live via Playwright nel monitor periodico sono disattivate per default. 
 python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --periodic-live-news
 ```
 
-Anche in modalita periodica non viene mai applicata una modifica al portafoglio senza conferma esplicita del `proposal_id`.
+In modalita periodica standard non viene mai applicata una modifica al portafoglio senza conferma esplicita del `proposal_id`.
 
 ### Modalita autonoma virtuale
 
-Se vuoi che l'agente decida e applichi autonomamente operazioni sul solo portafoglio virtuale, usa il flag esplicito:
+Se vuoi che l'agente decida e applichi autonomamente operazioni sul solo portafoglio virtuale, senza conferma utente e con sola notifica Telegram, usa il flag esplicito:
 
 ```bash
 python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --scan-limit 5 --auto-apply-virtual --max-auto-trade-pct 25
@@ -198,7 +199,7 @@ In questa modalita l'agente puo:
 ```text
 - analizzare posizioni aperte e proporre/attuare azioni simulate
 - creare una proposta pending motivata
-- confermare autonomamente quella proposta sul portfolio.json virtuale
+- applicare autonomamente quella proposta sul portfolio.json virtuale
 - aggiornare condizioni monitorate
 - inviare riepilogo Telegram quando cambia lo stato
 ```
@@ -210,6 +211,7 @@ Limiti:
 - nessuna operazione fuori dal portfolio.json virtuale
 - ogni nuova operazione autonoma deve rispettare --max-auto-trade-pct
 - se il segnale e debole o contraddittorio deve monitorare, non comprare
+- l'utente non conferma prima: viene notificato via Telegram dopo le decisioni/applicazioni virtuali
 ```
 
 Puoi inviare manualmente il riepilogo:
