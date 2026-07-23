@@ -109,6 +109,7 @@ Opzioni successive:
 ```
 
 Anche al primo avvio di `--interactive` viene mostrata una lista di opzioni operative costruita dal contenuto di `portfolio.json`.
+Puoi scrivere il comando completo oppure solo il numero dell'opzione, per esempio `1`.
 
 La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
 

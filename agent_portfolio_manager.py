@@ -421,8 +421,10 @@ def build_startup_options(portfolio):
 def print_next_options(portfolio=None):
     print()
     print("Opzioni successive:")
-    for index, option in enumerate(build_startup_options(portfolio), start=1):
+    options = build_startup_options(portfolio)
+    for index, option in enumerate(options, start=1):
         print(f"{index}. {option}")
+    return options
 
 
 def print_interactive_help(portfolio=None):
@@ -453,7 +455,7 @@ def print_interactive_help(portfolio=None):
     print()
     print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")
-    print_next_options(portfolio)
+    return print_next_options(portfolio)
 
 
 def run_interactive_loop(model):
@@ -465,7 +467,7 @@ def run_interactive_loop(model):
         print()
         print("Stato iniziale: il portafoglio non ha posizioni aperte.")
         print("Per partire puoi scrivere, ad esempio: il portafoglio e vuoto, voglio investire 10000 euro")
-    print_interactive_help(portfolio)
+    current_options = print_interactive_help(portfolio)
     agent = build_agent(model=model)
     history = []
     while True:
@@ -481,8 +483,17 @@ def run_interactive_loop(model):
             print("Uscita dalla modalita interattiva.")
             return
         if user_text.lower() in {"aiuto", "help", "?"}:
-            print_interactive_help(load_portfolio_file())
+            current_options = print_interactive_help(load_portfolio_file())
             continue
+        if user_text.isdigit():
+            option_index = int(user_text)
+            if 1 <= option_index <= len(current_options):
+                selected_option = current_options[option_index - 1]
+                print(f"Opzione selezionata: {selected_option}")
+                user_text = selected_option
+            else:
+                print(f"Opzione {option_index} non disponibile. Scrivi 'aiuto' per vedere le opzioni.")
+                continue
         contextual_request = build_contextual_request(history, user_text)
         result = run_agent_once(agent, contextual_request, display_request=user_text)
         history.append(
@@ -491,6 +502,7 @@ def run_interactive_loop(model):
                 "assistant": str(result.final_output).strip(),
             }
         )
+        current_options = build_startup_options(load_portfolio_file())
 
 
 def main():
