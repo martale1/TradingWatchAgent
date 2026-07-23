@@ -2,7 +2,7 @@ import os
 
 import telepot
 
-from finance_tools.portfolio_store import list_monitored_conditions, portfolio_status_summary
+from finance_tools.portfolio_store import list_monitored_conditions, load_portfolio, portfolio_status_summary
 
 
 TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
@@ -28,6 +28,24 @@ def format_number(value):
         return str(value)
 
 
+def format_proposal_action(item):
+    status = item.get("status", "n/d")
+    action = item.get("action", "n/d")
+    ticker = item.get("ticker", "n/d")
+    proposal_id = item.get("id", "n/d")
+    metadata = item.get("metadata", {})
+    amount = metadata.get("amount")
+    amount_text = f" {format_money(amount)}" if amount is not None else ""
+    when = item.get("confirmed_at") or item.get("rejected_at") or item.get("created_at") or ""
+    if status == "confirmed":
+        label = "applicata"
+    elif status == "rejected":
+        label = "rifiutata"
+    else:
+        label = status
+    return f"- {label}: {proposal_id} {action} {ticker}{amount_text} {when}".strip()
+
+
 def send_telegram_message(text_message):
     token = os.getenv(TELEGRAM_TOKEN_ENV) or os.getenv(TELEGRAM_TOKEN_FALLBACK_ENV)
     receiver_id = os.getenv(TELEGRAM_RECEIVER_ENV)
@@ -49,6 +67,8 @@ def build_monitoring_summary(extra_note=""):
     invalidated = [item for item in conditions if item.get("status") == "invalidated"]
     pending_buy = status.get("pending_buy_proposals", [])
     positions = status.get("positions", [])
+    portfolio = load_portfolio() or {}
+    recent_actions = list(reversed(portfolio.get("closed_proposals", [])))[:5]
 
     lines = [
         "TradingWatchAgent - riepilogo monitoraggio",
@@ -103,6 +123,14 @@ def build_monitoring_summary(extra_note=""):
             lines.append(f"- {item.get('id')} {item.get('ticker')}{amount_text}")
         if len(pending_buy) > 10:
             lines.append(f"- ... altre {len(pending_buy) - 10} proposte")
+
+    lines.append("")
+    lines.append("Azioni agente recenti:")
+    if recent_actions:
+        for item in recent_actions:
+            lines.append(format_proposal_action(item))
+    else:
+        lines.append("- nessuna modifica applicata/rifiutata")
 
     if extra_note:
         lines.append("")
