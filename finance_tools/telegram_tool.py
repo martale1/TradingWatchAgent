@@ -10,6 +10,24 @@ TELEGRAM_TOKEN_FALLBACK_ENV = "TELEGRAM_BOT_TOKEN_CH1"
 TELEGRAM_RECEIVER_ENV = "TELEGRAM_RECEIVER_ID"
 
 
+def format_money(value):
+    if value is None:
+        return "n/d"
+    try:
+        return f"EUR {float(value):.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def format_number(value):
+    if value is None:
+        return "n/d"
+    try:
+        return f"{float(value):.4f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def send_telegram_message(text_message):
     token = os.getenv(TELEGRAM_TOKEN_ENV) or os.getenv(TELEGRAM_TOKEN_FALLBACK_ENV)
     receiver_id = os.getenv(TELEGRAM_RECEIVER_ENV)
@@ -40,10 +58,29 @@ def build_monitoring_summary(extra_note=""):
         f"Posizioni aperte: {len(positions)}",
         f"Proposte buy pending: {len(pending_buy)}",
         "",
-        f"Condizioni waiting: {len(waiting)}",
     ]
+
+    lines.append("Posizioni aperte:")
+    if positions:
+        for item in positions[:10]:
+            ticker = item.get("ticker", "n/d")
+            amount = format_money(item.get("allocated_amount"))
+            entry = format_number(item.get("entry_price"))
+            qty = format_number(item.get("virtual_quantity"))
+            lines.append(f"- {ticker}: {amount}, entry {entry}, qty {qty}")
+        if len(positions) > 10:
+            lines.append(f"- ... altre {len(positions) - 10} posizioni")
+    else:
+        lines.append("- nessuna")
+
+    lines.append("")
+    lines.append(f"Titoli monitorati / condizioni waiting: {len(waiting)}")
     for item in waiting[:10]:
-        lines.append(f"- {item.get('ticker')}: {item.get('condition')}")
+        action = item.get("action_if_met")
+        action_text = f" | azione: {action}" if action else ""
+        lines.append(f"- {item.get('ticker')}: {item.get('condition')}{action_text}")
+    if len(waiting) > 10:
+        lines.append(f"- ... altri {len(waiting) - 10} titoli monitorati")
 
     if met:
         lines.append("")
@@ -59,11 +96,13 @@ def build_monitoring_summary(extra_note=""):
 
     if pending_buy:
         lines.append("")
-        lines.append("Proposte da confermare:")
+        lines.append("Proposte pending:")
         for item in pending_buy[:10]:
             amount = item.get("metadata", {}).get("amount")
-            amount_text = f" EUR {float(amount):.2f}" if amount is not None else ""
+            amount_text = f" {format_money(amount)}" if amount is not None else ""
             lines.append(f"- {item.get('id')} {item.get('ticker')}{amount_text}")
+        if len(pending_buy) > 10:
+            lines.append(f"- ... altre {len(pending_buy) - 10} proposte")
 
     if extra_note:
         lines.append("")
