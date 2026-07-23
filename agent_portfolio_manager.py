@@ -4,6 +4,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from agents import Agent, ModelSettings, Runner, function_tool
 
@@ -29,6 +30,7 @@ from finance_tools.telegram_tool import send_monitoring_summary
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
+DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "60"))
 
 
 def configure_stdout():
@@ -382,13 +384,24 @@ def build_agent(model=DEFAULT_MODEL):
 def run_agent_once(agent, request, display_request=None):
     log_step("Prompt operativo inviato all'agente:")
     log_step(display_request or request)
-    log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
+    log_step(f"Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls... max_turns={DEFAULT_MAX_TURNS}")
     before_state = monitoring_state_signature()
-    result = Runner.run_sync(agent, request, max_turns=20)
+    final_output = ""
+    try:
+        result = Runner.run_sync(agent, request, max_turns=DEFAULT_MAX_TURNS)
+        final_output = str(result.final_output).strip()
+        log_step("Risposta finale agente ricevuta")
+        print("\n" + final_output + "\n", flush=True)
+    except Exception as exc:
+        final_output = (
+            f"Run interrotta prima della risposta finale: {exc.__class__.__name__}: {exc}. "
+            "Le azioni gia eseguite dai tool restano salvate; controllo lo stato operativo e invio eventuale riepilogo."
+        )
+        log_step(final_output)
+        print("\n" + final_output + "\n", flush=True)
+        result = SimpleNamespace(final_output=final_output)
     after_state = monitoring_state_signature()
-    log_step("Risposta finale agente ricevuta")
-    print("\n" + str(result.final_output).strip() + "\n", flush=True)
-    maybe_send_automatic_monitoring_summary(request, result.final_output, before_state, after_state)
+    maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state)
     return result
 
 

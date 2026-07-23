@@ -38,7 +38,10 @@ Il modello dell'agente si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Il d
 
 ```env
 OPENAI_AGENT_MODEL=gpt-5.6-luna
+OPENAI_AGENT_MAX_TURNS=60
 ```
+
+`OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Screening MIB30 con news, grafici, condizioni e proposte richiede piu passaggi rispetto a una semplice analisi.
 
 Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
 
