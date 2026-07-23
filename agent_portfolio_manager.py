@@ -331,7 +331,12 @@ def build_agent(model=DEFAULT_MODEL):
             "Non chiamare mai piu tool Playwright nello stesso passaggio di ragionamento. "
             "Se non approfondisci con Playwright, devi spiegare perche non era necessario. "
             "Se un tool restituisce dati mancanti, dichiaralo chiaramente e continua con i dati disponibili. "
-            "Formatta l'output in modo compatto, adatto anche a Telegram."
+            "Formatta l'output in modo compatto, adatto anche a Telegram. "
+            "Alla fine di ogni risposta operativa proponi sempre una sezione 'Opzioni successive' con 3-6 opzioni numerate, "
+            "ognuna con un comando concreto che l'utente puo scrivere, per esempio rivalutare condizioni, creare proposta, "
+            "mostrare stato operativo, analizzare un ticker, cercare news live, confermare o rifiutare proposte. "
+            "Le opzioni devono essere coerenti con lo stato attuale: se non ci sono proposte pending non proporre conferma proposta; "
+            "se ci sono condizioni waiting proponi rivalutazione; se il capitale e assente proponi aggiornamento capitale."
         ),
         model_settings=ModelSettings(parallel_tool_calls=False),
         tools=[
@@ -400,6 +405,7 @@ def print_interactive_help():
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
     print()
     print("Comandi esempio:")
+    print("- cosa posso fare adesso?")
     print("- scannerizza 3 titoli del MIB30 e dimmi i migliori")
     print("- il portafoglio e vuoto, voglio investire 10000 euro")
     print("- crea una proposta di portafoglio con 5 titoli e 15% cash")

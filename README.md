@@ -98,6 +98,16 @@ Tu> cerca le news per questi 5 titoli
 Tu> conferma i migliori 3 con analisi grafica Playwright
 ```
 
+L'agente chiude le risposte operative con una sezione `Opzioni successive`, scegliendo comandi coerenti con lo stato corrente. Esempio:
+
+```text
+Opzioni successive:
+1. rivaluta le condizioni monitorate
+2. mostra stato operativo del portafoglio
+3. scannerizza il MIB30 e cerca nuovi candidati
+4. analizza HER.MI con grafico e news live
+```
+
 La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
 
 Quando un titolo e interessante ma non ancora acquistabile, l'agente deve salvarlo come condizione monitorata. Esempio: `HER.MI buy solo sopra 3,966 con volumi`. Nei turni successivi puoi chiedere:
