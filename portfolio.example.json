@@ -1,0 +1,20 @@
+{
+  "watchlist": [
+    {
+      "ticker": "VOD.L",
+      "name": "Vodafone",
+      "market": "London Stock Exchange"
+    },
+    {
+      "ticker": "A2A.MI",
+      "name": "A2A",
+      "market": "Borsa Italiana"
+    },
+    {
+      "ticker": "AVIO.MI",
+      "name": "Avio",
+      "market": "Borsa Italiana"
+    }
+  ]
+}
+
