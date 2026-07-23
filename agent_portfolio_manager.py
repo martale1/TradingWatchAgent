@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +32,7 @@ from finance_tools.telegram_tool import send_monitoring_summary
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
 DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "60"))
+DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30"))
 
 
 def configure_stdout():
@@ -405,13 +407,114 @@ def run_agent_once(agent, request, display_request=None):
     return result
 
 
+def build_periodic_monitor_request(scan_limit=5, universe_limit=0, live_news=False, deep_confirm_limit=3):
+    live_news_hint = "usa live=True solo per titoli con trigger o rischio rilevante" if live_news else "usa live=False per le news"
+    universe_hint = f"universe_limit={universe_limit}" if universe_limit else "universo completo"
+    return (
+        "Esegui un ciclo periodico di monitoraggio operativo. "
+        "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita dal MIB30. "
+        "Prima chiama get_portfolio_operating_status. "
+        "Se ci sono posizioni aperte, analizzale una alla volta con analyze_stock_chart e analyze_stock_news; "
+        f"{live_news_hint}. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending. "
+        "Poi rivaluta tutte le condizioni waiting una alla volta: per ogni ticker usa analyze_stock_chart e news disponibili, "
+        "poi aggiorna la condizione come waiting, met, invalidated o archived. "
+        "Se una condizione e met e il quadro resta valido, crea una proposta pending motivata. "
+        f"Infine scannerizza il MIB30 con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
+        f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati solo se servono davvero per una proposta o per un monitoraggio serio; "
+        "in tal caso usa confirm_candidate_chart_with_playwright un ticker alla volta. "
+        "Se trovi candidati interessanti ma non ancora comprabili, salva condizioni concrete con record_monitored_condition. "
+        "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
+        "Concludi con una vista compatta: posizioni, proposte pending, condizioni monitorate, nuovi candidati, azioni consigliate. "
+        "Se condizioni/proposte/stato sono cambiati, il runner inviera il riepilogo Telegram automatico."
+    )
+
+
+def run_periodic_monitor_loop(
+    model,
+    interval_minutes=DEFAULT_MONITOR_INTERVAL_MINUTES,
+    scan_limit=5,
+    universe_limit=0,
+    live_news=False,
+    deep_confirm_limit=3,
+    once=False,
+):
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
+    agent = build_agent(model=model)
+    interval_seconds = max(1, int(interval_minutes * 60))
+    cycle = 1
+    while True:
+        log_step(
+            "Ciclo monitor periodico "
+            f"#{cycle} | interval_minutes={interval_minutes} scan_limit={scan_limit} "
+            f"universe_limit={universe_limit} live_news={live_news}"
+        )
+        request = build_periodic_monitor_request(
+            scan_limit=scan_limit,
+            universe_limit=universe_limit,
+            live_news=live_news,
+            deep_confirm_limit=deep_confirm_limit,
+        )
+        run_agent_once(agent, request, display_request=f"monitor periodico ciclo #{cycle}")
+        if once:
+            log_step("Monitor periodico completato in modalita --once")
+            return
+        log_step(f"Prossimo ciclo tra {interval_minutes} minuti. Interrompi con CTRL+C.")
+        try:
+            time.sleep(interval_seconds)
+        except KeyboardInterrupt:
+            print("\nMonitor periodico interrotto dall'utente.")
+            return
+        cycle += 1
+
+
 def monitoring_state_signature():
     status = portfolio_status_summary()
+    conditions = [
+        {
+            "id": item.get("id"),
+            "ticker": item.get("ticker"),
+            "status": item.get("status"),
+            "condition": item.get("condition"),
+            "action_if_met": item.get("action_if_met"),
+        }
+        for item in status.get("monitored_conditions", [])
+    ]
+    pending_buy = [
+        {
+            "id": item.get("id"),
+            "status": item.get("status"),
+            "action": item.get("action"),
+            "ticker": item.get("ticker"),
+            "metadata": item.get("metadata", {}),
+        }
+        for item in status.get("pending_buy_proposals", [])
+    ]
+    pending_other = [
+        {
+            "id": item.get("id"),
+            "status": item.get("status"),
+            "action": item.get("action"),
+            "ticker": item.get("ticker"),
+            "metadata": item.get("metadata", {}),
+        }
+        for item in status.get("pending_other_proposals", [])
+    ]
+    positions = [
+        {
+            "ticker": item.get("ticker"),
+            "status": item.get("status"),
+            "allocated_amount": item.get("allocated_amount"),
+            "entry_price": item.get("entry_price"),
+            "virtual_quantity": item.get("virtual_quantity"),
+        }
+        for item in status.get("positions", [])
+    ]
     relevant_state = {
-        "pending_buy_proposals": status.get("pending_buy_proposals", []),
-        "pending_other_proposals": status.get("pending_other_proposals", []),
-        "monitored_conditions": status.get("monitored_conditions", []),
-        "positions": status.get("positions", []),
+        "pending_buy_proposals": pending_buy,
+        "pending_other_proposals": pending_other,
+        "monitored_conditions": conditions,
+        "positions": positions,
         "cash": status.get("cash"),
     }
     return json.dumps(relevant_state, ensure_ascii=False, sort_keys=True)
@@ -639,6 +742,7 @@ def print_interactive_help(portfolio=None):
     print("- analizzare uno o piu titoli con grafici tecnici")
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
     print("- inviare riepilogo Telegram dei titoli monitorati e proposte pending")
+    print("- avviare un monitor periodico che controlla portafoglio, condizioni e MIB30")
     print()
     print("Comandi esempio:")
     print("- cosa posso fare adesso?")
@@ -653,6 +757,7 @@ def print_interactive_help(portfolio=None):
     print("- conferma proposta 20260723-203433")
     print("- analizza VOD.L con news live")
     print("- invia riepilogo telegram")
+    print("- monitor periodico ogni 30 minuti: usa da CLI --daemon-monitor --monitor-interval-minutes 30")
     print()
     print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")
@@ -740,6 +845,27 @@ def main():
     parser.add_argument("--scan-mib30", action="store_true", help="Scannerizza il MIB30 e chiedi all'agente una sintesi.")
     parser.add_argument("--scan-limit", type=int, default=5, help="Numero massimo candidati MIB30.")
     parser.add_argument(
+        "--daemon-monitor",
+        action="store_true",
+        help="Avvia monitoraggio periodico di portafoglio, condizioni e MIB30.",
+    )
+    parser.add_argument(
+        "--monitor-interval-minutes",
+        type=int,
+        default=DEFAULT_MONITOR_INTERVAL_MINUTES,
+        help="Intervallo in minuti tra un ciclo periodico e il successivo.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Esegue un solo ciclo nelle modalita periodiche/test e poi termina.",
+    )
+    parser.add_argument(
+        "--periodic-live-news",
+        action="store_true",
+        help="Nel monitor periodico consente news live via Playwright per casi rilevanti.",
+    )
+    parser.add_argument(
         "--deep-chart-confirmation",
         action="store_true",
         help="Forza conferma dei migliori candidati con analisi grafica Playwright/ChatGPT.",
@@ -775,6 +901,19 @@ def main():
     args = parser.parse_args()
     log_step("Avvio TradingWatchAgent")
     log_step(f"Working directory: {PROJECT_ROOT}")
+
+    if args.daemon_monitor:
+        log_step("Modalita monitor periodico attiva")
+        run_periodic_monitor_loop(
+            model=args.model,
+            interval_minutes=args.monitor_interval_minutes,
+            scan_limit=args.scan_limit,
+            universe_limit=args.universe_limit,
+            live_news=args.periodic_live_news,
+            deep_confirm_limit=args.deep_confirm_limit,
+            once=args.once,
+        )
+        return
 
     if args.interactive:
         if not os.getenv("OPENAI_API_KEY"):

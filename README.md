@@ -39,9 +39,11 @@ Il modello dell'agente si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Il d
 ```env
 OPENAI_AGENT_MODEL=gpt-5.6-luna
 OPENAI_AGENT_MAX_TURNS=60
+MONITOR_INTERVAL_MINUTES=30
 ```
 
 `OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Screening MIB30 con news, grafici, condizioni e proposte richiede piu passaggi rispetto a una semplice analisi.
+`MONITOR_INTERVAL_MINUTES` e l'intervallo default del monitor periodico.
 
 Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
 
@@ -142,6 +144,44 @@ La vista operativa include:
 Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
 Dopo uno screening completo del MIB30 con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, il runner invia automaticamente un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio. L'invio e deterministico: parte quando cambiano condizioni monitorate, proposte o stato operativo durante screening/rivalutazione/proposta.
+
+## Monitor periodico
+
+Il monitor periodico esegue cicli ricorrenti con questa priorita:
+
+```text
+1. controlla titoli gia in portafoglio e propone eventuali azioni pending
+2. rivaluta condizioni monitorate e le aggiorna come waiting/met/invalidated/archived
+3. scannerizza il MIB30 per trovare nuovi candidati interessanti
+4. salva nuove condizioni o crea nuove proposte pending se serve
+5. invia riepilogo Telegram quando lo stato operativo cambia
+```
+
+Per provarlo una sola volta da PyCharm o CLI:
+
+```bash
+python agent_portfolio_manager.py --daemon-monitor --once --scan-limit 5
+```
+
+Per lasciarlo girare ogni 30 minuti:
+
+```bash
+python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --scan-limit 5
+```
+
+Per test veloci puoi limitare l'universo:
+
+```bash
+python agent_portfolio_manager.py --daemon-monitor --once --scan-limit 3 --universe-limit 10
+```
+
+Le news live via Playwright nel monitor periodico sono disattivate per default. Puoi abilitarle solo se Chrome e aperto con debug remoto:
+
+```bash
+python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --periodic-live-news
+```
+
+Anche in modalita periodica non viene mai applicata una modifica al portafoglio senza conferma esplicita del `proposal_id`.
 
 Puoi inviare manualmente il riepilogo:
 
