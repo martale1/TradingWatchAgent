@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from agents import Agent, Runner, function_tool
+from agents import Agent, ModelSettings, Runner, function_tool
 
 from finance_tools.chart_tool import generate_chart_context_json
 from finance_tools.common import PROJECT_ROOT, load_env_file
@@ -179,7 +179,7 @@ def reject_portfolio_proposal_tool(proposal_id: str) -> str:
 
 
 def build_agent(model=DEFAULT_MODEL):
-    log_step(f"Creo agente Portfolio Monitor Agent | model={model}")
+    log_step(f"Creo agente Portfolio Monitor Agent | model={model} | parallel_tool_calls=False")
     return Agent(
         name="Portfolio Monitor Agent",
         model=model,
@@ -195,10 +195,14 @@ def build_agent(model=DEFAULT_MODEL):
             "Poi decidi autonomamente se approfondire i migliori candidati con confirm_candidate_chart_with_playwright: "
             "fallo sempre se stai per creare una proposta di acquisto o allocazione, se ci sono segnali tecnici contrastanti, "
             "se i candidati hanno score simili, o se il rischio non e chiaro. "
+            "Quando approfondisci piu candidati, procedi in sequenza: chiama un solo tool alla volta, attendi il risultato, "
+            "riassumi cosa hai imparato e solo dopo decidi se chiamare il tool per il candidato successivo. "
+            "Non chiamare mai piu tool Playwright nello stesso passaggio di ragionamento. "
             "Se non approfondisci con Playwright, devi spiegare perche non era necessario. "
             "Se un tool restituisce dati mancanti, dichiaralo chiaramente e continua con i dati disponibili. "
             "Formatta l'output in modo compatto, adatto anche a Telegram."
         ),
+        model_settings=ModelSettings(parallel_tool_calls=False),
         tools=[
             analyze_stock_chart,
             analyze_stock_news,
