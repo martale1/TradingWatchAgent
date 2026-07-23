@@ -69,26 +69,42 @@ def load_virtual_portfolio() -> str:
 
 
 @function_tool
-def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False) -> str:
+def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False, universe_limit: int = 0) -> str:
     """Scan Italian MIB30 tickers and find interesting technical candidates.
 
     Args:
         limit: Maximum number of candidates to return.
         create_proposals: If true, create pending proposals in portfolio.json. Proposals still require user confirmation.
+        universe_limit: Optional number of tickers to analyze for quick tests. Use 0 for full universe.
     """
-    return scan_mib30_candidates_json(limit=limit, create_proposals=create_proposals)
+    return scan_mib30_candidates_json(
+        limit=limit,
+        create_proposals=create_proposals,
+        universe_limit=universe_limit or None,
+    )
 
 
 @function_tool
-def propose_virtual_portfolio_from_mib30(capital: float, max_positions: int = 5, cash_pct: float = 15) -> str:
+def propose_virtual_portfolio_from_mib30(
+    capital: float,
+    max_positions: int = 5,
+    cash_pct: float = 15,
+    universe_limit: int = 0,
+) -> str:
     """Create a pending virtual portfolio allocation proposal from MIB30 candidates.
 
     Args:
         capital: Total virtual capital the user wants to invest.
         max_positions: Maximum number of stocks in the proposal.
         cash_pct: Percentage of capital to keep as cash.
+        universe_limit: Optional number of tickers to analyze for quick tests. Use 0 for full universe.
     """
-    return propose_virtual_allocation_json(capital=capital, max_positions=max_positions, cash_pct=cash_pct)
+    return propose_virtual_allocation_json(
+        capital=capital,
+        max_positions=max_positions,
+        cash_pct=cash_pct,
+        universe_limit=universe_limit or None,
+    )
 
 
 @function_tool
@@ -164,6 +180,12 @@ def main():
     parser.add_argument("--scan-mib30", action="store_true", help="Scannerizza il MIB30 e chiedi all'agente una sintesi.")
     parser.add_argument("--scan-limit", type=int, default=5, help="Numero massimo candidati MIB30.")
     parser.add_argument(
+        "--universe-limit",
+        type=int,
+        default=0,
+        help="Solo per test: analizza al massimo N ticker dell'universo MIB30.",
+    )
+    parser.add_argument(
         "--build-empty-portfolio",
         action="store_true",
         help="Se il portafoglio e vuoto, chiedi capitale e crea proposta allocazione MIB30 pending.",
@@ -199,7 +221,7 @@ def main():
         request = (
             f"Il portafoglio e vuoto e l'utente vuole investire {capital:.2f} EUR. "
             f"Usa propose_virtual_portfolio_from_mib30 con max_positions={args.scan_limit} "
-            f"e cash_pct={args.cash_pct}. "
+            f"cash_pct={args.cash_pct} e universe_limit={args.universe_limit}. "
             "Presenta la proposta pending generata, con importi, percentuali, motivazioni e rischi. "
             "Ricorda che serve conferma esplicita del proposal_id prima di applicarla."
         )
@@ -222,6 +244,7 @@ def main():
         )
         request = (
             f"Carica il portafoglio virtuale e scannerizza il MIB30 con limite {args.scan_limit}; "
+            f"usa universe_limit={args.universe_limit}; "
             f"{proposal_hint}. "
             "Spiega i criteri tecnici, elenca i candidati migliori e indica quali metteresti in proposta."
         )

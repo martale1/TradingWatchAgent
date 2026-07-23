@@ -76,15 +76,31 @@ def score_snapshot(snapshot):
     return score, reasons, risks
 
 
-def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False):
+def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False, universe_limit=None, verbose=True):
     rows = []
     errors = []
-    for item in load_mib30_tickers():
+    universe = load_mib30_tickers()
+    if universe_limit:
+        universe = universe[: int(universe_limit)]
+    if verbose:
+        print(f"[scanner] Universo: {len(universe)} titoli da analizzare", flush=True)
+    for index, item in enumerate(universe, start=1):
         ticker = item["ticker"]
         try:
+            if verbose:
+                print(f"[scanner] {index}/{len(universe)} {ticker} - scarico dati e genero grafici...", flush=True)
             context = generate_chart_context(ticker, days=days, period=period)
             snapshot = context["snapshot"]
+            if verbose:
+                print(f"[scanner] {ticker} - calcolo score tecnico...", flush=True)
             score, reasons, risks = score_snapshot(snapshot)
+            if verbose:
+                reason_preview = "; ".join(reasons[:2]) if reasons else "nessun segnale positivo forte"
+                risk_preview = "; ".join(risks[:2]) if risks else "nessun rischio tecnico principale"
+                print(
+                    f"[scanner] {ticker} - score {score} | {reason_preview} | rischi: {risk_preview}",
+                    flush=True,
+                )
             rows.append(
                 {
                     **item,
@@ -105,10 +121,17 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False)
                 }
             )
         except Exception as exc:
+            if verbose:
+                print(f"[scanner] {ticker} - errore: {exc}", flush=True)
             errors.append({"ticker": ticker, "error": str(exc)})
 
     rows.sort(key=lambda item: item["score"], reverse=True)
     candidates = rows[: int(limit)]
+    if verbose:
+        print(f"[scanner] Scan completato: {len(rows)} ok, {len(errors)} errori", flush=True)
+        print("[scanner] Migliori candidati:", flush=True)
+        for item in candidates:
+            print(f"[scanner] - {item['ticker']} score {item['score']} close {item['close']}", flush=True)
 
     proposals = []
     if create_proposals:
@@ -147,16 +170,28 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False)
     return output
 
 
-def scan_mib30_candidates_json(limit=5, days=70, period="1y", create_proposals=False):
+def scan_mib30_candidates_json(limit=5, days=70, period="1y", create_proposals=False, universe_limit=None):
     return json.dumps(
-        scan_mib30_candidates(limit=limit, days=days, period=period, create_proposals=create_proposals),
+        scan_mib30_candidates(
+            limit=limit,
+            days=days,
+            period=period,
+            create_proposals=create_proposals,
+            universe_limit=universe_limit,
+        ),
         ensure_ascii=False,
         indent=2,
     )
 
 
-def propose_virtual_allocation(capital, max_positions=5, cash_pct=15, days=70, period="1y"):
-    scan = scan_mib30_candidates(limit=max_positions, days=days, period=period, create_proposals=False)
+def propose_virtual_allocation(capital, max_positions=5, cash_pct=15, days=70, period="1y", universe_limit=None):
+    scan = scan_mib30_candidates(
+        limit=max_positions,
+        days=days,
+        period=period,
+        create_proposals=False,
+        universe_limit=universe_limit,
+    )
     candidates = [item for item in scan["candidates"] if item["score"] > 0]
     if not candidates:
         return {
@@ -218,7 +253,7 @@ def propose_virtual_allocation(capital, max_positions=5, cash_pct=15, days=70, p
     }
 
 
-def propose_virtual_allocation_json(capital, max_positions=5, cash_pct=15, days=70, period="1y"):
+def propose_virtual_allocation_json(capital, max_positions=5, cash_pct=15, days=70, period="1y", universe_limit=None):
     return json.dumps(
         propose_virtual_allocation(
             capital=capital,
@@ -226,6 +261,7 @@ def propose_virtual_allocation_json(capital, max_positions=5, cash_pct=15, days=
             cash_pct=cash_pct,
             days=days,
             period=period,
+            universe_limit=universe_limit,
         ),
         ensure_ascii=False,
         indent=2,
