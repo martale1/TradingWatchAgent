@@ -153,6 +153,8 @@ python agent_portfolio_manager.py --stocks "VOD.L" --live-news
 
 In questa modalita il tool news richiama `chatgpt_playwright_demo.py`, quindi usa Playwright e il tuo login ChatGPT nel browser. Non usa `OPENAI_API_KEY`.
 
+I tool che usano Playwright vengono messi in coda: una sola sessione Chrome/ChatGPT alla volta. Questo evita blocchi quando l'agente decide di approfondire piu candidati.
+
 ## Note
 
 Questo progetto e per simulazione, studio e monitoraggio. Non e consulenza finanziaria.

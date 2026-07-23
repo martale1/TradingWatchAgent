@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from finance_tools.common import PROJECT_ROOT, run_python_script
+from finance_tools.playwright_queue import run_serialized_playwright
 
 
 STOCK_CATALOG = {
@@ -53,7 +54,7 @@ def get_news_report(ticker, live=False):
             "file": str(output_path),
         }
 
-    print(f"[news-tool] {info['ticker']} - avvio Playwright/ChatGPT tramite chatgpt_playwright_demo.py", flush=True)
+    print(f"[news-tool] {info['ticker']} - preparo Playwright/ChatGPT tramite chatgpt_playwright_demo.py", flush=True)
     args = [
         "chatgpt_playwright_demo.py",
         "--no-telegram",
@@ -64,8 +65,11 @@ def get_news_report(ticker, live=False):
         "--market",
         info["market"],
     ]
-    print(f"[news-tool] {info['ticker']} - attendo risposta dallo script Playwright...", flush=True)
-    result = run_python_script(args, timeout_seconds=300)
+    def runner():
+        print(f"[news-tool] {info['ticker']} - attendo risposta dallo script Playwright...", flush=True)
+        return run_python_script(args, timeout_seconds=300)
+
+    result = run_serialized_playwright(f"news {info['ticker']}", runner)
     report = _extract_response(result["stdout"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
