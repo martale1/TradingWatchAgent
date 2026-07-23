@@ -8,6 +8,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - L'agente OpenAI SDK richiede `OPENAI_API_KEY`.
 - Le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
+- I candidati MIB30 possono essere prima filtrati con score tecnico locale e poi confermati con analisi visuale dei grafici via Playwright/ChatGPT.
 
 ## Struttura
 
@@ -45,6 +46,14 @@ Scanner MIB30 tramite agente/tool CLI richiede API key se passa dall'agente:
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
 ```
 
+Scanner MIB30 con conferma approfondita dei migliori candidati tramite Playwright/ChatGPT:
+
+```bash
+python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --deep-chart-confirmation --deep-confirm-limit 3
+```
+
+In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati. Poi l'agente chiama `confirm_candidate_chart_with_playwright` sui migliori candidati, che usa `stock_chart_ai_analysis.py` per caricare i grafici in ChatGPT via Playwright e ottenere una conferma visuale.
+
 ## Portafoglio virtuale
 
 Inizializza portafoglio:
@@ -66,6 +75,12 @@ python agent_portfolio_manager.py --build-empty-portfolio --scan-limit 5 --cash-
 ```
 
 L'agente chiede il capitale se non passi `--capital`, scannerizza il MIB30 e crea una proposta pending.
+
+Per richiedere anche conferma visuale dei candidati prima della proposta:
+
+```bash
+python agent_portfolio_manager.py --build-empty-portfolio --capital 20000 --scan-limit 5 --cash-pct 15 --deep-chart-confirmation --deep-confirm-limit 3
+```
 
 ## Conferme
 

@@ -8,6 +8,7 @@ from agents import Agent, Runner, function_tool
 
 from finance_tools.chart_tool import generate_chart_context_json
 from finance_tools.common import PROJECT_ROOT, load_env_file
+from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.news_tool import get_news_report_json
 from finance_tools.portfolio_store import (
@@ -58,6 +59,21 @@ def analyze_stock_news(ticker: str, live: bool = False) -> str:
     mode = "Playwright live" if live else "cache locale"
     log_step(f"Tool analyze_stock_news chiamato per {ticker} | modalita={mode}")
     return get_news_report_json(ticker=ticker, live=live)
+
+
+@function_tool
+def confirm_candidate_chart_with_playwright(ticker: str, no_telegram: bool = True) -> str:
+    """Run a deep visual chart confirmation with Playwright/ChatGPT for one candidate.
+
+    Args:
+        ticker: Stock ticker symbol to confirm visually, for example AMP.MI.
+        no_telegram: If true, do not send Telegram during confirmation.
+    """
+    log_step(
+        "Tool confirm_candidate_chart_with_playwright chiamato | "
+        f"ticker={ticker} no_telegram={no_telegram}"
+    )
+    return confirm_candidate_with_chart_ai_json(ticker=ticker, no_telegram=no_telegram)
 
 
 @function_tool
@@ -175,12 +191,15 @@ def build_agent(model=DEFAULT_MODEL):
             "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
+            "Quando devi proporre titoli da mettere in portafoglio, usa prima lo scanner numerico e poi "
+            "conferma i migliori candidati con confirm_candidate_chart_with_playwright prima di raccomandare una proposta. "
             "Se un tool restituisce dati mancanti, dichiaralo chiaramente e continua con i dati disponibili. "
             "Formatta l'output in modo compatto, adatto anche a Telegram."
         ),
         tools=[
             analyze_stock_chart,
             analyze_stock_news,
+            confirm_candidate_chart_with_playwright,
             load_watchlist,
             load_virtual_portfolio,
             scan_mib30_for_candidates,
@@ -207,6 +226,7 @@ def print_interactive_help():
     print("Cosa posso fare:")
     print("- creare un portafoglio virtuale partendo da capitale iniziale")
     print("- scannerizzare i titoli MIB30 e trovare candidati interessanti")
+    print("- confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
     print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
     print("- mostrare, confermare o rifiutare proposte pending")
     print("- analizzare uno o piu titoli con grafici tecnici")
@@ -273,6 +293,17 @@ def main():
     parser.add_argument("--scan-mib30", action="store_true", help="Scannerizza il MIB30 e chiedi all'agente una sintesi.")
     parser.add_argument("--scan-limit", type=int, default=5, help="Numero massimo candidati MIB30.")
     parser.add_argument(
+        "--deep-chart-confirmation",
+        action="store_true",
+        help="Dopo lo scanner MIB30 conferma i migliori candidati con analisi grafica Playwright/ChatGPT.",
+    )
+    parser.add_argument(
+        "--deep-confirm-limit",
+        type=int,
+        default=3,
+        help="Numero massimo di candidati da confermare con Playwright/ChatGPT.",
+    )
+    parser.add_argument(
         "--universe-limit",
         type=int,
         default=0,
@@ -325,6 +356,14 @@ def main():
             f"Il portafoglio e vuoto e l'utente vuole investire {capital:.2f} EUR. "
             f"Usa propose_virtual_portfolio_from_mib30 con max_positions={args.scan_limit} "
             f"cash_pct={args.cash_pct} e universe_limit={args.universe_limit}. "
+        )
+        if args.deep_chart_confirmation:
+            request += (
+                f"Prima di presentare la proposta finale, conferma i primi {args.deep_confirm_limit} "
+                "candidati migliori con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "Se la conferma visuale smentisce un candidato, dichiaralo e riduci la convinzione. "
+            )
+        request += (
             "Presenta la proposta pending generata, con importi, percentuali, motivazioni e rischi. "
             "Ricorda che serve conferma esplicita del proposal_id prima di applicarla."
         )
@@ -343,6 +382,8 @@ def main():
             f"Modalita scan MIB30 | scan_limit={args.scan_limit} "
             f"universe_limit={args.universe_limit} create_proposals={args.create_proposals}"
         )
+        if args.deep_chart_confirmation:
+            log_step(f"Conferma grafica Playwright attiva | top={args.deep_confirm_limit}")
         proposal_hint = (
             "crea proposte pending per i migliori candidati"
             if args.create_proposals
@@ -352,7 +393,16 @@ def main():
             f"Carica il portafoglio virtuale e scannerizza il MIB30 con limite {args.scan_limit}; "
             f"usa universe_limit={args.universe_limit}; "
             f"{proposal_hint}. "
-            "Spiega i criteri tecnici, elenca i candidati migliori e indica quali metteresti in proposta."
+        )
+        if args.deep_chart_confirmation:
+            request += (
+                f"Dopo lo scan devi confermare i primi {args.deep_confirm_limit} candidati migliori "
+                "chiamando confirm_candidate_chart_with_playwright con no_telegram=True per ciascuno. "
+                "Solo dopo questa conferma visuale puoi indicare quali metteresti in proposta. "
+            )
+        request += (
+            "Spiega i criteri tecnici, elenca i candidati migliori, riporta per ogni candidato se la conferma "
+            "Playwright e stata fatta o no, e indica quali metteresti in proposta."
         )
     if args.stocks:
         log_step(f"Modalita analisi titoli | stocks={args.stocks} live_news={args.live_news}")
