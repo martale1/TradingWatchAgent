@@ -20,7 +20,7 @@ from finance_tools.portfolio_store import (
 )
 
 
-DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-4.1-mini")
+DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
 
 
 def configure_stdout():

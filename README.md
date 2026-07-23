@@ -33,6 +33,18 @@ copy .env.example .env
 
 Compila `.env` con i valori reali. `OPENAI_API_KEY` serve solo per usare l'agente SDK, non per i tool locali.
 
+Il modello dell'agente si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Il default consigliato e:
+
+```env
+OPENAI_AGENT_MODEL=gpt-5.6-luna
+```
+
+Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
+
+```bash
+python agent_portfolio_manager.py --interactive --model gpt-5.6-terra
+```
+
 ## Test tool senza API key
 
 Genera grafici e snapshot tecnico:
