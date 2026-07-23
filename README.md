@@ -138,7 +138,7 @@ La vista operativa include:
 
 Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
-Dopo uno screening completo del MIB30 con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, l'agente invia un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio.
+Dopo uno screening completo del MIB30 con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, il runner invia automaticamente un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio. L'invio e deterministico: parte quando cambiano condizioni monitorate, proposte o stato operativo durante screening/rivalutazione/proposta.
 
 Puoi inviare manualmente il riepilogo:
 

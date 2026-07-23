@@ -330,8 +330,8 @@ def build_agent(model=DEFAULT_MODEL):
             "specificando che e una forzatura consapevole rispetto al filtro prudenziale. Non applicarla mai senza conferma proposal_id. "
             "Quando una condizione non e verificata ma il titolo resta interessante, salva la condizione con record_monitored_condition "
             "e spiega quando andra rivalutata. "
-            "Dopo uno screening completo MIB30 con analisi dettagliata grafico/news e dopo avere salvato o aggiornato condizioni monitorate, "
-            "devi inviare un riepilogo Telegram usando send_monitoring_telegram_summary. "
+            "Il runner invia automaticamente un riepilogo Telegram quando condizioni monitorate o proposte cambiano "
+            "a valle di screening, rivalutazione o proposta; non inviare duplicati se non richiesto esplicitamente. "
             "Quando rivaluti condizioni monitorate, per ogni condizione devi scegliere: mantenerla waiting, marcarla met, "
             "marcarla invalidated oppure archiviarla. Se la condizione e met e il titolo resta valido dopo grafico/news, "
             "crea una proposta pending con create_buy_proposal. Se il contesto tecnico/news e peggiorato, usa update_condition_status "
@@ -383,10 +383,52 @@ def run_agent_once(agent, request, display_request=None):
     log_step("Prompt operativo inviato all'agente:")
     log_step(display_request or request)
     log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
+    before_state = monitoring_state_signature()
     result = Runner.run_sync(agent, request, max_turns=20)
+    after_state = monitoring_state_signature()
     log_step("Risposta finale agente ricevuta")
     print("\n" + str(result.final_output).strip() + "\n", flush=True)
+    maybe_send_automatic_monitoring_summary(request, result.final_output, before_state, after_state)
     return result
+
+
+def monitoring_state_signature():
+    status = portfolio_status_summary()
+    relevant_state = {
+        "pending_buy_proposals": status.get("pending_buy_proposals", []),
+        "pending_other_proposals": status.get("pending_other_proposals", []),
+        "monitored_conditions": status.get("monitored_conditions", []),
+        "positions": status.get("positions", []),
+        "cash": status.get("cash"),
+    }
+    return json.dumps(relevant_state, ensure_ascii=False, sort_keys=True)
+
+
+def maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state):
+    if before_state == after_state:
+        return
+
+    combined = f"{request}\n{final_output}".lower()
+    trigger_words = [
+        "mib30",
+        "scanner",
+        "screening",
+        "rivaluta",
+        "monitor",
+        "condizioni",
+        "proposta",
+        "compra",
+        "acquista",
+    ]
+    if not any(word in combined for word in trigger_words):
+        return
+
+    log_step("Cambio monitoraggio/proposte rilevato: invio riepilogo Telegram automatico")
+    result = send_monitoring_summary(extra_note="Riepilogo automatico dopo aggiornamento monitoraggio/proposte.")
+    if result.get("status") == "ok":
+        log_step("Riepilogo Telegram automatico inviato")
+    else:
+        log_step(f"Riepilogo Telegram non inviato: {result.get('message')}")
 
 
 def build_contextual_request(history, user_text, max_turns=6):
@@ -509,6 +551,11 @@ def handle_local_interactive_command(user_text):
         print(f"- ticker: {ticker}")
         print(f"- importo: EUR {amount:.2f}")
         print("Nessun acquisto applicato: per eseguire devi confermare il proposal_id.")
+        result = send_monitoring_summary(extra_note="Riepilogo automatico dopo proposta pending creata da comando esplicito.")
+        if result.get("status") == "ok":
+            print("Riepilogo monitoraggio inviato su Telegram.")
+        else:
+            print(f"Telegram non inviato: {result.get('message')}")
         return True
 
     if lower in {
