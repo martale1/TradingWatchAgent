@@ -33,6 +33,7 @@ from finance_tools.telegram_tool import send_monitoring_summary
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
 DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "60"))
 DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30"))
+DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))
 
 
 def configure_stdout():
@@ -295,6 +296,70 @@ def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
 
 
 @function_tool
+def auto_apply_virtual_proposal_tool(proposal_id: str, max_trade_pct: float = DEFAULT_MAX_AUTO_TRADE_PCT) -> str:
+    """Confirm and apply one pending proposal in autonomous virtual mode with a cash percentage limit.
+
+    Args:
+        proposal_id: Pending proposal id to apply.
+        max_trade_pct: Maximum percentage of current cash allowed for this autonomous virtual action.
+    """
+    log_step(
+        "Tool auto_apply_virtual_proposal_tool chiamato | "
+        f"proposal_id={proposal_id} max_trade_pct={max_trade_pct}"
+    )
+    portfolio = load_portfolio_file()
+    if portfolio is None:
+        return json.dumps({"status": "missing", "message": "portfolio.json non esiste."}, ensure_ascii=False)
+
+    pending = portfolio.get("pending_proposals", [])
+    proposal = next((item for item in pending if item.get("id") == proposal_id), None)
+    if not proposal:
+        return json.dumps({"status": "missing", "proposal_id": proposal_id}, ensure_ascii=False)
+
+    if proposal.get("action") != "buy_virtual_position":
+        return json.dumps(
+            {
+                "status": "blocked",
+                "proposal_id": proposal_id,
+                "message": "La modalita autonoma puo applicare solo buy_virtual_position.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    amount = proposal.get("metadata", {}).get("amount")
+    if amount is None:
+        return json.dumps(
+            {
+                "status": "blocked",
+                "proposal_id": proposal_id,
+                "message": "Importo mancante: proposta non applicabile autonomamente.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    cash = float(portfolio.get("cash", 0) or 0)
+    max_amount = round(cash * float(max_trade_pct) / 100.0, 2)
+    if float(amount) > max_amount:
+        return json.dumps(
+            {
+                "status": "blocked",
+                "proposal_id": proposal_id,
+                "amount": amount,
+                "cash": cash,
+                "max_allowed": max_amount,
+                "message": "Importo oltre il limite autonomo configurato.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    result = confirm_portfolio_proposal(proposal_id)
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
+@function_tool
 def reject_portfolio_proposal_tool(proposal_id: str) -> str:
     """Reject and archive a pending portfolio proposal.
 
@@ -305,8 +370,50 @@ def reject_portfolio_proposal_tool(proposal_id: str) -> str:
     return json.dumps(reject_portfolio_proposal(proposal_id), ensure_ascii=False, indent=2)
 
 
-def build_agent(model=DEFAULT_MODEL):
-    log_step(f"Creo agente Portfolio Monitor Agent | model={model} | parallel_tool_calls=False")
+def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT):
+    mode = "AUTO-VIRTUAL" if auto_apply_virtual else "CONFIRMATION"
+    log_step(
+        "Creo agente Portfolio Monitor Agent | "
+        f"model={model} | parallel_tool_calls=False | mode={mode}"
+    )
+    if auto_apply_virtual:
+        operation_policy = (
+            "Modalita AUTONOMA VIRTUALE attiva: puoi applicare da solo operazioni simulate sul solo portafoglio virtuale "
+            "con auto_apply_virtual_proposal_tool dopo avere creato una proposta pending motivata. "
+            "Non puoi operare su broker reali o sistemi esterni. "
+            f"Ogni nuova operazione autonoma deve rispettare il limite massimo del {max_auto_trade_pct:.1f}% del cash disponibile "
+            "al momento della decisione, salvo che si tratti di confermare una proposta pending gia esplicitamente creata dall'utente. "
+            "Prima di applicare un acquisto autonomo devi avere analisi tecnica aggiornata, news disponibili, e motivazione sintetica. "
+            "Se il segnale e debole o contraddittorio, salva/aggiorna una condizione monitorata invece di applicare. "
+            "Dopo ogni operazione autonoma devi inviare o richiedere il riepilogo Telegram e dichiarare proposal_id, ticker, importo e motivo. "
+        )
+    else:
+        operation_policy = (
+            "Non modificare mai il portafoglio autonomamente: puoi solo creare proposte pending, "
+            "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
+        )
+    tools = [
+        analyze_stock_chart,
+        analyze_stock_news,
+        confirm_candidate_chart_with_playwright,
+        load_watchlist,
+        load_virtual_portfolio,
+        get_portfolio_operating_status,
+        set_virtual_portfolio_capital,
+        scan_mib30_for_candidates,
+        propose_virtual_portfolio_from_mib30,
+        list_portfolio_proposals,
+        record_monitored_condition,
+        list_conditions_to_monitor,
+        update_condition_status,
+        create_buy_proposal,
+        send_monitoring_telegram_summary,
+        reject_portfolio_proposal_tool,
+    ]
+    if auto_apply_virtual:
+        tools.append(auto_apply_virtual_proposal_tool)
+    else:
+        tools.append(confirm_portfolio_proposal_tool)
     return Agent(
         name="Portfolio Monitor Agent",
         model=model,
@@ -314,15 +421,14 @@ def build_agent(model=DEFAULT_MODEL):
             "Sei un agente finanziario operativo per monitorare un portafoglio virtuale e una watchlist. "
             "Usa i tool disponibili per raccogliere dati tecnici e news. "
             "Rispondi sempre in italiano. Non dare consulenza finanziaria personalizzata. "
-            "Non modificare mai il portafoglio autonomamente: puoi solo creare proposte pending, "
-            "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
+            + operation_policy +
             "Il capitale virtuale puo invece essere aggiornato quando l'utente lo chiede esplicitamente "
             "con frasi come 'aggiorna il capitale a 20000 euro' o 'il capitale e 20000': usa set_virtual_portfolio_capital "
             "e poi mostra il nuovo stato operativo. "
             "Quando inizi un monitoraggio, una proposta o una domanda sullo stato operativo, usa get_portfolio_operating_status "
             "per costruire una vista unica: posizioni in portafoglio, proposte pending, condizioni monitorate e watchlist. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
-            "devi proporre un'azione pending e motivarla, mai applicarla da solo. "
+            "devi creare una proposta pending e motivarla; applicala solo se la policy operativa corrente lo consente. "
             "Se l'utente chiede una proposta o chiede se ci sono titoli da comprare, devi rispondere in modo operativo: "
             "BUY CANDIDATE, WAIT/MONITOR oppure SCARTATO. "
             "Prima di rifare analisi live, consulta load_virtual_portfolio, list_portfolio_proposals e list_conditions_to_monitor "
@@ -361,25 +467,7 @@ def build_agent(model=DEFAULT_MODEL):
             "se ci sono condizioni waiting proponi rivalutazione; se il capitale e assente proponi aggiornamento capitale."
         ),
         model_settings=ModelSettings(parallel_tool_calls=False),
-        tools=[
-            analyze_stock_chart,
-            analyze_stock_news,
-            confirm_candidate_chart_with_playwright,
-            load_watchlist,
-            load_virtual_portfolio,
-            get_portfolio_operating_status,
-            set_virtual_portfolio_capital,
-            scan_mib30_for_candidates,
-            propose_virtual_portfolio_from_mib30,
-            list_portfolio_proposals,
-            record_monitored_condition,
-            list_conditions_to_monitor,
-            update_condition_status,
-            create_buy_proposal,
-            send_monitoring_telegram_summary,
-            confirm_portfolio_proposal_tool,
-            reject_portfolio_proposal_tool,
-        ],
+        tools=tools,
     )
 
 
@@ -407,12 +495,29 @@ def run_agent_once(agent, request, display_request=None):
     return result
 
 
-def build_periodic_monitor_request(scan_limit=5, universe_limit=0, live_news=False, deep_confirm_limit=3):
+def build_periodic_monitor_request(
+    scan_limit=5,
+    universe_limit=0,
+    live_news=False,
+    deep_confirm_limit=3,
+    auto_apply_virtual=False,
+    max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT,
+):
     live_news_hint = "usa live=True solo per titoli con trigger o rischio rilevante" if live_news else "usa live=False per le news"
     universe_hint = f"universe_limit={universe_limit}" if universe_limit else "universo completo"
+    if auto_apply_virtual:
+        operation_hint = (
+            "Modalita AUTONOMA VIRTUALE abilitata: puoi applicare operazioni simulate confermando le proposte che crei "
+            "con auto_apply_virtual_proposal_tool, solo se il segnale e chiaro e dopo analisi tecnica/news. "
+            f"Limite per nuova operazione autonoma: massimo {max_auto_trade_pct:.1f}% del cash disponibile. "
+            "Se il segnale non e netto, non applicare: mantieni o crea una condizione monitorata. "
+        )
+    else:
+        operation_hint = "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
     return (
         "Esegui un ciclo periodico di monitoraggio operativo. "
         "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita dal MIB30. "
+        + operation_hint +
         "Prima chiama get_portfolio_operating_status. "
         "Se ci sono posizioni aperte, analizzale una alla volta con analyze_stock_chart e analyze_stock_news; "
         f"{live_news_hint}. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending. "
@@ -423,7 +528,6 @@ def build_periodic_monitor_request(scan_limit=5, universe_limit=0, live_news=Fal
         f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati solo se servono davvero per una proposta o per un monitoraggio serio; "
         "in tal caso usa confirm_candidate_chart_with_playwright un ticker alla volta. "
         "Se trovi candidati interessanti ma non ancora comprabili, salva condizioni concrete con record_monitored_condition. "
-        "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
         "Concludi con una vista compatta: posizioni, proposte pending, condizioni monitorate, nuovi candidati, azioni consigliate. "
         "Se condizioni/proposte/stato sono cambiati, il runner inviera il riepilogo Telegram automatico."
     )
@@ -436,24 +540,32 @@ def run_periodic_monitor_loop(
     universe_limit=0,
     live_news=False,
     deep_confirm_limit=3,
+    auto_apply_virtual=False,
+    max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT,
     once=False,
 ):
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
-    agent = build_agent(model=model)
+    agent = build_agent(
+        model=model,
+        auto_apply_virtual=auto_apply_virtual,
+        max_auto_trade_pct=max_auto_trade_pct,
+    )
     interval_seconds = max(1, int(interval_minutes * 60))
     cycle = 1
     while True:
         log_step(
             "Ciclo monitor periodico "
             f"#{cycle} | interval_minutes={interval_minutes} scan_limit={scan_limit} "
-            f"universe_limit={universe_limit} live_news={live_news}"
+            f"universe_limit={universe_limit} live_news={live_news} auto_apply_virtual={auto_apply_virtual}"
         )
         request = build_periodic_monitor_request(
             scan_limit=scan_limit,
             universe_limit=universe_limit,
             live_news=live_news,
             deep_confirm_limit=deep_confirm_limit,
+            auto_apply_virtual=auto_apply_virtual,
+            max_auto_trade_pct=max_auto_trade_pct,
         )
         run_agent_once(agent, request, display_request=f"monitor periodico ciclo #{cycle}")
         if once:
@@ -866,6 +978,17 @@ def main():
         help="Nel monitor periodico consente news live via Playwright per casi rilevanti.",
     )
     parser.add_argument(
+        "--auto-apply-virtual",
+        action="store_true",
+        help="Permette al monitor periodico di applicare autonomamente operazioni simulate sul portafoglio virtuale.",
+    )
+    parser.add_argument(
+        "--max-auto-trade-pct",
+        type=float,
+        default=DEFAULT_MAX_AUTO_TRADE_PCT,
+        help="Percentuale massima del cash usabile per una nuova operazione autonoma virtuale.",
+    )
+    parser.add_argument(
         "--deep-chart-confirmation",
         action="store_true",
         help="Forza conferma dei migliori candidati con analisi grafica Playwright/ChatGPT.",
@@ -911,6 +1034,8 @@ def main():
             universe_limit=args.universe_limit,
             live_news=args.periodic_live_news,
             deep_confirm_limit=args.deep_confirm_limit,
+            auto_apply_virtual=args.auto_apply_virtual,
+            max_auto_trade_pct=args.max_auto_trade_pct,
             once=args.once,
         )
         return

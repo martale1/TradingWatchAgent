@@ -40,10 +40,12 @@ Il modello dell'agente si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Il d
 OPENAI_AGENT_MODEL=gpt-5.6-luna
 OPENAI_AGENT_MAX_TURNS=60
 MONITOR_INTERVAL_MINUTES=30
+MAX_AUTO_TRADE_PCT=25
 ```
 
 `OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Screening MIB30 con news, grafici, condizioni e proposte richiede piu passaggi rispetto a una semplice analisi.
 `MONITOR_INTERVAL_MINUTES` e l'intervallo default del monitor periodico.
+`MAX_AUTO_TRADE_PCT` limita quanto cash puo usare una nuova operazione autonoma virtuale.
 
 Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
 
@@ -182,6 +184,33 @@ python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30
 ```
 
 Anche in modalita periodica non viene mai applicata una modifica al portafoglio senza conferma esplicita del `proposal_id`.
+
+### Modalita autonoma virtuale
+
+Se vuoi che l'agente decida e applichi autonomamente operazioni sul solo portafoglio virtuale, usa il flag esplicito:
+
+```bash
+python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --scan-limit 5 --auto-apply-virtual --max-auto-trade-pct 25
+```
+
+In questa modalita l'agente puo:
+
+```text
+- analizzare posizioni aperte e proporre/attuare azioni simulate
+- creare una proposta pending motivata
+- confermare autonomamente quella proposta sul portfolio.json virtuale
+- aggiornare condizioni monitorate
+- inviare riepilogo Telegram quando cambia lo stato
+```
+
+Limiti:
+
+```text
+- nessun ordine reale su broker
+- nessuna operazione fuori dal portfolio.json virtuale
+- ogni nuova operazione autonoma deve rispettare --max-auto-trade-pct
+- se il segnale e debole o contraddittorio deve monitorare, non comprare
+```
 
 Puoi inviare manualmente il riepilogo:
 
