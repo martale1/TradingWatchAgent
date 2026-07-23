@@ -191,8 +191,11 @@ def build_agent(model=DEFAULT_MODEL):
             "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
-            "Quando devi proporre titoli da mettere in portafoglio, usa prima lo scanner numerico e poi "
-            "conferma i migliori candidati con confirm_candidate_chart_with_playwright prima di raccomandare una proposta. "
+            "Quando devi proporre titoli da mettere in portafoglio, usa prima lo scanner numerico. "
+            "Poi decidi autonomamente se approfondire i migliori candidati con confirm_candidate_chart_with_playwright: "
+            "fallo sempre se stai per creare una proposta di acquisto o allocazione, se ci sono segnali tecnici contrastanti, "
+            "se i candidati hanno score simili, o se il rischio non e chiaro. "
+            "Se non approfondisci con Playwright, devi spiegare perche non era necessario. "
             "Se un tool restituisce dati mancanti, dichiaralo chiaramente e continua con i dati disponibili. "
             "Formatta l'output in modo compatto, adatto anche a Telegram."
         ),
@@ -246,7 +249,7 @@ def print_interactive_help():
     print("Cosa posso fare:")
     print("- creare un portafoglio virtuale partendo da capitale iniziale")
     print("- scannerizzare i titoli MIB30 e trovare candidati interessanti")
-    print("- confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
+    print("- decidere se confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
     print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
     print("- mostrare, confermare o rifiutare proposte pending")
     print("- analizzare uno o piu titoli con grafici tecnici")
@@ -323,7 +326,12 @@ def main():
     parser.add_argument(
         "--deep-chart-confirmation",
         action="store_true",
-        help="Dopo lo scanner MIB30 conferma i migliori candidati con analisi grafica Playwright/ChatGPT.",
+        help="Forza conferma dei migliori candidati con analisi grafica Playwright/ChatGPT.",
+    )
+    parser.add_argument(
+        "--no-auto-deep-confirmation",
+        action="store_true",
+        help="Disattiva la scelta autonoma dell'agente di approfondire candidati con Playwright.",
     )
     parser.add_argument(
         "--deep-confirm-limit",
@@ -391,6 +399,13 @@ def main():
                 "candidati migliori con confirm_candidate_chart_with_playwright(no_telegram=True). "
                 "Se la conferma visuale smentisce un candidato, dichiaralo e riduci la convinzione. "
             )
+        elif not args.no_auto_deep_confirmation:
+            request += (
+                f"Prima di presentare la proposta finale, valuta autonomamente i migliori candidati e, "
+                f"se serve conferma o se stai allocando capitale, approfondisci fino a {args.deep_confirm_limit} "
+                "candidati con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "Riporta quali candidati hai approfondito e quali no, con motivazione. "
+            )
         request += (
             "Presenta la proposta pending generata, con importi, percentuali, motivazioni e rischi. "
             "Ricorda che serve conferma esplicita del proposal_id prima di applicarla."
@@ -412,6 +427,8 @@ def main():
         )
         if args.deep_chart_confirmation:
             log_step(f"Conferma grafica Playwright attiva | top={args.deep_confirm_limit}")
+        elif not args.no_auto_deep_confirmation:
+            log_step(f"Conferma grafica Playwright autonoma consentita | max={args.deep_confirm_limit}")
         proposal_hint = (
             "crea proposte pending per i migliori candidati"
             if args.create_proposals
@@ -427,6 +444,13 @@ def main():
                 f"Dopo lo scan devi confermare i primi {args.deep_confirm_limit} candidati migliori "
                 "chiamando confirm_candidate_chart_with_playwright con no_telegram=True per ciascuno. "
                 "Solo dopo questa conferma visuale puoi indicare quali metteresti in proposta. "
+            )
+        elif not args.no_auto_deep_confirmation:
+            request += (
+                f"Dopo lo scan valuta autonomamente se approfondire fino a {args.deep_confirm_limit} candidati "
+                "con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "Se il risultato deve diventare una proposta o una raccomandazione operativa, approfondisci i migliori candidati. "
+                "Se non lo fai, spiega chiaramente perche lo score numerico e sufficiente. "
             )
         request += (
             "Spiega i criteri tecnici, elenca i candidati migliori, riporta per ogni candidato se la conferma "

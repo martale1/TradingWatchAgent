@@ -8,7 +8,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - L'agente OpenAI SDK richiede `OPENAI_API_KEY`.
 - Le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
-- I candidati MIB30 possono essere prima filtrati con score tecnico locale e poi confermati con analisi visuale dei grafici via Playwright/ChatGPT.
+- I candidati MIB30 vengono prima filtrati con score tecnico locale; l'agente decide poi se confermare i migliori con analisi visuale dei grafici via Playwright/ChatGPT prima di proporre operazioni.
 - In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
 
 ## Struttura
@@ -59,13 +59,25 @@ Scanner MIB30 tramite agente/tool CLI richiede API key se passa dall'agente:
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
 ```
 
-Scanner MIB30 con conferma approfondita dei migliori candidati tramite Playwright/ChatGPT:
+Scanner MIB30. Per default l'agente puo decidere autonomamente se approfondire i migliori candidati con Playwright/ChatGPT:
+
+```bash
+python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
+```
+
+Puoi forzare la conferma approfondita dei migliori candidati tramite Playwright/ChatGPT:
 
 ```bash
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --deep-chart-confirmation --deep-confirm-limit 3
 ```
 
-In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati senza generare PNG. Poi l'agente chiama `confirm_candidate_chart_with_playwright` sui migliori candidati: solo in quel momento vengono creati i grafici e caricati in ChatGPT via Playwright per ottenere una conferma visuale.
+In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati senza generare PNG. Se l'agente decide di approfondire, o se lo forzi con `--deep-chart-confirmation`, chiama `confirm_candidate_chart_with_playwright`: solo in quel momento vengono creati i grafici e caricati in ChatGPT via Playwright per ottenere una conferma visuale.
+
+Per disattivare la scelta autonoma:
+
+```bash
+python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --no-auto-deep-confirmation
+```
 
 ## Portafoglio virtuale
 
@@ -107,7 +119,7 @@ python agent_portfolio_manager.py --build-empty-portfolio --scan-limit 5 --cash-
 
 L'agente chiede il capitale se non passi `--capital`, scannerizza il MIB30 e crea una proposta pending.
 
-Per richiedere anche conferma visuale dei candidati prima della proposta:
+Quando chiedi una proposta di portafoglio, l'agente puo decidere autonomamente di approfondire i migliori candidati prima di proporre l'allocazione. Puoi anche forzarlo:
 
 ```bash
 python agent_portfolio_manager.py --build-empty-portfolio --capital 20000 --scan-limit 5 --cash-pct 15 --deep-chart-confirmation --deep-confirm-limit 3
