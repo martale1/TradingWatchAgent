@@ -108,6 +108,8 @@ Opzioni successive:
 4. analizza HER.MI con grafico e news live
 ```
 
+Anche al primo avvio di `--interactive` viene mostrata una lista di opzioni operative costruita dal contenuto di `portfolio.json`.
+
 La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
 
 Quando un titolo e interessante ma non ancora acquistabile, l'agente deve salvarlo come condizione monitorata. Esempio: `HER.MI buy solo sopra 3,966 con volumi`. Nei turni successivi puoi chiedere:

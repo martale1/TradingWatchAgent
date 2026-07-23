@@ -390,7 +390,42 @@ def build_contextual_request(history, user_text, max_turns=6):
     return "\n".join(lines)
 
 
-def print_interactive_help():
+def build_startup_options(portfolio):
+    options = []
+    if portfolio is None:
+        options.append("inizializza portafoglio con capitale 20000 euro")
+    else:
+        options.append("mostra stato operativo del portafoglio")
+        conditions = [item for item in portfolio.get("monitored_conditions", []) if item.get("status") == "waiting"]
+        pending = [item for item in portfolio.get("pending_proposals", []) if item.get("status") == "pending"]
+        positions = [item for item in portfolio.get("positions", []) if item.get("status") == "open"]
+        if conditions:
+            options.append("rivaluta le condizioni monitorate")
+        if pending:
+            first_id = pending[0].get("id", "<proposal_id>")
+            options.append(f"mostra proposte pending e dettagli proposta {first_id}")
+        if positions:
+            options.append("rivaluta i titoli in portafoglio e proponi eventuali azioni")
+        if not positions:
+            options.append("scannerizza il MIB30 e cerca candidati per il portafoglio")
+
+    options.extend(
+        [
+            "analizza un titolo specifico con grafico e news live",
+            "cerca news live per un ticker",
+        ]
+    )
+    return options[:6]
+
+
+def print_next_options(portfolio=None):
+    print()
+    print("Opzioni successive:")
+    for index, option in enumerate(build_startup_options(portfolio), start=1):
+        print(f"{index}. {option}")
+
+
+def print_interactive_help(portfolio=None):
     print()
     print("Cosa posso fare:")
     print("- creare un portafoglio virtuale partendo da capitale iniziale")
@@ -418,6 +453,7 @@ def print_interactive_help():
     print()
     print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")
+    print_next_options(portfolio)
 
 
 def run_interactive_loop(model):
@@ -429,7 +465,7 @@ def run_interactive_loop(model):
         print()
         print("Stato iniziale: il portafoglio non ha posizioni aperte.")
         print("Per partire puoi scrivere, ad esempio: il portafoglio e vuoto, voglio investire 10000 euro")
-    print_interactive_help()
+    print_interactive_help(portfolio)
     agent = build_agent(model=model)
     history = []
     while True:
@@ -445,7 +481,7 @@ def run_interactive_loop(model):
             print("Uscita dalla modalita interattiva.")
             return
         if user_text.lower() in {"aiuto", "help", "?"}:
-            print_interactive_help()
+            print_interactive_help(load_portfolio_file())
             continue
         contextual_request = build_contextual_request(history, user_text)
         result = run_agent_once(agent, contextual_request, display_request=user_text)
