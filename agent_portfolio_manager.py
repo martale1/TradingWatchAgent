@@ -21,6 +21,7 @@ from finance_tools.portfolio_store import (
     load_portfolio as load_portfolio_file,
     portfolio_status_summary,
     reject_proposal as reject_portfolio_proposal,
+    update_portfolio_capital,
     update_monitored_condition,
 )
 
@@ -169,6 +170,22 @@ def get_portfolio_operating_status() -> str:
 
 
 @function_tool
+def set_virtual_portfolio_capital(new_capital: float, reason: str = "") -> str:
+    """Update the virtual portfolio capital after explicit user instruction.
+
+    Args:
+        new_capital: New total virtual capital.
+        reason: Optional reason/audit note.
+    """
+    log_step(f"Tool set_virtual_portfolio_capital chiamato | new_capital={new_capital}")
+    return json.dumps(
+        update_portfolio_capital(new_capital=new_capital, reason=reason),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@function_tool
 def record_monitored_condition(
     ticker: str,
     condition: str,
@@ -282,6 +299,9 @@ def build_agent(model=DEFAULT_MODEL):
             "Rispondi sempre in italiano. Non dare consulenza finanziaria personalizzata. "
             "Non modificare mai il portafoglio autonomamente: puoi solo creare proposte pending, "
             "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
+            "Il capitale virtuale puo invece essere aggiornato quando l'utente lo chiede esplicitamente "
+            "con frasi come 'aggiorna il capitale a 20000 euro' o 'il capitale e 20000': usa set_virtual_portfolio_capital "
+            "e poi mostra il nuovo stato operativo. "
             "Quando inizi un monitoraggio, una proposta o una domanda sullo stato operativo, usa get_portfolio_operating_status "
             "per costruire una vista unica: posizioni in portafoglio, proposte pending, condizioni monitorate e watchlist. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
@@ -321,6 +341,7 @@ def build_agent(model=DEFAULT_MODEL):
             load_watchlist,
             load_virtual_portfolio,
             get_portfolio_operating_status,
+            set_virtual_portfolio_capital,
             scan_mib30_for_candidates,
             propose_virtual_portfolio_from_mib30,
             list_portfolio_proposals,
@@ -373,6 +394,7 @@ def print_interactive_help():
     print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
     print("- salvare condizioni non ancora verificate e rivalutarle nei controlli successivi")
     print("- mostrare una vista unica con portafoglio, proposte, condizioni monitorate e watchlist")
+    print("- aggiornare il capitale virtuale quando lo dichiari esplicitamente")
     print("- mostrare, confermare o rifiutare proposte pending")
     print("- analizzare uno o piu titoli con grafici tecnici")
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
@@ -384,6 +406,7 @@ def print_interactive_help():
     print("- mostra proposte pending")
     print("- mostra condizioni da monitorare")
     print("- mostra stato operativo del portafoglio")
+    print("- aggiorna il capitale a 20000 euro")
     print("- conferma proposta 20260723-203433")
     print("- analizza VOD.L con news live")
     print()

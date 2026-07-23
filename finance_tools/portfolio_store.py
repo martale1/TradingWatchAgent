@@ -56,6 +56,47 @@ def init_portfolio(initial_capital, overwrite=False, path=PORTFOLIO_FILE):
     return {"status": "ok", "file": str(file_path), "portfolio": portfolio}
 
 
+def update_portfolio_capital(new_capital, reason="", path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        portfolio = default_portfolio(float(new_capital))
+        save_portfolio(portfolio, path)
+        return {
+            "status": "created",
+            "message": "portfolio.json non esisteva: creato nuovo portafoglio.",
+            "portfolio": portfolio,
+        }
+
+    old_capital = float(portfolio.get("initial_capital", 0) or 0)
+    old_cash = float(portfolio.get("cash", 0) or 0)
+    new_capital = float(new_capital)
+    delta = new_capital - old_capital
+
+    portfolio["initial_capital"] = new_capital
+    portfolio["cash"] = round(old_cash + delta, 2)
+    portfolio.setdefault("capital_history", []).append(
+        {
+            "created_at": now_iso(),
+            "old_capital": old_capital,
+            "new_capital": new_capital,
+            "old_cash": old_cash,
+            "new_cash": portfolio["cash"],
+            "delta": delta,
+            "reason": reason,
+        }
+    )
+    save_portfolio(portfolio, path)
+    return {
+        "status": "ok",
+        "old_capital": old_capital,
+        "new_capital": new_capital,
+        "old_cash": old_cash,
+        "new_cash": portfolio["cash"],
+        "delta": delta,
+        "portfolio": portfolio,
+    }
+
+
 def add_proposal(action, ticker, reason, metadata=None, path=PORTFOLIO_FILE):
     portfolio = load_portfolio(path)
     if portfolio is None:

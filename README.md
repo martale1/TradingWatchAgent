@@ -119,6 +119,14 @@ La vista operativa include:
 
 Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
+Puoi aggiornare il capitale virtuale con una richiesta esplicita:
+
+```text
+Tu> aggiorna il capitale a 20000 euro
+```
+
+L'aggiornamento modifica `initial_capital` e adegua la liquidita del delta, senza cancellare posizioni, proposte o condizioni monitorate.
+
 Durante la rivalutazione l'agente deve aggiornare ogni condizione:
 
 ```text
