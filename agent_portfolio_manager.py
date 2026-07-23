@@ -25,6 +25,7 @@ from finance_tools.portfolio_store import (
     update_portfolio_capital,
     update_monitored_condition,
 )
+from finance_tools.telegram_tool import send_monitoring_summary
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
@@ -268,6 +269,17 @@ def create_buy_proposal(
 
 
 @function_tool
+def send_monitoring_telegram_summary(extra_note: str = "") -> str:
+    """Send a Telegram summary of monitored conditions, pending proposals and portfolio state.
+
+    Args:
+        extra_note: Optional short note to include at the end of the Telegram message.
+    """
+    log_step("Tool send_monitoring_telegram_summary chiamato")
+    return json.dumps(send_monitoring_summary(extra_note=extra_note), ensure_ascii=False, indent=2)
+
+
+@function_tool
 def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
     """Confirm and apply a pending portfolio proposal.
 
@@ -318,6 +330,8 @@ def build_agent(model=DEFAULT_MODEL):
             "specificando che e una forzatura consapevole rispetto al filtro prudenziale. Non applicarla mai senza conferma proposal_id. "
             "Quando una condizione non e verificata ma il titolo resta interessante, salva la condizione con record_monitored_condition "
             "e spiega quando andra rivalutata. "
+            "Dopo uno screening completo MIB30 con analisi dettagliata grafico/news e dopo avere salvato o aggiornato condizioni monitorate, "
+            "devi inviare un riepilogo Telegram usando send_monitoring_telegram_summary. "
             "Quando rivaluti condizioni monitorate, per ogni condizione devi scegliere: mantenerla waiting, marcarla met, "
             "marcarla invalidated oppure archiviarla. Se la condizione e met e il titolo resta valido dopo grafico/news, "
             "crea una proposta pending con create_buy_proposal. Se il contesto tecnico/news e peggiorato, usa update_condition_status "
@@ -358,6 +372,7 @@ def build_agent(model=DEFAULT_MODEL):
             list_conditions_to_monitor,
             update_condition_status,
             create_buy_proposal,
+            send_monitoring_telegram_summary,
             confirm_portfolio_proposal_tool,
             reject_portfolio_proposal_tool,
         ],
@@ -496,6 +511,20 @@ def handle_local_interactive_command(user_text):
         print("Nessun acquisto applicato: per eseguire devi confermare il proposal_id.")
         return True
 
+    if lower in {
+        "invia riepilogo telegram",
+        "manda riepilogo telegram",
+        "telegram monitoring",
+        "invia monitoraggio telegram",
+    }:
+        result = send_monitoring_summary(extra_note="Invio manuale richiesto dall'utente.")
+        print()
+        if result.get("status") == "ok":
+            print("Riepilogo monitoraggio inviato su Telegram.")
+        else:
+            print(f"Telegram non inviato: {result.get('message')}")
+        return True
+
     return False
 
 
@@ -549,6 +578,7 @@ def print_interactive_help(portfolio=None):
     print("- mostrare, confermare o rifiutare proposte pending")
     print("- analizzare uno o piu titoli con grafici tecnici")
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
+    print("- inviare riepilogo Telegram dei titoli monitorati e proposte pending")
     print()
     print("Comandi esempio:")
     print("- cosa posso fare adesso?")
@@ -562,6 +592,7 @@ def print_interactive_help(portfolio=None):
     print("- aggiorna il capitale a 20000 euro")
     print("- conferma proposta 20260723-203433")
     print("- analizza VOD.L con news live")
+    print("- invia riepilogo telegram")
     print()
     print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")

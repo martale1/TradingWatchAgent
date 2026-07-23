@@ -138,6 +138,14 @@ La vista operativa include:
 
 Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
+Dopo uno screening completo del MIB30 con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, l'agente invia un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio.
+
+Puoi inviare manualmente il riepilogo:
+
+```text
+Tu> invia riepilogo telegram
+```
+
 Se l'utente chiede esplicitamente di procedere con un acquisto anche quando il segnale non e confermato, l'agente deve assecondarlo creando una proposta pending, evidenziando i rischi e indicando che si tratta di una forzatura consapevole. La proposta richiede comunque conferma tramite `proposal_id`.
 In modalita interattiva i comandi espliciti di acquisto vengono intercettati localmente per essere affidabili:
 
