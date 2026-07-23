@@ -202,14 +202,38 @@ def run_agent_once(agent, request):
     return result
 
 
-def run_interactive_loop(model):
-    log_step("Modalita interattiva attiva")
-    print("TradingWatchAgent interattivo. Scrivi una richiesta, oppure 'esci' per terminare.")
-    print("Esempi:")
+def print_interactive_help():
+    print()
+    print("Cosa posso fare:")
+    print("- creare un portafoglio virtuale partendo da capitale iniziale")
+    print("- scannerizzare i titoli MIB30 e trovare candidati interessanti")
+    print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
+    print("- mostrare, confermare o rifiutare proposte pending")
+    print("- analizzare uno o piu titoli con grafici tecnici")
+    print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
+    print()
+    print("Comandi esempio:")
     print("- scannerizza 3 titoli del MIB30 e dimmi i migliori")
     print("- il portafoglio e vuoto, voglio investire 10000 euro")
+    print("- crea una proposta di portafoglio con 5 titoli e 15% cash")
     print("- mostra proposte pending")
     print("- conferma proposta 20260723-203433")
+    print("- analizza VOD.L con news live")
+    print()
+    print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
+    print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")
+
+
+def run_interactive_loop(model):
+    log_step("Modalita interattiva attiva")
+    print("Ciao, sono TradingWatchAgent.")
+    print("Ti aiuto a costruire e monitorare un portafoglio virtuale con analisi tecnica, news e proposte controllate.")
+    portfolio = load_portfolio_file()
+    if portfolio is None or not portfolio.get("positions"):
+        print()
+        print("Stato iniziale: il portafoglio non ha posizioni aperte.")
+        print("Per partire puoi scrivere, ad esempio: il portafoglio e vuoto, voglio investire 10000 euro")
+    print_interactive_help()
     agent = build_agent(model=model)
     while True:
         try:
@@ -217,12 +241,15 @@ def run_interactive_loop(model):
         except (EOFError, KeyboardInterrupt):
             print("\nUscita dalla modalita interattiva.")
             return
-        user_text = user_text.lstrip("\ufeff")
+        user_text = user_text.lstrip("\ufeffï»¿")
         if not user_text:
             continue
         if user_text.lower() in {"esci", "exit", "quit", "q"}:
             print("Uscita dalla modalita interattiva.")
             return
+        if user_text.lower() in {"aiuto", "help", "?"}:
+            print_interactive_help()
+            continue
         run_agent_once(agent, user_text)
 
 
