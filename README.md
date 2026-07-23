@@ -191,7 +191,15 @@ In modalita periodica standard non viene mai applicata una modifica al portafogl
 Se vuoi che l'agente decida e applichi autonomamente operazioni sul solo portafoglio virtuale, senza conferma utente e con sola notifica Telegram, usa il flag esplicito:
 
 ```bash
-python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --scan-limit 5 --auto-apply-virtual --max-auto-trade-pct 25
+python agent_portfolio_manager.py --autonomous-monitor --scan-limit 5 --max-auto-trade-pct 25
+```
+
+`--autonomous-monitor` equivale a `--daemon-monitor --auto-apply-virtual` e usa l'intervallo default `MONITOR_INTERVAL_MINUTES=30`.
+
+Puoi comunque sovrascrivere l'intervallo:
+
+```bash
+python agent_portfolio_manager.py --autonomous-monitor --monitor-interval-minutes 15 --scan-limit 5 --max-auto-trade-pct 25
 ```
 
 In questa modalita l'agente puo:

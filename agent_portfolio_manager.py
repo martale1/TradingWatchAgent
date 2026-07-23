@@ -875,7 +875,7 @@ def print_interactive_help(portfolio=None):
     print("- analizza VOD.L con news live")
     print("- invia riepilogo telegram")
     print("- monitor periodico ogni 30 minuti: usa da CLI --daemon-monitor --monitor-interval-minutes 30")
-    print("- monitor autonomo virtuale: usa --daemon-monitor --auto-apply-virtual --monitor-interval-minutes 30")
+    print("- monitor autonomo virtuale: usa da CLI --autonomous-monitor")
     print()
     print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")
@@ -968,6 +968,11 @@ def main():
         help="Avvia monitoraggio periodico di portafoglio, condizioni e MIB30.",
     )
     parser.add_argument(
+        "--autonomous-monitor",
+        action="store_true",
+        help="Avvia monitoraggio autonomo virtuale periodico: applica decisioni simulate e notifica via Telegram.",
+    )
+    parser.add_argument(
         "--monitor-interval-minutes",
         type=int,
         default=DEFAULT_MONITOR_INTERVAL_MINUTES,
@@ -1031,8 +1036,13 @@ def main():
     log_step("Avvio TradingWatchAgent")
     log_step(f"Working directory: {PROJECT_ROOT}")
 
+    if args.autonomous_monitor:
+        args.daemon_monitor = True
+        args.auto_apply_virtual = True
+
     if args.daemon_monitor:
-        log_step("Modalita monitor periodico attiva")
+        mode = "autonomo virtuale" if args.auto_apply_virtual else "solo proposte"
+        log_step(f"Modalita monitor periodico attiva | mode={mode}")
         run_periodic_monitor_loop(
             model=args.model,
             interval_minutes=args.monitor_interval_minutes,
