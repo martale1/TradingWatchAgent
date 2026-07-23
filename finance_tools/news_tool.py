@@ -31,8 +31,10 @@ def _extract_response(stdout):
 def get_news_report(ticker, live=False):
     info = ticker_info(ticker)
     output_path = PROJECT_ROOT / "output" / "stock_ai" / info["ticker"].replace("/", "_") / f"{info['ticker']}_news.txt"
+    print(f"[news-tool] {info['ticker']} - richiesta news | live={live}", flush=True)
 
     if not live and output_path.exists():
+        print(f"[news-tool] {info['ticker']} - leggo news da cache: {output_path}", flush=True)
         return {
             "ticker": info["ticker"],
             "status": "ok",
@@ -42,6 +44,7 @@ def get_news_report(ticker, live=False):
         }
 
     if not live:
+        print(f"[news-tool] {info['ticker']} - cache non presente, live disattivato", flush=True)
         return {
             "ticker": info["ticker"],
             "status": "missing",
@@ -50,6 +53,7 @@ def get_news_report(ticker, live=False):
             "file": str(output_path),
         }
 
+    print(f"[news-tool] {info['ticker']} - avvio Playwright/ChatGPT tramite chatgpt_playwright_demo.py", flush=True)
     args = [
         "chatgpt_playwright_demo.py",
         "--no-telegram",
@@ -60,10 +64,12 @@ def get_news_report(ticker, live=False):
         "--market",
         info["market"],
     ]
+    print(f"[news-tool] {info['ticker']} - attendo risposta dallo script Playwright...", flush=True)
     result = run_python_script(args, timeout_seconds=300)
     report = _extract_response(result["stdout"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
+    print(f"[news-tool] {info['ticker']} - report news salvato: {output_path}", flush=True)
     return {
         "ticker": info["ticker"],
         "status": "ok" if result["returncode"] == 0 else "error",
@@ -76,4 +82,3 @@ def get_news_report(ticker, live=False):
 
 def get_news_report_json(ticker, live=False):
     return json.dumps(get_news_report(ticker, live=live), ensure_ascii=False, indent=2)
-

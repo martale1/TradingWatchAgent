@@ -21,6 +21,10 @@ from finance_tools.portfolio_store import (
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-4.1-mini")
 
 
+def log_step(message):
+    print(f"[agent] {message}", flush=True)
+
+
 @function_tool
 def analyze_stock_chart(ticker: str, days: int = 70, period: str = "1y") -> str:
     """Generate technical charts and numeric technical context for one stock.
@@ -30,6 +34,7 @@ def analyze_stock_chart(ticker: str, days: int = 70, period: str = "1y") -> str:
         days: Number of recent trading bars to include in charts.
         period: Yahoo Finance download period, for example 6mo, 1y, or 2y.
     """
+    log_step(f"Tool analyze_stock_chart chiamato per {ticker} | days={days} period={period}")
     return generate_chart_context_json(ticker=ticker, days=days, period=period)
 
 
@@ -41,6 +46,8 @@ def analyze_stock_news(ticker: str, live: bool = False) -> str:
         ticker: Stock ticker symbol, for example VOD.L or A2A.MI.
         live: If true, run the Playwright ChatGPT news workflow; if false, read cached news if available.
     """
+    mode = "Playwright live" if live else "cache locale"
+    log_step(f"Tool analyze_stock_news chiamato per {ticker} | modalita={mode}")
     return get_news_report_json(ticker=ticker, live=live)
 
 
@@ -54,6 +61,7 @@ def load_watchlist(path: str = "portfolio.example.json") -> str:
     file_path = Path(path)
     if not file_path.is_absolute():
         file_path = PROJECT_ROOT / file_path
+    log_step(f"Tool load_watchlist chiamato | file={file_path}")
     if not file_path.exists():
         return json.dumps({"status": "missing", "file": str(file_path)}, ensure_ascii=False)
     return file_path.read_text(encoding="utf-8")
@@ -62,6 +70,7 @@ def load_watchlist(path: str = "portfolio.example.json") -> str:
 @function_tool
 def load_virtual_portfolio() -> str:
     """Load the current virtual portfolio, if it exists."""
+    log_step("Tool load_virtual_portfolio chiamato")
     portfolio = load_portfolio_file()
     if portfolio is None:
         return json.dumps({"status": "missing", "message": "portfolio.json non esiste."}, ensure_ascii=False)
@@ -77,6 +86,10 @@ def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False, un
         create_proposals: If true, create pending proposals in portfolio.json. Proposals still require user confirmation.
         universe_limit: Optional number of tickers to analyze for quick tests. Use 0 for full universe.
     """
+    log_step(
+        "Tool scan_mib30_for_candidates chiamato | "
+        f"limit={limit} create_proposals={create_proposals} universe_limit={universe_limit}"
+    )
     return scan_mib30_candidates_json(
         limit=limit,
         create_proposals=create_proposals,
@@ -99,6 +112,10 @@ def propose_virtual_portfolio_from_mib30(
         cash_pct: Percentage of capital to keep as cash.
         universe_limit: Optional number of tickers to analyze for quick tests. Use 0 for full universe.
     """
+    log_step(
+        "Tool propose_virtual_portfolio_from_mib30 chiamato | "
+        f"capital={capital} max_positions={max_positions} cash_pct={cash_pct} universe_limit={universe_limit}"
+    )
     return propose_virtual_allocation_json(
         capital=capital,
         max_positions=max_positions,
@@ -110,6 +127,7 @@ def propose_virtual_portfolio_from_mib30(
 @function_tool
 def list_portfolio_proposals() -> str:
     """List pending portfolio proposals that require explicit user confirmation."""
+    log_step("Tool list_portfolio_proposals chiamato")
     return json.dumps({"status": "ok", "pending": list_pending_proposals()}, ensure_ascii=False, indent=2)
 
 
@@ -120,6 +138,7 @@ def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
     Args:
         proposal_id: The proposal id to confirm.
     """
+    log_step(f"Tool confirm_portfolio_proposal_tool chiamato | proposal_id={proposal_id}")
     return json.dumps(confirm_portfolio_proposal(proposal_id), ensure_ascii=False, indent=2)
 
 
@@ -130,10 +149,12 @@ def reject_portfolio_proposal_tool(proposal_id: str) -> str:
     Args:
         proposal_id: The proposal id to reject.
     """
+    log_step(f"Tool reject_portfolio_proposal_tool chiamato | proposal_id={proposal_id}")
     return json.dumps(reject_portfolio_proposal(proposal_id), ensure_ascii=False, indent=2)
 
 
 def build_agent(model=DEFAULT_MODEL):
+    log_step(f"Creo agente Portfolio Monitor Agent | model={model}")
     return Agent(
         name="Portfolio Monitor Agent",
         model=model,
@@ -197,12 +218,15 @@ def main():
         help="Durante lo scan crea proposte pending, da confermare esplicitamente.",
     )
     args = parser.parse_args()
+    log_step("Avvio TradingWatchAgent")
+    log_step(f"Working directory: {PROJECT_ROOT}")
 
     if args.init_portfolio:
         capital = args.capital
         if capital is None:
             capital_text = input("Capitale iniziale portafoglio virtuale: ").strip().replace(",", ".")
             capital = float(capital_text)
+        log_step(f"Inizializzo portafoglio virtuale | capital={capital} overwrite={args.overwrite_portfolio}")
         result = init_portfolio(capital, overwrite=args.overwrite_portfolio)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
@@ -217,6 +241,7 @@ def main():
         if capital is None:
             capital_text = input("Il portafoglio e vuoto. Quanto vuoi investire nel portafoglio virtuale? ").strip()
             capital = float(capital_text.replace(",", "."))
+        log_step(f"Portafoglio vuoto: preparo proposta iniziale | capital={capital}")
         init_portfolio(capital, overwrite=portfolio is None)
         request = (
             f"Il portafoglio e vuoto e l'utente vuole investire {capital:.2f} EUR. "
@@ -227,8 +252,12 @@ def main():
         )
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
+        log_step("Prompt operativo inviato all'agente:")
+        log_step(request)
+        log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
         agent = build_agent(model=args.model)
         result = Runner.run_sync(agent, request, max_turns=20)
+        log_step("Risposta finale agente ricevuta")
         print(result.final_output)
         return
 
@@ -237,6 +266,10 @@ def main():
 
     request = args.request
     if args.scan_mib30:
+        log_step(
+            f"Modalita scan MIB30 | scan_limit={args.scan_limit} "
+            f"universe_limit={args.universe_limit} create_proposals={args.create_proposals}"
+        )
         proposal_hint = (
             "crea proposte pending per i migliori candidati"
             if args.create_proposals
@@ -249,6 +282,7 @@ def main():
             "Spiega i criteri tecnici, elenca i candidati migliori e indica quali metteresti in proposta."
         )
     if args.stocks:
+        log_step(f"Modalita analisi titoli | stocks={args.stocks} live_news={args.live_news}")
         live_hint = "usa live=True per le news" if args.live_news else "usa live=False per le news"
         request = (
             f"Analizza questi titoli: {args.stocks}. "
@@ -256,8 +290,12 @@ def main():
             "Poi produci una sintesi comparativa con rischio, momentum, news disponibili e priorita di monitoraggio."
         )
 
+    log_step("Prompt operativo inviato all'agente:")
+    log_step(request)
+    log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
     agent = build_agent(model=args.model)
     result = Runner.run_sync(agent, request, max_turns=20)
+    log_step("Risposta finale agente ricevuta")
     print(result.final_output)
 
 
