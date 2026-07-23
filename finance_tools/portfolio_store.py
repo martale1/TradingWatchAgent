@@ -102,6 +102,29 @@ def add_allocation_proposal(capital, allocations, reason, metadata=None, path=PO
     return proposal
 
 
+def add_buy_proposal(ticker, reason, amount=None, entry_price=None, metadata=None, path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
+    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    proposal = {
+        "id": proposal_id,
+        "created_at": now_iso(),
+        "status": "pending",
+        "action": "buy_virtual_position",
+        "ticker": ticker.strip().upper(),
+        "reason": reason,
+        "metadata": {
+            "amount": amount,
+            "entry_price": entry_price,
+            **(metadata or {}),
+        },
+    }
+    portfolio.setdefault("pending_proposals", []).append(proposal)
+    save_portfolio(portfolio, path)
+    return proposal
+
+
 def list_pending_proposals(path=PORTFOLIO_FILE):
     portfolio = load_portfolio(path)
     if portfolio is None:
@@ -145,6 +168,24 @@ def list_monitored_conditions(status=None, path=PORTFOLIO_FILE):
     if status:
         return [item for item in items if item.get("status") == status]
     return items
+
+
+def update_monitored_condition(condition_id, status, note="", metadata=None, path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        raise RuntimeError("portfolio.json non esiste.")
+    items = portfolio.setdefault("monitored_conditions", [])
+    match = next((item for item in items if item.get("id") == condition_id), None)
+    if not match:
+        return {"status": "missing", "condition_id": condition_id}
+    match["status"] = status
+    match["updated_at"] = now_iso()
+    if note:
+        match.setdefault("notes", []).append({"created_at": now_iso(), "note": note})
+    if metadata:
+        match.setdefault("metadata", {}).update(metadata)
+    save_portfolio(portfolio, path)
+    return {"status": "ok", "condition": match}
 
 
 def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
@@ -212,6 +253,29 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
         portfolio["initial_capital"] = capital
         portfolio["positions"] = positions
         portfolio["cash"] = round(capital - invested, 2)
+    elif match["action"] == "buy_virtual_position":
+        metadata = match.get("metadata", {})
+        amount = metadata.get("amount")
+        entry_price = metadata.get("entry_price")
+        quantity = None
+        if amount is not None and entry_price:
+            quantity = round(float(amount) / float(entry_price), 4)
+            portfolio["cash"] = round(float(portfolio.get("cash", 0)) - float(amount), 2)
+        portfolio.setdefault("positions", []).append(
+            {
+                "ticker": match["ticker"],
+                "name": metadata.get("name", match["ticker"]),
+                "market": metadata.get("market", ""),
+                "sector": metadata.get("sector", ""),
+                "entry_price": entry_price,
+                "virtual_quantity": quantity,
+                "allocated_amount": amount,
+                "opened_at": now_iso(),
+                "status": "open",
+                "source": "confirmed_agent_buy_proposal",
+                "reason": match.get("reason", ""),
+            }
+        )
 
     save_portfolio(portfolio, path)
     return {"status": "ok", "proposal": match, "portfolio": portfolio}

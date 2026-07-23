@@ -12,6 +12,7 @@ from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.news_tool import get_news_report_json
 from finance_tools.portfolio_store import (
+    add_buy_proposal,
     add_monitored_condition,
     confirm_proposal as confirm_portfolio_proposal,
     init_portfolio,
@@ -19,6 +20,7 @@ from finance_tools.portfolio_store import (
     list_pending_proposals,
     load_portfolio as load_portfolio_file,
     reject_proposal as reject_portfolio_proposal,
+    update_monitored_condition,
 )
 
 
@@ -203,6 +205,43 @@ def list_conditions_to_monitor(status: str = "waiting") -> str:
 
 
 @function_tool
+def update_condition_status(condition_id: str, status: str, note: str = "") -> str:
+    """Update a monitored condition after re-evaluation.
+
+    Args:
+        condition_id: Monitored condition id.
+        status: New status: waiting, met, invalidated, archived.
+        note: Short reason for the update.
+    """
+    log_step(f"Tool update_condition_status chiamato | condition_id={condition_id} status={status}")
+    return json.dumps(
+        update_monitored_condition(condition_id=condition_id, status=status, note=note),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@function_tool
+def create_buy_proposal(
+    ticker: str,
+    reason: str,
+    amount: float | None = None,
+    entry_price: float | None = None,
+) -> str:
+    """Create a pending virtual buy proposal. User confirmation is still required.
+
+    Args:
+        ticker: Stock ticker symbol.
+        reason: Why the buy proposal is being created.
+        amount: Optional virtual amount to invest.
+        entry_price: Optional current or reference entry price.
+    """
+    log_step(f"Tool create_buy_proposal chiamato | ticker={ticker} amount={amount} entry_price={entry_price}")
+    proposal = add_buy_proposal(ticker=ticker, reason=reason, amount=amount, entry_price=entry_price)
+    return json.dumps({"status": "ok", "proposal": proposal}, ensure_ascii=False, indent=2)
+
+
+@function_tool
 def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
     """Confirm and apply a pending portfolio proposal.
 
@@ -243,6 +282,10 @@ def build_agent(model=DEFAULT_MODEL):
             "in quel caso crea una proposta pending se ci sono capitale e condizioni sufficienti, altrimenti chiedi il dato mancante. "
             "Quando una condizione non e verificata ma il titolo resta interessante, salva la condizione con record_monitored_condition "
             "e spiega quando andra rivalutata. "
+            "Quando rivaluti condizioni monitorate, per ogni condizione devi scegliere: mantenerla waiting, marcarla met, "
+            "marcarla invalidated oppure archiviarla. Se la condizione e met e il titolo resta valido dopo grafico/news, "
+            "crea una proposta pending con create_buy_proposal. Se il contesto tecnico/news e peggiorato, usa update_condition_status "
+            "con status invalidated o archived e spiega il motivo. "
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
             "Quando devi proporre titoli da mettere in portafoglio, usa prima lo scanner numerico. "
@@ -270,6 +313,8 @@ def build_agent(model=DEFAULT_MODEL):
             list_portfolio_proposals,
             record_monitored_condition,
             list_conditions_to_monitor,
+            update_condition_status,
+            create_buy_proposal,
             confirm_portfolio_proposal_tool,
             reject_portfolio_proposal_tool,
         ],

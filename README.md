@@ -107,6 +107,17 @@ Tu> mostra condizioni da monitorare
 Tu> rivaluta le condizioni monitorate
 ```
 
+Durante la rivalutazione l'agente deve aggiornare ogni condizione:
+
+```text
+waiting      # condizione ancora valida ma non scattata
+met          # condizione scattata; puo generare proposta pending
+invalidated  # contesto tecnico/news peggiorato, condizione non piu utile
+archived     # condizione chiusa e rimossa dal monitoraggio operativo
+```
+
+Se una condizione diventa `met` e grafico/news confermano, l'agente crea una proposta pending con `create_buy_proposal`; non acquista mai da solo.
+
 Inizializza portafoglio:
 
 ```bash
