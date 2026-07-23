@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 from agents import Agent, Runner, function_tool
@@ -19,6 +20,14 @@ from finance_tools.portfolio_store import (
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-4.1-mini")
+
+
+def configure_stdout():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:
+        pass
 
 
 def log_step(message):
@@ -183,7 +192,42 @@ def build_agent(model=DEFAULT_MODEL):
     )
 
 
+def run_agent_once(agent, request):
+    log_step("Prompt operativo inviato all'agente:")
+    log_step(request)
+    log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
+    result = Runner.run_sync(agent, request, max_turns=20)
+    log_step("Risposta finale agente ricevuta")
+    print("\n" + str(result.final_output).strip() + "\n", flush=True)
+    return result
+
+
+def run_interactive_loop(model):
+    log_step("Modalita interattiva attiva")
+    print("TradingWatchAgent interattivo. Scrivi una richiesta, oppure 'esci' per terminare.")
+    print("Esempi:")
+    print("- scannerizza 3 titoli del MIB30 e dimmi i migliori")
+    print("- il portafoglio e vuoto, voglio investire 10000 euro")
+    print("- mostra proposte pending")
+    print("- conferma proposta 20260723-203433")
+    agent = build_agent(model=model)
+    while True:
+        try:
+            user_text = input("\nTu> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nUscita dalla modalita interattiva.")
+            return
+        user_text = user_text.lstrip("\ufeff")
+        if not user_text:
+            continue
+        if user_text.lower() in {"esci", "exit", "quit", "q"}:
+            print("Uscita dalla modalita interattiva.")
+            return
+        run_agent_once(agent, user_text)
+
+
 def main():
+    configure_stdout()
     load_env_file()
     parser = argparse.ArgumentParser(description="Agente OpenAI SDK per watchlist e analisi titoli.")
     parser.add_argument(
@@ -193,6 +237,7 @@ def main():
         help="Richiesta da inviare all'agente.",
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello OpenAI da usare.")
+    parser.add_argument("--interactive", action="store_true", help="Avvia una sessione interattiva con l'agente.")
     parser.add_argument("--stocks", default="", help='Ticker separati da virgola, es. "VOD.L,A2A.MI,AVIO.MI".')
     parser.add_argument("--live-news", action="store_true", help="Permetti al news tool di usare Playwright live.")
     parser.add_argument("--init-portfolio", action="store_true", help="Crea portfolio.json con capitale iniziale.")
@@ -220,6 +265,12 @@ def main():
     args = parser.parse_args()
     log_step("Avvio TradingWatchAgent")
     log_step(f"Working directory: {PROJECT_ROOT}")
+
+    if args.interactive:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
+        run_interactive_loop(args.model)
+        return
 
     if args.init_portfolio:
         capital = args.capital
@@ -252,13 +303,8 @@ def main():
         )
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
-        log_step("Prompt operativo inviato all'agente:")
-        log_step(request)
-        log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
         agent = build_agent(model=args.model)
-        result = Runner.run_sync(agent, request, max_turns=20)
-        log_step("Risposta finale agente ricevuta")
-        print(result.final_output)
+        run_agent_once(agent, request)
         return
 
     if not os.getenv("OPENAI_API_KEY"):
@@ -290,13 +336,8 @@ def main():
             "Poi produci una sintesi comparativa con rischio, momentum, news disponibili e priorita di monitoraggio."
         )
 
-    log_step("Prompt operativo inviato all'agente:")
-    log_step(request)
-    log_step("Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls...")
     agent = build_agent(model=args.model)
-    result = Runner.run_sync(agent, request, max_turns=20)
-    log_step("Risposta finale agente ricevuta")
-    print(result.final_output)
+    run_agent_once(agent, request)
 
 
 if __name__ == "__main__":
