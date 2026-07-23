@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from finance_tools.chart_tool import generate_chart_context
+from finance_tools.chart_tool import generate_snapshot_context
 from finance_tools.common import PROJECT_ROOT
 from finance_tools.portfolio_store import add_allocation_proposal, add_proposal
 
@@ -88,8 +88,8 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
         ticker = item["ticker"]
         try:
             if verbose:
-                print(f"[scanner] {index}/{len(universe)} {ticker} - scarico dati e genero grafici...", flush=True)
-            context = generate_chart_context(ticker, days=days, period=period)
+                print(f"[scanner] {index}/{len(universe)} {ticker} - scarico dati e calcolo indicatori...", flush=True)
+            context = generate_snapshot_context(ticker, period=period)
             snapshot = context["snapshot"]
             if verbose:
                 print(f"[scanner] {ticker} - calcolo score tecnico...", flush=True)
@@ -117,7 +117,7 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
                     "resistance_10": snapshot["resistance_10"],
                     "reasons": reasons,
                     "risks": risks,
-                    "files": context["files"],
+                    "files": [],
                 }
             )
         except Exception as exc:

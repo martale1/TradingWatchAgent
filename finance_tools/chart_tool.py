@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from finance_charts.technical_charts import create_chart_bundle
+from finance_charts.technical_charts import create_chart_bundle, create_snapshot_bundle
 from finance_tools.common import PROJECT_ROOT
 
 
@@ -30,6 +30,20 @@ def generate_chart_context(ticker, days=70, period="1y"):
         "files": [str(Path(path)) for path in bundle["files"]],
     }
     print(f"[chart-tool] {ticker} - snapshot tecnico pronto", flush=True)
+    return result
+
+
+def generate_snapshot_context(ticker, period="1y"):
+    print(f"[chart-tool] {ticker} - scarico dati Yahoo Finance e calcolo indicatori", flush=True)
+    bundle = create_snapshot_bundle(ticker, period=period)
+    result = {
+        "ticker": ticker,
+        "status": "ok",
+        "period": period,
+        "snapshot": _round_floats(bundle["snapshot"]),
+        "files": [],
+    }
+    print(f"[chart-tool] {ticker} - snapshot tecnico pronto senza grafici", flush=True)
     return result
 
 

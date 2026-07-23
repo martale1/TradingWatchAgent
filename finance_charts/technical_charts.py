@@ -271,3 +271,8 @@ def create_chart_bundle(ticker, output_dir, period="1y", days=70, chart_type="ca
         plot_adx_dashboard(df, ticker, output_dir / f"{safe_ticker}_adx.png", days),
     ]
     return {"ticker": ticker, "files": files, "snapshot": latest_snapshot(df)}
+
+
+def create_snapshot_bundle(ticker, period="1y"):
+    df = add_indicators(download_history(ticker, period=period))
+    return {"ticker": ticker, "files": [], "snapshot": latest_snapshot(df)}

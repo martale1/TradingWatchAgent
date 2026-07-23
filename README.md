@@ -65,7 +65,7 @@ Scanner MIB30 con conferma approfondita dei migliori candidati tramite Playwrigh
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --deep-chart-confirmation --deep-confirm-limit 3
 ```
 
-In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati. Poi l'agente chiama `confirm_candidate_chart_with_playwright` sui migliori candidati, che usa `stock_chart_ai_analysis.py` per caricare i grafici in ChatGPT via Playwright e ottenere una conferma visuale.
+In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati senza generare PNG. Poi l'agente chiama `confirm_candidate_chart_with_playwright` sui migliori candidati: solo in quel momento vengono creati i grafici e caricati in ChatGPT via Playwright per ottenere una conferma visuale.
 
 ## Portafoglio virtuale
 
