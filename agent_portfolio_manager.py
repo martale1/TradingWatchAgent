@@ -435,6 +435,70 @@ def print_monitored_conditions_quick():
         )
 
 
+def parse_italian_amount(value):
+    clean = value.strip().lower().replace("euro", "").replace("eur", "").replace("€", "")
+    clean = clean.replace(" ", "")
+    if "," in clean and "." in clean:
+        clean = clean.replace(".", "").replace(",", ".")
+    elif "," in clean:
+        clean = clean.replace(",", ".")
+    elif "." in clean:
+        parts = clean.split(".")
+        if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
+            clean = "".join(parts)
+    return float(clean)
+
+
+def handle_local_interactive_command(user_text):
+    text = user_text.strip()
+    lower = text.lower()
+
+    capital_match = re.search(
+        r"\b(?:capitale(?:\s+disponibile)?|aggiorna\s+il\s+capitale|il\s+capitale\s+(?:e|è))\D+([0-9][0-9\., ]*)",
+        lower,
+    )
+    if capital_match:
+        amount = parse_italian_amount(capital_match.group(1))
+        result = update_portfolio_capital(amount, reason=f"richiesta esplicita utente: {text}")
+        print()
+        print(f"Capitale virtuale aggiornato: EUR {result['old_capital']:.2f} -> EUR {result['new_capital']:.2f}")
+        print(f"Liquidita aggiornata: EUR {result['old_cash']:.2f} -> EUR {result['new_cash']:.2f}")
+        return True
+
+    buy_intent = re.search(r"\b(compra|compriamo|acquista|acquistiamo|procedi|procediamo)\b", text, flags=re.IGNORECASE)
+    ticker_match = re.search(r"\b([A-Z0-9]{1,8}\.[A-Z]{1,4})\b", text, flags=re.IGNORECASE)
+    if buy_intent and ticker_match:
+        ticker = ticker_match.group(1).upper()
+        amount_candidates = re.findall(r"[0-9][0-9\., ]*", text[: ticker_match.start()])
+        if not amount_candidates:
+            print("Importo non trovato. Esempio: compriamo 10000 euro di HER.MI")
+            return True
+        amount = parse_italian_amount(amount_candidates[-1])
+        portfolio = load_portfolio_file()
+        if portfolio is None:
+            print("portfolio.json non esiste. Prima inizializza o imposta il capitale virtuale.")
+            return True
+        cash = float(portfolio.get("cash", 0) or 0)
+        if amount > cash:
+            print(f"Liquidita insufficiente: richiesta EUR {amount:.2f}, cash disponibile EUR {cash:.2f}.")
+            return True
+        reason = (
+            f"Richiesta esplicita utente: proposta acquisto EUR {amount:.2f} di {ticker}. "
+            "Forzatura consapevole: la proposta puo essere creata anche se il filtro prudenziale non e confermato. "
+            "Richiede conferma esplicita del proposal_id."
+        )
+        proposal = add_buy_proposal(ticker=ticker, reason=reason, amount=amount)
+        print()
+        print("Proposta pending creata su richiesta esplicita.")
+        print(f"- proposal_id: {proposal['id']}")
+        print(f"- ticker: {ticker}")
+        print(f"- importo: EUR {amount:.2f}")
+        print("Nessun acquisto applicato: per eseguire devi confermare il proposal_id.")
+        return True
+
+    return False
+
+
 def build_startup_options(portfolio):
     options = []
     if portfolio is None:
@@ -550,6 +614,9 @@ def run_interactive_loop(model):
             else:
                 print(f"Opzione {option_index} non disponibile. Scrivi 'aiuto' per vedere le opzioni.")
                 continue
+        if handle_local_interactive_command(user_text):
+            current_options = print_next_options(load_portfolio_file())
+            continue
         contextual_request = build_contextual_request(history, user_text)
         result = run_agent_once(agent, contextual_request, display_request=user_text)
         history.append(

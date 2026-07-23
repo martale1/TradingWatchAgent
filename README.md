@@ -139,6 +139,14 @@ La vista operativa include:
 Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
 Se l'utente chiede esplicitamente di procedere con un acquisto anche quando il segnale non e confermato, l'agente deve assecondarlo creando una proposta pending, evidenziando i rischi e indicando che si tratta di una forzatura consapevole. La proposta richiede comunque conferma tramite `proposal_id`.
+In modalita interattiva i comandi espliciti di acquisto vengono intercettati localmente per essere affidabili:
+
+```text
+Tu> compriamo 10000 euro di HER.MI
+Tu> acquista 2500 euro su AMP.MI
+```
+
+Questi comandi creano una proposta pending, non aprono direttamente la posizione.
 
 Puoi aggiornare il capitale virtuale con una richiesta esplicita:
 
