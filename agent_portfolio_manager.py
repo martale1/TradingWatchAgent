@@ -19,6 +19,7 @@ from finance_tools.portfolio_store import (
     list_monitored_conditions,
     list_pending_proposals,
     load_portfolio as load_portfolio_file,
+    portfolio_status_summary,
     reject_proposal as reject_portfolio_proposal,
     update_monitored_condition,
 )
@@ -161,6 +162,13 @@ def list_portfolio_proposals() -> str:
 
 
 @function_tool
+def get_portfolio_operating_status() -> str:
+    """Return one operational view: open positions, pending buys, monitored conditions and watchlist."""
+    log_step("Tool get_portfolio_operating_status chiamato")
+    return json.dumps(portfolio_status_summary(), ensure_ascii=False, indent=2)
+
+
+@function_tool
 def record_monitored_condition(
     ticker: str,
     condition: str,
@@ -274,6 +282,10 @@ def build_agent(model=DEFAULT_MODEL):
             "Rispondi sempre in italiano. Non dare consulenza finanziaria personalizzata. "
             "Non modificare mai il portafoglio autonomamente: puoi solo creare proposte pending, "
             "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
+            "Quando inizi un monitoraggio, una proposta o una domanda sullo stato operativo, usa get_portfolio_operating_status "
+            "per costruire una vista unica: posizioni in portafoglio, proposte pending, condizioni monitorate e watchlist. "
+            "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
+            "devi proporre un'azione pending e motivarla, mai applicarla da solo. "
             "Se l'utente chiede una proposta o chiede se ci sono titoli da comprare, devi rispondere in modo operativo: "
             "BUY CANDIDATE, WAIT/MONITOR oppure SCARTATO. "
             "Prima di rifare analisi live, consulta load_virtual_portfolio, list_portfolio_proposals e list_conditions_to_monitor "
@@ -308,6 +320,7 @@ def build_agent(model=DEFAULT_MODEL):
             confirm_candidate_chart_with_playwright,
             load_watchlist,
             load_virtual_portfolio,
+            get_portfolio_operating_status,
             scan_mib30_for_candidates,
             propose_virtual_portfolio_from_mib30,
             list_portfolio_proposals,
@@ -359,6 +372,7 @@ def print_interactive_help():
     print("- decidere se confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
     print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
     print("- salvare condizioni non ancora verificate e rivalutarle nei controlli successivi")
+    print("- mostrare una vista unica con portafoglio, proposte, condizioni monitorate e watchlist")
     print("- mostrare, confermare o rifiutare proposte pending")
     print("- analizzare uno o piu titoli con grafici tecnici")
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
@@ -369,6 +383,7 @@ def print_interactive_help():
     print("- crea una proposta di portafoglio con 5 titoli e 15% cash")
     print("- mostra proposte pending")
     print("- mostra condizioni da monitorare")
+    print("- mostra stato operativo del portafoglio")
     print("- conferma proposta 20260723-203433")
     print("- analizza VOD.L con news live")
     print()

@@ -103,9 +103,21 @@ La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da un
 Quando un titolo e interessante ma non ancora acquistabile, l'agente deve salvarlo come condizione monitorata. Esempio: `HER.MI buy solo sopra 3,966 con volumi`. Nei turni successivi puoi chiedere:
 
 ```text
+Tu> mostra stato operativo del portafoglio
 Tu> mostra condizioni da monitorare
 Tu> rivaluta le condizioni monitorate
 ```
+
+La vista operativa include:
+
+```text
+- titoli in portafoglio
+- proposte pending di acquisto o allocazione
+- condizioni monitorate con stato e trigger
+- watchlist
+```
+
+Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
 Durante la rivalutazione l'agente deve aggiornare ogni condizione:
 

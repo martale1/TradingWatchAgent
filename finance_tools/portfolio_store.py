@@ -132,6 +132,41 @@ def list_pending_proposals(path=PORTFOLIO_FILE):
     return portfolio.get("pending_proposals", [])
 
 
+def portfolio_status_summary(path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        return {
+            "status": "missing",
+            "message": "portfolio.json non esiste.",
+            "positions": [],
+            "pending_buy_proposals": [],
+            "pending_other_proposals": [],
+            "monitored_conditions": [],
+            "watchlist": [],
+        }
+
+    pending = portfolio.get("pending_proposals", [])
+    pending_buy = [
+        item for item in pending if item.get("action") in {"buy_virtual_position", "create_virtual_allocation"}
+    ]
+    pending_other = [
+        item for item in pending if item.get("action") not in {"buy_virtual_position", "create_virtual_allocation"}
+    ]
+    return {
+        "status": "ok",
+        "updated_at": portfolio.get("updated_at"),
+        "base_currency": portfolio.get("base_currency", "EUR"),
+        "initial_capital": portfolio.get("initial_capital"),
+        "cash": portfolio.get("cash"),
+        "positions": portfolio.get("positions", []),
+        "pending_buy_proposals": pending_buy,
+        "pending_other_proposals": pending_other,
+        "monitored_conditions": portfolio.get("monitored_conditions", []),
+        "watchlist": portfolio.get("watchlist", []),
+        "closed_proposals_count": len(portfolio.get("closed_proposals", [])),
+    }
+
+
 def add_monitored_condition(
     ticker,
     condition,
