@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pandas as pd
+
 from finance_tools.common import PROJECT_ROOT, run_python_script
 from finance_tools.playwright_queue import run_serialized_playwright
 
@@ -12,9 +14,28 @@ STOCK_CATALOG = {
 }
 
 
+def load_valid_ticker_info(ticker):
+    path = PROJECT_ROOT / "validTickers" / "validtickers_IT_MIB30_with_sector.xlsx"
+    if not path.exists():
+        return {}
+    try:
+        df = pd.read_excel(path).fillna("")
+    except Exception:
+        return {}
+    clean = ticker.strip().upper()
+    matches = df[df["Ticker"].astype(str).str.upper().str.strip() == clean]
+    if matches.empty:
+        return {}
+    row = matches.iloc[0]
+    return {
+        "company": str(row.get("Name", clean)).strip() or clean,
+        "market": "Borsa Italiana" if clean.endswith(".MI") else "",
+    }
+
+
 def ticker_info(ticker):
     clean = ticker.strip().upper()
-    info = STOCK_CATALOG.get(clean, {})
+    info = STOCK_CATALOG.get(clean) or load_valid_ticker_info(clean)
     return {
         "ticker": clean,
         "company": info.get("company", clean),

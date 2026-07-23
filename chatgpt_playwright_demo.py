@@ -98,9 +98,9 @@ Regole:
 DEFAULT_PROMPT = build_stock_prompt(DEFAULT_COMPANY, DEFAULT_TICKER, DEFAULT_MARKET)
 
 
-def parse_stock_list(value):
+def parse_stock_list(value, fallback_ticker=None):
     if not value:
-        return DEFAULT_STOCKS
+        return [fallback_ticker.strip().upper()] if fallback_ticker else DEFAULT_STOCKS
     return [item.strip().upper() for item in value.replace(";", ",").split(",") if item.strip()]
 
 
@@ -279,17 +279,17 @@ def main():
     )
     parser.add_argument(
         "--company",
-        default=DEFAULT_COMPANY,
+        default="",
         help="Nome societa/titolo da analizzare.",
     )
     parser.add_argument(
         "--ticker",
-        default=DEFAULT_TICKER,
+        default="",
         help="Ticker del titolo, opzionale.",
     )
     parser.add_argument(
         "--market",
-        default=DEFAULT_MARKET,
+        default="",
         help="Mercato/listino del titolo, opzionale.",
     )
     parser.add_argument(
@@ -324,7 +324,13 @@ def main():
     )
     args = parser.parse_args()
     send_to_telegram = False if args.no_telegram else (args.telegram or SEND_TELEGRAM_BY_DEFAULT)
-    stocks = parse_stock_list(args.stocks)
+    if not args.prompt and not args.stocks and not args.ticker:
+        args.company = DEFAULT_COMPANY
+        args.ticker = DEFAULT_TICKER
+        args.market = DEFAULT_MARKET
+    if args.ticker and not args.company:
+        args.company = args.ticker
+    stocks = parse_stock_list(args.stocks, fallback_ticker=args.ticker)
 
     with sync_playwright() as p:
         if args.cdp:
