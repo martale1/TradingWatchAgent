@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -390,6 +391,47 @@ def build_contextual_request(history, user_text, max_turns=6):
     return "\n".join(lines)
 
 
+def extract_next_options(text):
+    lines = str(text or "").splitlines()
+    options = []
+    in_section = False
+    for line in lines:
+        clean = line.strip()
+        if not clean:
+            if in_section and options:
+                break
+            continue
+        header = clean.lstrip("#").strip().lower()
+        if header.startswith("opzioni successive"):
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        match = re.match(r"^\d+[\.\)]\s+`?(.+?)`?\s*$", clean)
+        if match:
+            option = match.group(1).strip().strip("`").strip()
+            if option:
+                options.append(option)
+            continue
+        if options:
+            break
+    return options
+
+
+def print_monitored_conditions_quick():
+    conditions = list_monitored_conditions(status=None)
+    if not conditions:
+        print("Nessun titolo sotto monitoring.")
+        return
+    print()
+    print("Titoli sotto monitoring:")
+    for item in conditions:
+        print(
+            f"- {item.get('ticker')} | stato={item.get('status')} | "
+            f"condizione={item.get('condition')} | azione={item.get('action_if_met')}"
+        )
+
+
 def build_startup_options(portfolio):
     options = []
     if portfolio is None:
@@ -448,6 +490,7 @@ def print_interactive_help(portfolio=None):
     print("- crea una proposta di portafoglio con 5 titoli e 15% cash")
     print("- mostra proposte pending")
     print("- mostra condizioni da monitorare")
+    print("- titoli monitorati")
     print("- mostra stato operativo del portafoglio")
     print("- aggiorna il capitale a 20000 euro")
     print("- conferma proposta 20260723-203433")
@@ -485,6 +528,16 @@ def run_interactive_loop(model):
         if user_text.lower() in {"aiuto", "help", "?"}:
             current_options = print_interactive_help(load_portfolio_file())
             continue
+        if user_text.lower() in {
+            "monitoring veloce",
+            "titoli monitorati",
+            "titoli sotto monitoring",
+            "mostra titoli monitorati",
+            "mostra condizioni veloci",
+        }:
+            print_monitored_conditions_quick()
+            current_options = print_next_options(load_portfolio_file())
+            continue
         if user_text.isdigit():
             option_index = int(user_text)
             if 1 <= option_index <= len(current_options):
@@ -502,7 +555,8 @@ def run_interactive_loop(model):
                 "assistant": str(result.final_output).strip(),
             }
         )
-        current_options = build_startup_options(load_portfolio_file())
+        response_options = extract_next_options(str(result.final_output))
+        current_options = response_options or build_startup_options(load_portfolio_file())
 
 
 def main():

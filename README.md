@@ -109,7 +109,13 @@ Opzioni successive:
 ```
 
 Anche al primo avvio di `--interactive` viene mostrata una lista di opzioni operative costruita dal contenuto di `portfolio.json`.
-Puoi scrivere il comando completo oppure solo il numero dell'opzione, per esempio `1`.
+Puoi scrivere il comando completo oppure solo il numero dell'opzione, per esempio `1`. Dopo ogni risposta, i numeri si aggiornano usando le ultime `Opzioni successive` mostrate dall'agente.
+
+Per una verifica veloce senza chiamare il modello:
+
+```text
+Tu> titoli monitorati
+```
 
 La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
 
