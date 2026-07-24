@@ -220,6 +220,51 @@ Lo script usa anche un lock locale (`logs/monitor.lock`) per evitare run sovrapp
 
 La dashboard React mostra `Ultima analisi titoli`, `Ultima run agente` e `Prossimo scheduled expected` leggendo `agent_run_state.json`.
 
+## Chat Telegram con agente
+
+Oltre alle notifiche Telegram, puoi usare lo stesso bot come chat remota per interrogare l'agente.
+
+Avvio da terminale:
+
+```powershell
+C:\Users\theoi\anaconda3\envs\openaiAgent\python.exe telegram_agent_bot.py
+```
+
+Oppure con launcher Windows:
+
+```powershell
+scripts\run_telegram_agent_bot.bat
+```
+
+Il bridge:
+
+```text
+- ascolta solo TELEGRAM_RECEIVER_ID configurato in .env
+- usa TELEGRAM_BOT_TOKEN o TELEGRAM_BOT_TOKEN_CH1
+- salva offset e contesto breve in telegram_agent_state.json
+- passa le richieste all'agente OpenAI SDK
+- risponde su Telegram spezzando i messaggi lunghi
+```
+
+Esempi da scrivere in Telegram:
+
+```text
+aiuto
+quali segnali attendi per uscire da CPR.MI?
+mostra performance
+mostra stato operativo
+quali titoli stai monitorando?
+aggiungi VOD.L alla watchlist con priorita high
+analizza AMP.MI
+```
+
+Log:
+
+```text
+logs/telegram-agent.log
+logs/telegram-agent.err.log
+```
+
 ## Modalita interattiva
 
 Da PyCharm puoi lanciare:
