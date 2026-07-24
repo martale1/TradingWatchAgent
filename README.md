@@ -10,7 +10,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - In modalita autonoma virtuale l'agente puo applicare da solo operazioni simulate sul `portfolio.json`; l'utente viene notificato via Telegram.
 - Le condizioni non ancora verificate vengono salvate in `portfolio.json` come `monitored_conditions`, cosi possono essere rivalutate nei controlli successivi.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
-- I candidati MIB30 vengono prima filtrati con score tecnico locale; l'agente decide poi se confermare i migliori con analisi visuale dei grafici via Playwright/ChatGPT prima di proporre operazioni.
+- I candidati MIB30 e gli strumenti materie prime vengono prima filtrati con score tecnico locale; l'agente decide poi se confermare i migliori con analisi visuale dei grafici via Playwright/ChatGPT prima di proporre operazioni.
 - In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
 
 ## Struttura
@@ -23,7 +23,7 @@ backend/main.py                 # API FastAPI per dashboard React
 frontend/                       # frontend React/Vite
 finance_charts/                 # indicatori e grafici tecnici
 finance_tools/                  # tool portfolio, scanner, news, chart
-validTickers/                   # universo titoli MIB30
+validTickers/                   # universi titoli: MIB30, crypto, materie prime
 portfolio.example.json          # esempio watchlist
 ```
 
@@ -32,6 +32,7 @@ Universi ticker:
 ```text
 validTickers/validtickers_IT_MIB30_with_sector.xlsx  # azioni monitorate dallo scanner MIB
 validTickers/validtickers_CRYPTO.xlsx                # crypto separate: BTC/ETH/SOL/ADA
+validTickers/MateriePrime.xlsx                       # ETC/ETN materie prime quotati, es. oro, rame, gas, coffee
 ```
 
 ## Setup
@@ -75,6 +76,20 @@ Scanner MIB30 tramite agente/tool CLI richiede API key se passa dall'agente:
 
 ```bash
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
+```
+
+Scanner materie prime come tool locale, senza API key:
+
+```bash
+python -c "from finance_tools.commodity_scanner import scan_commodity_candidates; print(scan_commodity_candidates(limit=8)['candidates'])"
+```
+
+Oppure dalla chat agente:
+
+```text
+Tu> scannerizza le materie prime e dimmi i migliori candidati
+Tu> analizza oro e rame dalla lista materie prime
+Tu> mostrami le materie prime con score alto e rischi principali
 ```
 
 Scanner MIB30. Per default l'agente puo decidere autonomamente se approfondire i migliori candidati con Playwright/ChatGPT:
@@ -347,9 +362,21 @@ Il monitor periodico esegue cicli ricorrenti con questa priorita:
 1. controlla titoli gia in portafoglio e propone eventuali azioni pending
 2. rivaluta condizioni monitorate e le aggiorna come waiting/met/invalidated/archived
 3. scannerizza il MIB30 per trovare nuovi candidati interessanti
-4. salva nuove condizioni o crea nuove proposte pending se serve
-5. invia riepilogo Telegram quando lo stato operativo cambia
+4. scannerizza anche `MateriePrime.xlsx` se disponibile, mantenendo il mercato separato dal MIB30
+5. salva nuove condizioni o crea nuove proposte pending se serve
+6. invia riepilogo Telegram quando lo stato operativo cambia
 ```
+
+## Materie prime
+
+La pagina React contiene una tab **Materie prime**. Da qui puoi:
+
+- vedere tutti gli strumenti caricati da `validTickers/MateriePrime.xlsx`;
+- avviare una scansione tecnica dell'universo commodity;
+- confrontare score, prezzo, variazione giornaliera, RSI, ADX, supporto e resistenza;
+- aprire il grafico dello strumento con gli stessi indicatori usati per le azioni.
+
+Lo scanner commodity usa gli stessi indicatori tecnici dello scanner MIB30, ma l'agente deve considerare il rischio specifico degli ETC/ETN e la volatilita del sottostante. In modalita autonoma, se trova uno strumento interessante ma non ancora confermato, deve preferire una condizione monitorata con scenario `BREAKOUT` o `PULLBACK_SUPPORTO`.
 
 Per provarlo una sola volta da PyCharm o CLI:
 

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from agents import Agent, ModelSettings, Runner, function_tool
 
 from finance_tools.chart_tool import generate_chart_context_json
+from finance_tools.commodity_scanner import load_commodity_tickers_json, scan_commodity_candidates_json
 from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
@@ -242,6 +243,31 @@ def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False, un
     return scan_mib30_candidates_json(
         limit=limit,
         create_proposals=create_proposals,
+        universe_limit=universe_limit or None,
+    )
+
+
+@function_tool
+def list_commodity_universe() -> str:
+    """List instruments loaded from validTickers/MateriePrime.xlsx."""
+    log_step("Tool list_commodity_universe chiamato")
+    return load_commodity_tickers_json()
+
+
+@function_tool
+def scan_commodities_for_candidates(limit: int = 8, universe_limit: int = 0) -> str:
+    """Scan commodity/ETC tickers from MateriePrime.xlsx and find interesting technical candidates.
+
+    Args:
+        limit: Maximum number of candidates to return.
+        universe_limit: Optional number of instruments to analyze for quick tests. Use 0 for full universe.
+    """
+    log_step(
+        "Tool scan_commodities_for_candidates chiamato | "
+        f"limit={limit} universe_limit={universe_limit}"
+    )
+    return scan_commodity_candidates_json(
+        limit=limit,
         universe_limit=universe_limit or None,
     )
 
@@ -569,6 +595,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         get_portfolio_operating_status,
         set_virtual_portfolio_capital,
         scan_mib30_for_candidates,
+        list_commodity_universe,
+        scan_commodities_for_candidates,
         propose_virtual_portfolio_from_mib30,
         list_portfolio_proposals,
         record_monitored_condition,
@@ -637,6 +665,9 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Per buy/sell/reduce cita sempre l'effetto delle news: favorevoli, neutre, negative o non disponibili. "
             "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
+            "Quando l'utente parla di materie prime, commodity, oro, petrolio, gas, metalli o agricoli, "
+            "usa list_commodity_universe e scan_commodities_for_candidates: e un universo separato caricato da validTickers/MateriePrime.xlsx. "
+            "Per le materie prime chiarisci che molti strumenti sono ETC/ETN quotati a Milano e valuta anche volatilita, volumi e rischio specifico dello strumento. "
             "Quando devi proporre titoli da mettere in portafoglio, usa prima lo scanner numerico. "
             "Poi decidi autonomamente se approfondire i migliori candidati con confirm_candidate_chart_with_playwright: "
             "fallo sempre se stai per creare una proposta di acquisto o allocazione, se ci sono segnali tecnici contrastanti, "
@@ -709,7 +740,7 @@ def build_periodic_monitor_request(
         operation_hint = "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
     return (
         "Esegui un ciclo periodico di monitoraggio operativo. "
-        "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita dal MIB30. "
+        "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita da MIB30 e materie prime. "
         + operation_hint +
         "Prima chiama get_portfolio_operating_status e get_portfolio_performance. "
         "Se get_portfolio_performance mostra alert rilevanti su P/L posizione o portafoglio, chiama send_portfolio_performance_telegram. "
@@ -726,6 +757,10 @@ def build_periodic_monitor_request(
         + ENTRY_SCENARIOS_GUIDE +
         "Se un titolo in watchlist diventa interessante, crea una condizione monitorata concreta o una proposta motivata. "
         f"Infine scannerizza il MIB30 con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
+        "Se il file MateriePrime.xlsx e disponibile, scannerizza anche le materie prime con scan_commodities_for_candidates "
+        f"limit={scan_limit}, {universe_hint}. "
+        "Per le commodity agisci con prudenza: se un candidato e interessante, preferisci salvare un trigger monitorato "
+        "con scenario BREAKOUT o PULLBACK_SUPPORTO; crea una proposta solo se tecnica, volumi e news disponibili non sono contrari. "
         f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati solo se servono davvero per una proposta o per un monitoraggio serio; "
         "in tal caso usa confirm_candidate_chart_with_playwright un ticker alla volta. "
         "Se trovi candidati interessanti ma non ancora comprabili, salva condizioni concrete con record_monitored_condition. "

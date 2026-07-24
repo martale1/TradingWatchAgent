@@ -566,6 +566,124 @@ function Watchlist({ rows = [], reload, onChart }) {
   );
 }
 
+function Commodities({ rows = [], onChart }) {
+  const [limit, setLimit] = useState(8);
+  const [scan, setScan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function runScan() {
+    setBusy(true);
+    setMessage("Scansione materie prime in corso: scarico dati, calcolo indicatori e score...");
+    try {
+      const result = await api("/api/commodities/scan", {
+        method: "POST",
+        body: JSON.stringify({ limit: Number(limit) || 8, universe_limit: 0 }),
+        timeoutMs: 900000,
+      });
+      setScan(result);
+      setMessage(`Scansione completata: ${result.count || 0} strumenti validi, ${result.errors?.length || 0} errori.`);
+    } catch (error) {
+      setMessage(`Errore scansione materie prime: ${error.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const candidates = scan?.candidates || [];
+
+  return (
+    <section className="panel">
+      <div className="sectionHeader">
+        <h2>Materie prime</h2>
+        <div className="sectionActions">
+          <span>{rows.length} strumenti da MateriePrime.xlsx</span>
+          <label className="inlineControl">Top
+            <input type="number" min="3" max="30" value={limit} onChange={(event) => setLimit(event.target.value)} />
+          </label>
+          <button onClick={runScan} disabled={busy || !rows.length}>
+            {busy ? "Scansione..." : "Scansiona materie prime"}
+          </button>
+        </div>
+      </div>
+      {message && <div className={`scanMessage ${busy ? "running" : ""}`}>{message}</div>}
+
+      {candidates.length > 0 && (
+        <>
+          <h3>Candidati migliori</h3>
+          <div className="cardsGrid commoditiesGrid">
+            {candidates.map((item) => (
+              <div className="commodityCard" key={item.ticker}>
+                <div className="commodityCardHeader">
+                  <div>
+                    <b>{item.ticker}</b>
+                    <span>{item.name}</span>
+                  </div>
+                  <span className={`scoreBadge ${Number(item.score) >= 7 ? "good" : Number(item.score) >= 4 ? "warning" : "neutral"}`}>score {item.score}</span>
+                </div>
+                <div className="commodityStats">
+                  <div><span>Prezzo</span><b>{price(item.close)}</b></div>
+                  <div><span>Oggi</span><b className={signedClass(item.change_1d_pct)}>{pct(item.change_1d_pct)}</b></div>
+                  <div><span>RSI</span><b>{price(item.rsi)}</b></div>
+                  <div><span>ADX</span><b>{price(item.adx)}</b></div>
+                  <div><span>Supporto</span><b>{price(item.support_10)}</b></div>
+                  <div><span>Resistenza</span><b>{price(item.resistance_10)}</b></div>
+                </div>
+                <div className="signalLists">
+                  <p><strong>Ragioni:</strong> {(item.reasons || []).join("; ") || "n/d"}</p>
+                  <p><strong>Rischi:</strong> {(item.risks || []).join("; ") || "n/d"}</p>
+                </div>
+                <button className="chartButton" onClick={() => onChart({
+                  ticker: item.ticker,
+                  condition: `Materia prima / ETC. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`,
+                })}><LineChart size={16} /> Grafico</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <h3>Universo disponibile</h3>
+      {!rows.length ? (
+        <div className="emptyState">File MateriePrime.xlsx non trovato o vuoto.</div>
+      ) : (
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Nome</th>
+                <th>Ultima quotazione file</th>
+                <th>Mercato</th>
+                <th>Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.ticker}>
+                  <td className="ticker">{row.ticker}</td>
+                  <td>{row.name}</td>
+                  <td>{row.latest_quotation || "n/d"}</td>
+                  <td>{row.market || "Materie prime / ETC"}</td>
+                  <td>
+                    <button className="miniButton" onClick={() => onChart({
+                      ticker: row.ticker,
+                      condition: row.name || "Materia prima / ETC",
+                    })}><LineChart size={15} /> Grafico</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="small">
+        Questi strumenti vengono analizzati come universo separato: lo scanner calcola score tecnico, ma l'agente deve verificare volumi, news e rischio specifico prima di decidere.
+      </p>
+    </section>
+  );
+}
+
 function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" }) {
   const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
@@ -1379,6 +1497,7 @@ function App() {
   const tabs = useMemo(() => [
     ["dashboard", "Dashboard"],
     ["watchlist", "Watchlist"],
+    ["commodities", "Materie prime"],
     ["chat", "Chat"],
     ["actions", "Azioni"],
     ["logs", "Run log"],
@@ -1436,6 +1555,7 @@ function App() {
             </>
           )}
           {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
+          {tab === "commodities" && <Commodities rows={data.commodities || []} onChart={setChartItem} />}
           {tab === "chat" && <Chat />}
           {tab === "actions" && <Actions rows={data.recent_actions || []} />}
           {tab === "logs" && <RunLogs />}

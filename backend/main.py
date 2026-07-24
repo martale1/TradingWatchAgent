@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from finance_tools.common import load_env_file  # noqa: E402
 from finance_tools.agent_run_state import agent_schedule_status  # noqa: E402
+from finance_tools.commodity_scanner import load_commodity_tickers, scan_commodity_candidates  # noqa: E402
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
 from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
@@ -75,6 +76,11 @@ class TelegramSettingsRequest(BaseModel):
     monitoring_mode: str = "always"
     send_performance_alerts: bool = True
     max_monitoring_items: int = 5
+
+
+class CommodityScanRequest(BaseModel):
+    limit: int = 8
+    universe_limit: int = 0
 
 
 def tail_text(path: Path, max_lines: int = 300):
@@ -145,7 +151,24 @@ def dashboard():
         "exit_conditions": exits,
         "agent_run_state": agent_schedule_status(),
         "recent_actions": closed,
+        "commodities": load_commodity_tickers(),
     }
+
+
+@app.get("/api/commodities")
+def commodities():
+    return {"status": "ok", "commodities": load_commodity_tickers()}
+
+
+@app.post("/api/commodities/scan")
+def commodities_scan(request: CommodityScanRequest):
+    try:
+        return scan_commodity_candidates(
+            limit=max(1, min(int(request.limit), 30)),
+            universe_limit=int(request.universe_limit) or None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Errore scanner materie prime: {exc}") from exc
 
 
 @app.get("/api/run-logs")

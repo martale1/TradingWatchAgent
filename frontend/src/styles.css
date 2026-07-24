@@ -311,6 +311,99 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   margin: 0;
   color: #475569;
 }
+.inlineControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #64748b;
+  font-size: 12px;
+}
+.inlineControl input {
+  width: 72px;
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  padding: 8px;
+}
+.scanMessage {
+  border: 1px solid #dbe1ea;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #475569;
+  margin: 10px 0 16px;
+}
+.scanMessage.running {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.commoditiesGrid {
+  margin: 10px 0 22px;
+}
+.commodityCard {
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #111827;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+.commodityCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.commodityCardHeader b {
+  display: block;
+  color: #0f172a;
+  font-size: 17px;
+}
+.commodityCardHeader span {
+  display: block;
+  color: #64748b;
+  font-size: 13px;
+  margin-top: 3px;
+}
+.scoreBadge {
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.scoreBadge.good { background: #e6f4ea; color: #137333; }
+.scoreBadge.warning { background: #fff4e5; color: #b06000; }
+.scoreBadge.neutral { background: #f1f3f4; color: #5f6368; }
+.commodityStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.commodityStats div {
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfdff;
+}
+.commodityStats span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.commodityStats b {
+  color: #0f172a;
+}
+.signalLists {
+  color: #334155;
+  font-size: 13px;
+  min-height: 84px;
+}
+.signalLists p {
+  margin: 0 0 7px;
+}
 
 .positive { color: #137333; background: #e6f4ea; }
 .negative { color: #b3261e; background: #fce8e6; }
