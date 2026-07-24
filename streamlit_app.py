@@ -1,12 +1,13 @@
 import subprocess
 import sys
 from pathlib import Path
+import re
 
 import pandas as pd
 import streamlit as st
 
 from finance_tools.common import PROJECT_ROOT, load_env_file
-from finance_tools.performance_tool import calculate_portfolio_performance
+from finance_tools.performance_tool import calculate_portfolio_performance, latest_price
 from finance_tools.portfolio_store import load_portfolio, portfolio_status_summary
 from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary
 
@@ -67,6 +68,53 @@ def dataframe_or_empty(rows):
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows)
+
+
+def parse_condition_levels(condition):
+    levels = []
+    for match in re.finditer(r"€?\s*([0-9]+(?:[,.][0-9]+)?)", str(condition or "")):
+        try:
+            levels.append(float(match.group(1).replace(",", ".")))
+        except ValueError:
+            continue
+    return levels
+
+
+def enrich_monitored_conditions(conditions):
+    rows = []
+    for item in conditions:
+        ticker = str(item.get("ticker", "")).strip().upper()
+        condition = item.get("condition", "")
+        levels = parse_condition_levels(condition)
+        current_price = None
+        nearest_level = None
+        distance = None
+        distance_pct = None
+        price_status = "ok"
+        try:
+            current_price = latest_price(ticker)
+            if levels:
+                nearest_level = min(levels, key=lambda level: abs(current_price - level))
+                distance = current_price - nearest_level
+                distance_pct = (distance / nearest_level * 100.0) if nearest_level else None
+        except Exception as exc:
+            price_status = str(exc)
+        rows.append(
+            {
+                "ticker": ticker,
+                "status": item.get("status"),
+                "prezzo_attuale": round(current_price, 4) if current_price is not None else None,
+                "soglie": ", ".join(str(level).replace(".", ",") for level in levels),
+                "soglia_piu_vicina": round(nearest_level, 4) if nearest_level is not None else None,
+                "distanza": round(distance, 4) if distance is not None else None,
+                "distanza_pct": round(distance_pct, 2) if distance_pct is not None else None,
+                "condizione": condition,
+                "azione": item.get("action_if_met"),
+                "aggiornato": item.get("updated_at"),
+                "price_status": price_status,
+            }
+        )
+    return rows
 
 
 st.set_page_config(page_title="TradingWatchAgent", layout="wide")
@@ -150,6 +198,13 @@ with tab_chat:
         st.rerun()
 
 with tab_overview:
+    st.subheader("Portafoglio")
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Investito", f"EUR {float(performance.get('invested_amount') or 0):,.2f}")
+    p2.metric("Valore posizioni", f"EUR {float(performance.get('positions_value') or 0):,.2f}")
+    p3.metric("Esposizione", f"{float(performance.get('exposure_pct') or 0):.1f}%")
+    p4.metric("Numero posizioni", str(performance.get("positions_count", 0)))
+
     st.subheader("Posizioni aperte")
     positions_df = dataframe_or_empty(performance.get("positions", []))
     if positions_df.empty:
@@ -179,14 +234,35 @@ with tab_overview:
         st.success("Nessun alert performance.")
 
 with tab_monitoring:
-    st.subheader("Condizioni monitorate")
+    st.subheader("Titoli monitorati con soglie")
     conditions = status.get("monitored_conditions", [])
-    conditions_df = dataframe_or_empty(conditions)
-    if conditions_df.empty:
+    enriched_conditions = enrich_monitored_conditions(conditions)
+    enriched_df = dataframe_or_empty(enriched_conditions)
+    if enriched_df.empty:
         st.info("Nessuna condizione monitorata.")
     else:
-        columns = ["id", "ticker", "status", "condition", "action_if_met", "updated_at"]
-        st.dataframe(conditions_df[[c for c in columns if c in conditions_df.columns]], width="stretch")
+        columns = [
+            "ticker",
+            "status",
+            "prezzo_attuale",
+            "soglie",
+            "soglia_piu_vicina",
+            "distanza",
+            "distanza_pct",
+            "condizione",
+            "azione",
+        ]
+        st.dataframe(enriched_df[[c for c in columns if c in enriched_df.columns]], width="stretch")
+
+        near = enriched_df[
+            enriched_df["distanza_pct"].notna() & (enriched_df["distanza_pct"].abs() <= 2.0)
+        ]
+        if not near.empty:
+            st.info("Titoli vicini a una soglia entro +/-2%:")
+            st.dataframe(
+                near[["ticker", "prezzo_attuale", "soglia_piu_vicina", "distanza_pct", "condizione"]],
+                width="stretch",
+            )
 
     st.subheader("Proposte pending")
     pending = status.get("pending_buy_proposals", []) + status.get("pending_other_proposals", [])
