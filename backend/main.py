@@ -253,6 +253,23 @@ def run_once(request: RunMonitorRequest):
     return {"output": output}
 
 
+@app.post("/api/agent/analyze-watchlist-entry-conditions")
+def analyze_watchlist_entry_conditions():
+    prompt = (
+        "Analizza tutti i titoli della watchlist manuale usando list_manual_watchlist. "
+        "Per ogni titolo lavora in sequenza, uno alla volta: "
+        "1) usa analyze_stock_chart; "
+        "2) usa confirm_candidate_chart_with_playwright(no_telegram=True) per analisi visuale AI via Playwright; "
+        "3) usa news disponibili in cache senza live se non richiesto esplicitamente; "
+        "4) definisci una entry_condition concreta di ingresso con livello prezzo, conferma volumi e supporto/stop di invalidazione; "
+        "5) aggiorna la watchlist con add_ticker_to_watchlist mantenendo motivo, priorita e tag esistenti quando disponibili. "
+        "Non creare proposte di acquisto in questa azione: imposta solo condizioni ingresso per la watchlist. "
+        "Concludi con una tabella compatta ticker, prezzo, condizione ingresso impostata, supporto/stop e motivazione."
+    )
+    output = run_agent_command([prompt], timeout=1800)
+    return {"output": output, "answer": extract_agent_answer(output)}
+
+
 @app.post("/api/telegram/monitoring")
 def telegram_monitoring():
     return send_monitoring_summary(extra_note="Invio richiesto da web app React.")

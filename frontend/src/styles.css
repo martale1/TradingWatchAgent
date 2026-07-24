@@ -102,8 +102,15 @@ nav button { border: 0; border-radius: 0; background: transparent; padding: 12px
 nav button.active { color: #ef4444; border-bottom: 2px solid #ef4444; }
 
 .panel { padding: 18px; margin-bottom: 18px; }
-.sectionHeader { display: flex; justify-content: space-between; align-items: center; }
+.sectionHeader { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .sectionHeader span { color: #64748b; }
+.sectionActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
 .tableWrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -144,6 +151,29 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   font-family: inherit;
   line-height: 1.35;
   margin-bottom: 8px;
+}
+.watchlistAiStatus {
+  border: 1px solid #dbe1ea;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0 16px;
+}
+.watchlistAiStatus.running {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.watchlistAiStatus strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #111827;
+}
+.watchlistAiStatus p {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin: 0;
+  color: #475569;
 }
 
 .positive { color: #137333; background: #e6f4ea; }

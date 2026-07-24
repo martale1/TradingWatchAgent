@@ -328,6 +328,7 @@ function Watchlist({ rows = [], reload, onChart }) {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [conditionDrafts, setConditionDrafts] = useState({});
+  const [aiStatus, setAiStatus] = useState("");
 
   async function addItem(event) {
     event.preventDefault();
@@ -392,11 +393,39 @@ function Watchlist({ rows = [], reload, onChart }) {
     }
   }
 
+  async function analyzeEntryConditions() {
+    if (!rows.length) {
+      setMessage("Watchlist vuota: aggiungi almeno un titolo.");
+      return;
+    }
+    setBusy("ai-watchlist");
+    setMessage("");
+    setAiStatus("Analisi AI via Playwright in corso: genero grafici, leggo conferma visuale e imposto i trigger...");
+    try {
+      const result = await api("/api/agent/analyze-watchlist-entry-conditions", {
+        method: "POST",
+        body: JSON.stringify({}),
+        timeoutMs: 1800000,
+      });
+      setAiStatus(result.answer || result.output || "Analisi completata.");
+      reload();
+    } catch (error) {
+      setAiStatus(`Errore analisi AI watchlist: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <section className="panel">
       <div className="sectionHeader">
         <h2>Watchlist manuale</h2>
-        <span>Titoli da analizzare anche se non selezionati dallo scanner</span>
+        <div className="sectionActions">
+          <span>Titoli da analizzare anche se non selezionati dallo scanner</span>
+          <button onClick={analyzeEntryConditions} disabled={!!busy || !rows.length}>
+            AI imposta condizioni
+          </button>
+        </div>
       </div>
       <form className="watchlistForm" onSubmit={addItem}>
         <label>Ticker<input value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="es. VOD.L" /></label>
@@ -412,6 +441,12 @@ function Watchlist({ rows = [], reload, onChart }) {
         <button disabled={!!busy || !ticker.trim()}>Aggiungi</button>
       </form>
       {message && <p className="small">{message}</p>}
+      {aiStatus && (
+        <div className={`watchlistAiStatus ${busy === "ai-watchlist" ? "running" : ""}`}>
+          <strong>{busy === "ai-watchlist" ? "Analisi in corso" : "Risultato analisi AI"}</strong>
+          <p>{aiStatus}</p>
+        </div>
+      )}
       {!rows.length ? (
         <div className="emptyState">Watchlist vuota.</div>
       ) : (
