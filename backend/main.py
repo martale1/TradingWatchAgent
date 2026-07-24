@@ -154,9 +154,11 @@ def run_logs(lines: int = 300):
     log_dir = ROOT / "logs"
     scheduled_log = log_dir / "scheduled-monitor.log"
     scheduled_err = log_dir / "scheduled-monitor.err.log"
+    agent_state = agent_schedule_status()
     return {
         "status": "ok",
         "lines": max_lines,
+        "agent_run_state": agent_state,
         "scheduled_log": tail_text(scheduled_log, max_lines),
         "scheduled_err": tail_text(scheduled_err, max_lines),
         "scheduled_log_updated_at": scheduled_log.stat().st_mtime if scheduled_log.exists() else None,

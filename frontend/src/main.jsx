@@ -245,7 +245,6 @@ function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
       <div><span>Ultimo ciclo agente completato</span><b>{dateTime(state.last_completed_at)}</b></div>
       <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
-      {state.last_warning && !state.last_error && <div className="agentStatusWarning"><span>Nota stato agente</span><b>{state.last_warning}</b></div>}
     </section>
   );
 }
@@ -1282,6 +1281,13 @@ function RunLogs() {
       {state.error && <div className="error">{state.error}</div>}
       {state.data && (
         <div className="runLogsGrid">
+          {(state.data.agent_run_state?.last_warning || state.data.agent_run_state?.last_error) && (
+            <div className="runLogNotice">
+              <strong>Stato agente</strong>
+              {state.data.agent_run_state?.last_error && <p>Errore: {state.data.agent_run_state.last_error}</p>}
+              {state.data.agent_run_state?.last_warning && <p>Nota: {state.data.agent_run_state.last_warning}</p>}
+            </div>
+          )}
           <div>
             <h3>scheduled-monitor.log</h3>
             <pre className="log runLog">{state.data.scheduled_log || "Nessun output disponibile."}</pre>

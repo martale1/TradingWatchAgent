@@ -129,6 +129,22 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   border-color: #fed7aa !important;
   background: #fff7ed;
 }
+.runLogNotice {
+  grid-column: 1 / -1;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  padding: 12px;
+}
+.runLogNotice strong {
+  display: block;
+  color: #92400e;
+  margin-bottom: 6px;
+}
+.runLogNotice p {
+  margin: 4px 0 0;
+  color: #713f12;
+}
 .manualRunBanner {
   margin: -6px 0 16px;
   border: 1px solid #bbf7d0;
