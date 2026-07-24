@@ -19,7 +19,7 @@ def safe_float(value, default=0.0):
         return default
 
 
-def latest_price(ticker):
+def latest_quote(ticker):
     data = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=False)
     if data is None or data.empty:
         raise RuntimeError(f"Nessun prezzo disponibile per {ticker}")
@@ -29,7 +29,18 @@ def latest_price(ticker):
     close = close.dropna()
     if close.empty:
         raise RuntimeError(f"Nessuna chiusura disponibile per {ticker}")
-    return float(close.iloc[-1])
+    current = float(close.iloc[-1])
+    previous = float(close.iloc[-2]) if len(close) >= 2 else None
+    daily_change_pct = ((current - previous) / previous * 100.0) if previous else None
+    return {
+        "current_price": current,
+        "previous_close": previous,
+        "daily_change_pct": daily_change_pct,
+    }
+
+
+def latest_price(ticker):
+    return latest_quote(ticker)["current_price"]
 
 
 def calculate_portfolio_performance(path=None):
@@ -59,15 +70,20 @@ def calculate_portfolio_performance(path=None):
             quantity = allocated / entry
         invested += allocated
         try:
-            price = latest_price(ticker)
+            quote = latest_quote(ticker)
+            price = quote["current_price"]
             market_value = quantity * price if quantity else allocated
             pnl = market_value - allocated
             pnl_pct = (pnl / allocated * 100.0) if allocated else 0.0
             price_change_pct = ((price - entry) / entry * 100.0) if entry else 0.0
+            daily_change_pct = quote.get("daily_change_pct")
+            previous_close = quote.get("previous_close")
             status = "ok"
             error = ""
         except Exception as exc:
             price = None
+            daily_change_pct = None
+            previous_close = None
             market_value = allocated
             pnl = 0.0
             pnl_pct = 0.0
@@ -108,6 +124,8 @@ def calculate_portfolio_performance(path=None):
                 "ticker": ticker,
                 "entry_price": round(entry, 4) if entry else None,
                 "current_price": round(price, 4) if price is not None else None,
+                "previous_close": round(previous_close, 4) if previous_close is not None else None,
+                "daily_change_pct": round(daily_change_pct, 2) if daily_change_pct is not None else None,
                 "virtual_quantity": round(quantity, 4) if quantity else None,
                 "invested_amount": round(allocated, 2),
                 "market_value": round(market_value, 2),

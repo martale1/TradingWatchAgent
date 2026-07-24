@@ -205,11 +205,13 @@ def build_monitoring_summary(extra_note=""):
             perf_item = position_perf.get(ticker, {})
             pnl = perf_item.get("pnl")
             pnl_pct = perf_item.get("pnl_pct")
+            daily_change_pct = perf_item.get("daily_change_pct")
             close = perf_item.get("current_price")
             close_text = f" px {format_number(close)}" if close is not None else ""
+            daily_text = f" oggi {format_pct(daily_change_pct)}" if daily_change_pct is not None else ""
             lines.append(
                 f"{trend_marker(pnl)} {ticker}: {amount} | "
-                f"P/L {format_signed_money(pnl)} ({format_pct(pnl_pct)}){close_text}"
+                f"P/L {format_signed_money(pnl)} ({format_pct(pnl_pct)}){daily_text}{close_text}"
             )
         if len(positions) > 6:
             lines.append(f"... altre {len(positions) - 6} posizioni")

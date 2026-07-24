@@ -265,6 +265,7 @@ function Positions({ rows = [], onChart }) {
               <th>P/L %</th>
               <th>Entry</th>
               <th>Prezzo</th>
+              <th>Oggi</th>
               <th>Quantita</th>
               <th></th>
             </tr>
@@ -279,6 +280,7 @@ function Positions({ rows = [], onChart }) {
                 <td><span className={`pill ${signedClass(row.pnl_pct)}`}>{pct(row.pnl_pct)}</span></td>
                 <td>{price(row.entry_price)}</td>
                 <td>{price(row.current_price)}</td>
+                <td><span className={`pill ${signedClass(row.daily_change_pct)}`}>{pct(row.daily_change_pct)}</span></td>
                 <td>{price(row.virtual_quantity)}</td>
                 <td><button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, trigger_level: row.entry_price, support_level: null, condition: "Prezzo di ingresso posizione" })}><LineChart size={15} /> Grafico</button></td>
               </tr>
@@ -314,7 +316,8 @@ function ExitConditions({ rows = [], onChart }) {
             </div>
             <div className="triggerGrid">
               <div><span>Prezzo</span><b>{price(row.current_price)}</b></div>
-              <div><span>P/L</span><b className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</b></div>
+              <div><span>Oggi</span><b className={signedClass(row.daily_change_pct)}>{pct(row.daily_change_pct)}</b></div>
+              <div><span>P/L posizione</span><b className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</b></div>
               <div><span>Stop uscita</span><b>{price(row.stop_level)}</b></div>
               <div><span>Take profit</span><b>{price(row.take_profit_level)}</b></div>
               <div><span>Distanza stop</span><b className={signedClass(row.distance_to_stop_pct)}>{pct(row.distance_to_stop_pct)}</b></div>
@@ -354,6 +357,7 @@ function TriggerCard({ item, onChart }) {
       </div>
       <div className="triggerGrid">
         <div><span>Prezzo attuale</span><b>{price(item.current_price)}</b></div>
+        <div><span>Oggi</span><b className={signedClass(item.daily_change_pct)}>{pct(item.daily_change_pct)}</b></div>
         <div><span>Trigger ingresso</span><b>{price(item.trigger_level)}</b></div>
         <div><span>Supporto/stop</span><b>{price(item.support_level)}</b></div>
         <div><span>Distanza trigger</span><b className={signedClass(item.trigger_distance_pct)}>{pct(item.trigger_distance_pct)}</b></div>

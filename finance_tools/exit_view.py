@@ -142,6 +142,8 @@ def build_exit_conditions(performance, portfolio):
                 "status": status,
                 "status_kind": status_kind,
                 "current_price": item.get("current_price"),
+                "previous_close": item.get("previous_close"),
+                "daily_change_pct": item.get("daily_change_pct"),
                 "entry_price": item.get("entry_price"),
                 "pnl_pct": item.get("pnl_pct"),
                 "stop_level": round(stop_level, 4) if stop_level is not None else None,

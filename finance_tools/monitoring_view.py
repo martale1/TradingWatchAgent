@@ -1,6 +1,6 @@
 import re
 
-from finance_tools.performance_tool import latest_price
+from finance_tools.performance_tool import latest_quote
 
 MONEY_PREFIX = r"(?:EUR|€)?"
 
@@ -85,9 +85,14 @@ def enrich_monitored_conditions(conditions):
         levels = parse_condition_levels(condition)
         trigger_level, support_level = parse_condition_targets(condition)
         current_price = None
+        previous_close = None
+        daily_change_pct = None
         price_status = "ok"
         try:
-            current_price = latest_price(ticker)
+            quote = latest_quote(ticker)
+            current_price = quote.get("current_price")
+            previous_close = quote.get("previous_close")
+            daily_change_pct = quote.get("daily_change_pct")
         except Exception as exc:
             price_status = str(exc)
 
@@ -109,6 +114,8 @@ def enrich_monitored_conditions(conditions):
                 "action_if_met": item.get("action_if_met"),
                 "updated_at": item.get("updated_at"),
                 "current_price": round(current_price, 4) if current_price is not None else None,
+                "previous_close": round(previous_close, 4) if previous_close is not None else None,
+                "daily_change_pct": round(daily_change_pct, 2) if daily_change_pct is not None else None,
                 "levels": levels,
                 "nearest_level": round(nearest_level, 4) if nearest_level is not None else None,
                 "nearest_distance": round(distance, 4) if distance is not None else None,
