@@ -29,13 +29,22 @@ function signedClass(value) {
 }
 
 async function api(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30000);
   const response = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
+    signal: controller.signal,
     ...options,
-  });
+  }).finally(() => window.clearTimeout(timeout));
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text);
+    let text = await response.text();
+    try {
+      const parsed = JSON.parse(text);
+      text = parsed.detail?.output || parsed.detail || text;
+    } catch {
+      // Keep raw response text.
+    }
+    throw new Error(text || `Errore HTTP ${response.status}`);
   }
   return response.json();
 }
@@ -252,7 +261,10 @@ function App() {
       setError("");
       setData(await api("/api/dashboard"));
     } catch (err) {
-      setError(err.message);
+      const message = err.name === "AbortError"
+        ? "Timeout nel caricamento dei dati. Il backend sta impiegando troppo tempo a rispondere."
+        : err.message;
+      setError(message);
     }
   }
 
