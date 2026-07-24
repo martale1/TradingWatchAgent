@@ -226,8 +226,8 @@ function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
           {runNowBusy ? "Avvio..." : "Esegui ora"}
         </button>
       </div>
-      <div><span>Ultima analisi titoli</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
-      <div><span>Ultimo ticker analizzato</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
+      <div><span>Ultimo grafico/analisi file</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
+      <div><span>Ultimo ticker con file analisi</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
       <div>
         <span>Prossimo scheduled expected</span>
         <b>{scheduleText}</b>
@@ -242,7 +242,7 @@ function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
       </div>
       <div><span>Intervallo</span><b>{state.interval_minutes || 30} min</b></div>
       <div><span>Analisi disponibili</span><b>{state.analyzed_tickers_count || 0} titoli</b></div>
-      <div><span>Ultima run agente</span><b>{dateTime(state.last_completed_at)}</b></div>
+      <div><span>Ultimo ciclo agente completato</span><b>{dateTime(state.last_completed_at)}</b></div>
       <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
       {state.last_warning && !state.last_error && <div className="agentStatusWarning"><span>Nota stato agente</span><b>{state.last_warning}</b></div>}

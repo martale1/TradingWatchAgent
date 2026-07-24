@@ -196,6 +196,7 @@ def mark_agent_run_completed(interval_minutes=None, once=False, error=""):
             "interval_minutes": interval,
             "next_expected_at": (completed + timedelta(minutes=interval)).isoformat(),
             "last_error": str(error or ""),
+            "last_warning": "" if not error else state.get("last_warning", ""),
             "last_run_was_once": bool(once),
         }
     )

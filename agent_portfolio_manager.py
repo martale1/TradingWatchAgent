@@ -671,7 +671,23 @@ def run_periodic_monitor_loop(
             max_auto_trade_pct=max_auto_trade_pct,
         )
         try:
-            run_agent_once(agent, request, display_request=f"monitor periodico ciclo #{cycle}")
+            run_agent_once(
+                agent,
+                request,
+                display_request=f"monitor periodico ciclo #{cycle}",
+                suppress_auto_telegram_summary=True,
+            )
+            log_step("Invio riepilogo Telegram di fine ciclo schedulato")
+            telegram_result = send_monitoring_summary(
+                extra_note=f"Riepilogo fine ciclo schedulato #{cycle}. Prossimo controllo tra {interval_minutes} minuti."
+            )
+            if telegram_result.get("status") == "ok":
+                log_step("Riepilogo Telegram fine ciclo inviato")
+            else:
+                log_step(
+                    "Riepilogo Telegram fine ciclo non inviato: "
+                    f"{telegram_result.get('message') or telegram_result.get('reason') or telegram_result.get('status')}"
+                )
             mark_agent_run_completed(interval_minutes=interval_minutes, once=once)
         except Exception as exc:
             mark_agent_run_completed(interval_minutes=interval_minutes, once=once, error=str(exc))
