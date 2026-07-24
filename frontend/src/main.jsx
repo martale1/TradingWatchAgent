@@ -197,7 +197,7 @@ function Metric({ label, value, delta, icon }) {
   );
 }
 
-function AgentRunStatus({ state = {} }) {
+function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
   const schedulerDisabled = state.scheduler_state === "Disabled" || state.scheduler_enabled === false;
@@ -222,6 +222,9 @@ function AgentRunStatus({ state = {} }) {
       <div>
         <span className="agentStatusLabel">Stato agente</span>
         <strong className={`pill ${statusClass}`}>{status === "never_run" ? "mai eseguito" : status}</strong>
+        <button className="agentRunNowButton" onClick={onRunNow} disabled={runNowBusy}>
+          {runNowBusy ? "Avvio..." : "Esegui ora"}
+        </button>
       </div>
       <div><span>Ultima analisi titoli</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
       <div><span>Ultimo ticker analizzato</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
@@ -1119,6 +1122,8 @@ function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [chartItem, setChartItem] = useState(null);
+  const [runNowBusy, setRunNowBusy] = useState(false);
+  const [runNowMessage, setRunNowMessage] = useState("");
 
   async function load() {
     try {
@@ -1135,6 +1140,24 @@ function App() {
   useEffect(() => { load(); }, []);
   const perf = data?.performance || {};
   const portfolio = data?.portfolio || {};
+
+  async function runNow() {
+    setRunNowBusy(true);
+    setRunNowMessage("Esecuzione manuale avviata. L'agente puo impiegare qualche minuto.");
+    try {
+      await api("/api/agent/run-once", {
+        method: "POST",
+        body: JSON.stringify({ scan_limit: 5, max_auto_trade_pct: 25 }),
+        timeoutMs: 900000,
+      });
+      setRunNowMessage("Esecuzione manuale completata. Dashboard aggiornata.");
+      await load();
+    } catch (err) {
+      setRunNowMessage(`Errore esecuzione manuale: ${err.message}`);
+    } finally {
+      setRunNowBusy(false);
+    }
+  }
 
   const tabs = useMemo(() => [
     ["dashboard", "Dashboard"],
@@ -1159,12 +1182,13 @@ function App() {
       {!data ? <div className="panel">Caricamento...</div> : (
         <>
           <div className="metrics">
-            <AgentRunStatus state={data.agent_run_state || {}} />
+            <AgentRunStatus state={data.agent_run_state || {}} onRunNow={runNow} runNowBusy={runNowBusy} />
             <Metric label="Capitale" value={eur(portfolio.initial_capital)} icon={<Wallet size={16} />} />
             <Metric label="Valore portafoglio" value={eur(perf.total_value)} delta={perf.total_pnl_pct} icon={<Activity size={16} />} />
             <Metric label="P/L totale" value={eur(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />
             <Metric label="Cash" value={eur(portfolio.cash)} icon={<Wallet size={16} />} />
           </div>
+          {runNowMessage && <div className={`manualRunBanner ${runNowBusy ? "running" : ""}`}>{runNowMessage}</div>}
 
           <nav>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</nav>
 

@@ -90,6 +90,17 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: #111827;
   font-size: 14px;
 }
+.agentRunNowButton {
+  margin-top: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  background: #111827;
+  color: white;
+  border-color: #111827;
+}
+.agentRunNowButton:hover {
+  border-color: #334155;
+}
 .agentScheduleBadge {
   display: inline-block;
   margin-top: 7px;
@@ -111,6 +122,20 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   grid-column: 1 / -1;
   border-top: 1px solid #fee2e2;
   border-color: #fee2e2 !important;
+}
+.manualRunBanner {
+  margin: -6px 0 16px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #15803d;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+.manualRunBanner.running {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 nav { display: flex; gap: 8px; margin: 18px 0; border-bottom: 1px solid #dbe1ea; }
