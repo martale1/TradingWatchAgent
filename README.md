@@ -10,7 +10,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - In modalita autonoma virtuale l'agente puo applicare da solo operazioni simulate sul `portfolio.json`; l'utente viene notificato via Telegram.
 - Le condizioni non ancora verificate vengono salvate in `portfolio.json` come `monitored_conditions`, cosi possono essere rivalutate nei controlli successivi.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
-- I candidati MIB30 e gli strumenti materie prime vengono prima filtrati con score tecnico locale; l'agente decide poi se confermare i migliori con analisi visuale dei grafici via Playwright/ChatGPT prima di proporre operazioni.
+- I candidati MIB30 e gli strumenti materie prime seguono lo stesso processo: filtro tecnico locale, short-list unica dei candidati interessanti, approfondimento selettivo con Playwright/ChatGPT solo dove serve, poi eventuale trigger/proposta/operazione virtuale.
 - In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
 
 ## Struttura
@@ -376,7 +376,15 @@ La pagina React contiene una tab **Materie prime**. Da qui puoi:
 - confrontare score, prezzo, variazione giornaliera, RSI, ADX, supporto e resistenza;
 - aprire il grafico dello strumento con gli stessi indicatori usati per le azioni.
 
-Lo scanner commodity usa gli stessi indicatori tecnici dello scanner MIB30, ma l'agente deve considerare il rischio specifico degli ETC/ETN e la volatilita del sottostante. In modalita autonoma, se trova uno strumento interessante ma non ancora confermato, deve preferire una condizione monitorata con scenario `BREAKOUT` o `PULLBACK_SUPPORTO`.
+Lo scanner commodity usa gli stessi indicatori tecnici dello scanner MIB30. Nel processo operativo l'agente:
+
+1. scansiona MIB30 e materie prime come universi separati;
+2. confronta i risultati in una short-list unica mantenendo chiaro il mercato di provenienza;
+3. approfondisce con Playwright/ChatGPT solo gli strumenti davvero interessanti, per esempio score alto, trigger vicino, posizione/watchlist rilevante o rischio non chiaro;
+4. evita di approfondire tutti gli strumenti solo perche sono presenti nel file;
+5. per gli ETC/ETN considera rischio specifico, volatilita del sottostante e volumi.
+
+In modalita autonoma, se trova uno strumento interessante ma non ancora confermato, deve preferire una condizione monitorata con scenario `BREAKOUT` o `PULLBACK_SUPPORTO`.
 
 Per provarlo una sola volta da PyCharm o CLI:
 
