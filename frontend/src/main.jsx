@@ -917,16 +917,62 @@ function Controls({ reload }) {
   const [maxTradePct, setMaxTradePct] = useState(25);
   const [busy, setBusy] = useState("");
   const [log, setLog] = useState("");
+  const [status, setStatus] = useState({
+    state: "idle",
+    label: "Pronto",
+    detail: "Nessuna operazione in corso.",
+    startedAt: null,
+    finishedAt: null,
+  });
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (status.state !== "running") return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [status.state]);
+
+  function elapsedLabel(startedAt, finishedAt) {
+    if (!startedAt) return "";
+    const end = finishedAt || now;
+    const seconds = Math.max(0, Math.floor((end - startedAt) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return minutes ? `${minutes}m ${String(rest).padStart(2, "0")}s` : `${rest}s`;
+  }
 
   async function run(path, body, label) {
+    const startedAt = Date.now();
     setBusy(label);
     setLog("");
+    setNow(startedAt);
+    setStatus({
+      state: "running",
+      label,
+      detail: `Esecuzione ${label} in corso. Attendo risposta dal backend/agente...`,
+      startedAt,
+      finishedAt: null,
+    });
     try {
       const result = await api(path, { method: "POST", body: JSON.stringify(body || {}), timeoutMs: 900000 });
       setLog(result.output || result.message || JSON.stringify(result, null, 2));
+      setStatus({
+        state: "done",
+        label,
+        detail: `Operazione ${label} completata.`,
+        startedAt,
+        finishedAt: Date.now(),
+      });
       reload();
     } catch (error) {
       setLog(error.message);
+      setStatus({
+        state: "error",
+        label,
+        detail: `Errore durante ${label}: ${error.message}`,
+        startedAt,
+        finishedAt: Date.now(),
+      });
     } finally {
       setBusy("");
     }
@@ -944,7 +990,15 @@ function Controls({ reload }) {
         <button onClick={() => run("/api/telegram/monitoring", {}, "telegram")} disabled={!!busy}>Telegram monitoraggio</button>
         <button onClick={() => run("/api/telegram/performance", {}, "performance")} disabled={!!busy}>Telegram performance</button>
       </div>
-      {busy && <p className="small">Esecuzione {busy} in corso...</p>}
+      <div className={`runStatusBar ${status.state}`}>
+        <div className="runStatusTop">
+          <span className="runStatusState">{status.state === "running" ? "In corso" : status.state === "done" ? "Completato" : status.state === "error" ? "Errore" : "Idle"}</span>
+          <strong>{status.label}</strong>
+          <span>{elapsedLabel(status.startedAt, status.finishedAt)}</span>
+        </div>
+        <div className="runProgress" aria-hidden="true"><span /></div>
+        <p>{status.detail}</p>
+      </div>
       {log && <pre className="log">{log}</pre>}
     </section>
   );
