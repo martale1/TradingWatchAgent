@@ -202,10 +202,13 @@ function AgentRunStatus({ state = {} }) {
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
   const schedulerDisabled = state.scheduler_state === "Disabled" || state.scheduler_enabled === false;
   const scheduleClass = schedulerDisabled || state.running_state_is_stale ? "negative" : state.next_scheduled_is_overdue ? "warning" : "neutral";
+  const primaryNextRun = state.scheduler_enabled && state.scheduler_next_run_at
+    ? state.scheduler_next_run_at
+    : state.next_scheduled_expected_at;
   const scheduleText = schedulerDisabled
     ? "Scheduler disabilitato"
-    : state.next_scheduled_expected_at
-      ? dateTime(state.next_scheduled_expected_at)
+    : primaryNextRun
+      ? dateTime(primaryNextRun)
       : "Non schedulato";
   const scheduleBadge = schedulerDisabled
     ? "task disabled"
@@ -225,7 +228,10 @@ function AgentRunStatus({ state = {} }) {
       <div>
         <span>Prossimo scheduled expected</span>
         <b>{scheduleText}</b>
-        {state.scheduler_next_run_at && (
+        {state.scheduler_next_run_at && !schedulerDisabled && state.next_scheduled_expected_at && state.scheduler_next_run_at !== state.next_scheduled_expected_at && (
+          <small className="agentScheduleDetail">Stima agente: {dateTime(state.next_scheduled_expected_at)}</small>
+        )}
+        {state.scheduler_next_run_at && schedulerDisabled && (
           <small className="agentScheduleDetail">Task Windows: {dateTime(state.scheduler_next_run_at)}</small>
         )}
         {scheduleBadge && (
