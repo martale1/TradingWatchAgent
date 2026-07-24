@@ -247,6 +247,11 @@ nav button.active { color: #ef4444; border-bottom: 2px solid #ef4444; }
   gap: 12px;
   flex-wrap: wrap;
 }
+.marketSubtitle {
+  margin: -2px 0 12px;
+  color: #64748b;
+  max-width: 880px;
+}
 
 .tableWrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }

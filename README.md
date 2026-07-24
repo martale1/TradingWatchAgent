@@ -1,6 +1,6 @@
 # TradingWatchAgent
 
-Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati dal MIB30, generare grafici tecnici e produrre proposte di modifica sempre soggette a conferma utente.
+Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati dal FTSE MIB, generare grafici tecnici e produrre proposte di modifica sempre soggette a conferma utente.
 
 ## Principi
 
@@ -10,7 +10,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 - In modalita autonoma virtuale l'agente puo applicare da solo operazioni simulate sul `portfolio.json`; l'utente viene notificato via Telegram.
 - Le condizioni non ancora verificate vengono salvate in `portfolio.json` come `monitored_conditions`, cosi possono essere rivalutate nei controlli successivi.
 - Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
-- I candidati MIB30 e gli strumenti materie prime seguono lo stesso processo: filtro tecnico locale, short-list unica dei candidati interessanti, approfondimento selettivo con Playwright/ChatGPT solo dove serve, poi eventuale trigger/proposta/operazione virtuale.
+- I candidati FTSE MIB e gli strumenti materie prime seguono lo stesso processo: filtro tecnico locale, short-list unica dei candidati interessanti, approfondimento selettivo con Playwright/ChatGPT solo dove serve, poi eventuale trigger/proposta/operazione virtuale.
 - In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
 
 ## Struttura
@@ -23,14 +23,14 @@ backend/main.py                 # API FastAPI per dashboard React
 frontend/                       # frontend React/Vite
 finance_charts/                 # indicatori e grafici tecnici
 finance_tools/                  # tool portfolio, scanner, news, chart
-validTickers/                   # universi titoli: MIB30, crypto, materie prime
+validTickers/                   # universi titoli: FTSE MIB, crypto, materie prime
 portfolio.example.json          # esempio watchlist
 ```
 
 Universi ticker:
 
 ```text
-validTickers/validtickers_IT_MIB30_with_sector.xlsx  # azioni monitorate dallo scanner MIB
+validTickers/validtickers_IT_MIB30_with_sector.xlsx  # azioni monitorate dallo scanner FTSE MIB
 validTickers/validtickers_CRYPTO.xlsx                # crypto separate: BTC/ETH/SOL/ADA
 validTickers/MateriePrime.xlsx                       # ETC/ETN materie prime quotati, es. oro, rame, gas, coffee
 ```
@@ -54,7 +54,7 @@ MONITOR_INTERVAL_MINUTES=30
 MAX_AUTO_TRADE_PCT=25
 ```
 
-`OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Screening MIB30 con news, grafici, condizioni e proposte richiede piu passaggi rispetto a una semplice analisi.
+`OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Screening FTSE MIB con news, grafici, condizioni e proposte richiede piu passaggi rispetto a una semplice analisi.
 `MONITOR_INTERVAL_MINUTES` e l'intervallo default del monitor periodico.
 `MAX_AUTO_TRADE_PCT` limita quanto cash puo usare una nuova operazione autonoma virtuale.
 
@@ -72,7 +72,7 @@ Genera grafici e snapshot tecnico:
 python stock_chart_ai_analysis.py --charts-only --stocks "VOD.L" --days 70
 ```
 
-Scanner MIB30 tramite agente/tool CLI richiede API key se passa dall'agente:
+Scanner FTSE MIB tramite agente/tool CLI richiede API key se passa dall'agente:
 
 ```bash
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
@@ -92,7 +92,7 @@ Tu> analizza oro e rame dalla lista materie prime
 Tu> mostrami le materie prime con score alto e rischi principali
 ```
 
-Scanner MIB30. Per default l'agente puo decidere autonomamente se approfondire i migliori candidati con Playwright/ChatGPT:
+Scanner FTSE MIB. Per default l'agente puo decidere autonomamente se approfondire i migliori candidati con Playwright/ChatGPT:
 
 ```bash
 python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
@@ -190,7 +190,7 @@ Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Gi
 
 ### Watchlist manuale
 
-La watchlist e una lista di ticker scelti dall'utente, separata dai candidati trovati dallo scanner MIB30. Serve per seguire titoli che vuoi analizzare piu a fondo anche se l'algoritmo non li seleziona.
+La watchlist e una lista di ticker scelti dall'utente, separata dai candidati trovati dallo scanner FTSE MIB. Serve per seguire titoli che vuoi analizzare piu a fondo anche se l'algoritmo non li seleziona.
 
 Dalla dashboard React apri il tab `Watchlist`, inserisci ticker, priorita, motivo e, se vuoi, una `condizione ingresso` esplicita da monitorare. Se la condizione e presente, l'agente la usa come trigger principale nei monitor periodici; se manca, durante l'analisi puo proporre o salvare una condizione concreta con livello prezzo, conferma volumi e supporto di invalidazione.
 
@@ -307,7 +307,7 @@ python agent_portfolio_manager.py --interactive
 In questa modalita puoi continuare la conversazione usando riferimenti al turno precedente. Esempio:
 
 ```text
-Tu> scannerizza il MIB30 e proponi 5 candidati per 20000 euro
+Tu> scannerizza il FTSE MIB e proponi 5 candidati per 20000 euro
 Tu> cerca le news per questi 5 titoli
 Tu> conferma i migliori 3 con analisi grafica Playwright
 ```
@@ -318,7 +318,7 @@ L'agente chiude le risposte operative con una sezione `Opzioni successive`, sceg
 Opzioni successive:
 1. rivaluta le condizioni monitorate
 2. mostra stato operativo del portafoglio
-3. scannerizza il MIB30 e cerca nuovi candidati
+3. scannerizza il FTSE MIB e cerca nuovi candidati
 4. analizza HER.MI con grafico e news live
 ```
 
@@ -352,7 +352,7 @@ La vista operativa include:
 
 Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
 
-Dopo uno screening completo del MIB30 con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, il runner invia automaticamente un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio. L'invio e deterministico: parte quando cambiano condizioni monitorate, proposte o stato operativo durante screening/rivalutazione/proposta.
+Dopo uno screening completo del FTSE MIB con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, il runner invia automaticamente un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio. L'invio e deterministico: parte quando cambiano condizioni monitorate, proposte o stato operativo durante screening/rivalutazione/proposta.
 
 ## Monitor periodico
 
@@ -361,8 +361,8 @@ Il monitor periodico esegue cicli ricorrenti con questa priorita:
 ```text
 1. controlla titoli gia in portafoglio e propone eventuali azioni pending
 2. rivaluta condizioni monitorate e le aggiorna come waiting/met/invalidated/archived
-3. scannerizza il MIB30 per trovare nuovi candidati interessanti
-4. scannerizza anche `MateriePrime.xlsx` se disponibile, mantenendo il mercato separato dal MIB30
+3. scannerizza il FTSE MIB per trovare nuovi candidati interessanti
+4. scannerizza anche `MateriePrime.xlsx` se disponibile, mantenendo il mercato separato dal FTSE MIB
 5. salva nuove condizioni o crea nuove proposte pending se serve
 6. invia riepilogo Telegram quando lo stato operativo cambia
 ```
@@ -376,9 +376,9 @@ La pagina React contiene una tab **Materie prime**. Da qui puoi:
 - confrontare score, prezzo, variazione giornaliera, RSI, ADX, supporto e resistenza;
 - aprire il grafico dello strumento con gli stessi indicatori usati per le azioni.
 
-Lo scanner commodity usa gli stessi indicatori tecnici dello scanner MIB30. Nel processo operativo l'agente:
+Lo scanner commodity usa gli stessi indicatori tecnici dello scanner FTSE MIB. Nel processo operativo l'agente:
 
-1. scansiona MIB30 e materie prime come universi separati;
+1. scansiona FTSE MIB e materie prime come universi separati;
 2. confronta i risultati in una short-list unica mantenendo chiaro il mercato di provenienza;
 3. approfondisce con Playwright/ChatGPT solo gli strumenti davvero interessanti, per esempio score alto, trigger vicino, posizione/watchlist rilevante o rischio non chiaro;
 4. evita di approfondire tutti gli strumenti solo perche sono presenti nel file;
@@ -503,7 +503,7 @@ Se il portafoglio e vuoto, chiedi all'agente di creare una proposta:
 python agent_portfolio_manager.py --build-empty-portfolio --scan-limit 5 --cash-pct 15
 ```
 
-L'agente chiede il capitale se non passi `--capital`, scannerizza il MIB30 e crea una proposta pending.
+L'agente chiede il capitale se non passi `--capital`, scannerizza il FTSE MIB e crea una proposta pending.
 
 Quando chiedi una proposta di portafoglio, l'agente puo decidere autonomamente di approfondire i migliori candidati prima di proporre l'allocazione. Puoi anche forzarlo:
 

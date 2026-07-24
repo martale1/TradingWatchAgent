@@ -14,6 +14,7 @@ from finance_tools.common import load_env_file  # noqa: E402
 from finance_tools.agent_run_state import agent_schedule_status  # noqa: E402
 from finance_tools.commodity_scanner import load_commodity_tickers, scan_commodity_candidates  # noqa: E402
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
+from finance_tools.mib30_scanner import load_mib30_tickers, scan_mib30_candidates  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
 from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
 from finance_tools.portfolio_store import (  # noqa: E402
@@ -79,6 +80,11 @@ class TelegramSettingsRequest(BaseModel):
 
 
 class CommodityScanRequest(BaseModel):
+    limit: int = 8
+    universe_limit: int = 0
+
+
+class FtseMibScanRequest(BaseModel):
     limit: int = 8
     universe_limit: int = 0
 
@@ -151,8 +157,25 @@ def dashboard():
         "exit_conditions": exits,
         "agent_run_state": agent_schedule_status(),
         "recent_actions": closed,
+        "ftse_mib": load_mib30_tickers(),
         "commodities": load_commodity_tickers(),
     }
+
+
+@app.get("/api/ftse-mib")
+def ftse_mib():
+    return {"status": "ok", "tickers": load_mib30_tickers()}
+
+
+@app.post("/api/ftse-mib/scan")
+def ftse_mib_scan(request: FtseMibScanRequest):
+    try:
+        return scan_mib30_candidates(
+            limit=max(1, min(int(request.limit), 30)),
+            universe_limit=int(request.universe_limit) or None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Errore scanner FTSE MIB: {exc}") from exc
 
 
 @app.get("/api/commodities")

@@ -229,7 +229,7 @@ def list_manual_watchlist() -> str:
 
 @function_tool
 def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False, universe_limit: int = 0) -> str:
-    """Scan Italian MIB30 tickers and find interesting technical candidates.
+    """Scan Italian FTSE MIB tickers and find interesting technical candidates.
 
     Args:
         limit: Maximum number of candidates to return.
@@ -279,7 +279,7 @@ def propose_virtual_portfolio_from_mib30(
     cash_pct: float = 15,
     universe_limit: int = 0,
 ) -> str:
-    """Create a pending virtual portfolio allocation proposal from MIB30 candidates.
+    """Create a pending virtual portfolio allocation proposal from FTSE MIB candidates.
 
     Args:
         capital: Total virtual capital the user wants to invest.
@@ -664,12 +664,12 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "con status invalidated o archived e spiega il motivo. "
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Per buy/sell/reduce cita sempre l'effetto delle news: favorevoli, neutre, negative o non disponibili. "
-            "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
+            "Quando cerchi candidati del mercato FTSE MIB, usa lo scanner MIB30 storico e spiega i criteri usati distinguendo ragioni tecniche e rischi. "
             "Quando l'utente parla di materie prime, commodity, oro, petrolio, gas, metalli o agricoli, "
             "usa list_commodity_universe e scan_commodities_for_candidates: e un universo separato caricato da validTickers/MateriePrime.xlsx. "
             "Per le materie prime chiarisci che molti strumenti sono ETC/ETN quotati a Milano e valuta anche volatilita, volumi e rischio specifico dello strumento. "
             "Quando devi proporre strumenti da mettere in portafoglio, usa prima lo scanner numerico sui mercati rilevanti: "
-            "MIB30 e, se richiesto o in monitor autonomo, anche MateriePrime.xlsx. "
+            "FTSE MIB e, se richiesto o in monitor autonomo, anche MateriePrime.xlsx. "
             "Dopo gli scan confronta i candidati in una short-list unica, mantenendo chiaro il mercato di provenienza. "
             "Poi decidi autonomamente se approfondire i migliori candidati con confirm_candidate_chart_with_playwright: "
             "approfondisci solo i candidati realmente interessanti, per esempio score alto, trigger vicino, titolo gia in portafoglio/watchlist, "
@@ -744,7 +744,7 @@ def build_periodic_monitor_request(
         operation_hint = "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
     return (
         "Esegui un ciclo periodico di monitoraggio operativo. "
-        "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita da MIB30 e materie prime. "
+        "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita da FTSE MIB e materie prime. "
         + operation_hint +
         "Prima chiama get_portfolio_operating_status e get_portfolio_performance. "
         "Se get_portfolio_performance mostra alert rilevanti su P/L posizione o portafoglio, chiama send_portfolio_performance_telegram. "
@@ -760,14 +760,14 @@ def build_periodic_monitor_request(
         "usando esplicitamente scenario BREAKOUT oppure PULLBACK_SUPPORTO. "
         + ENTRY_SCENARIOS_GUIDE +
         "Se un titolo in watchlist diventa interessante, crea una condizione monitorata concreta o una proposta motivata. "
-        f"Infine scannerizza il MIB30 con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
+        f"Infine scannerizza il FTSE MIB con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
         "Se il file MateriePrime.xlsx e disponibile, scannerizza anche le materie prime con scan_commodities_for_candidates "
         f"limit={scan_limit}, {universe_hint}. "
-        "Dopo i due scanner costruisci una short-list unica di candidati interessanti, distinguendo mercato MIB30 e mercato materie prime. "
+        "Dopo i due scanner costruisci una short-list unica di candidati interessanti, distinguendo mercato FTSE MIB e mercato materie prime. "
         "Non approfondire tutti: approfondisci solo i candidati con score alto, trigger vicino, volumi/rischio non contrari o forte rilevanza per portafoglio/watchlist. "
         "Per le commodity agisci con prudenza: se un candidato e interessante ma non ancora confermato, preferisci salvare un trigger monitorato "
         "con scenario BREAKOUT o PULLBACK_SUPPORTO; crea una proposta solo se tecnica, volumi e news disponibili non sono contrari. "
-        f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati complessivi tra MIB30 e materie prime, solo se servono davvero per una proposta o per un monitoraggio serio; "
+        f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati complessivi tra FTSE MIB e materie prime, solo se servono davvero per una proposta o per un monitoraggio serio; "
         "in tal caso usa confirm_candidate_chart_with_playwright un ticker alla volta. "
         "Se trovi candidati interessanti ma non ancora comprabili, salva condizioni concrete con record_monitored_condition. "
         "Concludi con una vista compatta: posizioni, proposte pending, condizioni monitorate, nuovi candidati, azioni consigliate. "
@@ -1108,7 +1108,7 @@ def build_startup_options(portfolio):
         if positions:
             options.append("rivaluta i titoli in portafoglio e proponi eventuali azioni")
         if not positions:
-            options.append("scannerizza il MIB30 e cerca candidati per il portafoglio")
+            options.append("scannerizza il FTSE MIB e cerca candidati per il portafoglio")
 
     options.extend(
         [
@@ -1132,7 +1132,7 @@ def print_interactive_help(portfolio=None):
     print()
     print("Cosa posso fare:")
     print("- creare un portafoglio virtuale partendo da capitale iniziale")
-    print("- scannerizzare i titoli MIB30 e trovare candidati interessanti")
+    print("- scannerizzare i titoli FTSE MIB e trovare candidati interessanti")
     print("- decidere se confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
     print("- proporre acquisti/vendite/ribilanciamenti oppure applicarli se avviato in modalita autonoma virtuale")
     print("- salvare condizioni non ancora verificate e rivalutarle nei controlli successivi")
@@ -1142,12 +1142,12 @@ def print_interactive_help(portfolio=None):
     print("- analizzare uno o piu titoli con grafici tecnici")
     print("- cercare news live tramite Playwright/ChatGPT se Chrome e aperto con debug remoto")
     print("- inviare riepilogo Telegram dei titoli monitorati e proposte pending")
-    print("- avviare un monitor periodico che controlla portafoglio, condizioni e MIB30")
+    print("- avviare un monitor periodico che controlla portafoglio, condizioni e FTSE MIB")
     print("- avviare un monitor periodico autonomo virtuale che applica decisioni e notifica via Telegram")
     print()
     print("Comandi esempio:")
     print("- cosa posso fare adesso?")
-    print("- scannerizza 3 titoli del MIB30 e dimmi i migliori")
+    print("- scannerizza 3 titoli del FTSE MIB e dimmi i migliori")
     print("- il portafoglio e vuoto, voglio investire 10000 euro")
     print("- crea una proposta di portafoglio con 5 titoli e 15% cash")
     print("- mostra proposte pending")
@@ -1249,12 +1249,12 @@ def main():
     parser.add_argument("--init-portfolio", action="store_true", help="Crea portfolio.json con capitale iniziale.")
     parser.add_argument("--capital", type=float, default=None, help="Capitale iniziale del portafoglio virtuale.")
     parser.add_argument("--overwrite-portfolio", action="store_true", help="Ricrea portfolio.json se esiste gia.")
-    parser.add_argument("--scan-mib30", action="store_true", help="Scannerizza il MIB30 e chiedi all'agente una sintesi.")
-    parser.add_argument("--scan-limit", type=int, default=5, help="Numero massimo candidati MIB30.")
+    parser.add_argument("--scan-mib30", action="store_true", help="Scannerizza il FTSE MIB e chiedi all'agente una sintesi.")
+    parser.add_argument("--scan-limit", type=int, default=5, help="Numero massimo candidati FTSE MIB.")
     parser.add_argument(
         "--daemon-monitor",
         action="store_true",
-        help="Avvia monitoraggio periodico di portafoglio, condizioni e MIB30.",
+        help="Avvia monitoraggio periodico di portafoglio, condizioni e FTSE MIB.",
     )
     parser.add_argument(
         "--autonomous-monitor",
@@ -1308,12 +1308,12 @@ def main():
         "--universe-limit",
         type=int,
         default=0,
-        help="Solo per test: analizza al massimo N ticker dell'universo MIB30.",
+        help="Solo per test: analizza al massimo N ticker dell'universo FTSE MIB.",
     )
     parser.add_argument(
         "--build-empty-portfolio",
         action="store_true",
-        help="Se il portafoglio e vuoto, chiedi capitale e crea proposta allocazione MIB30 pending.",
+        help="Se il portafoglio e vuoto, chiedi capitale e crea proposta allocazione FTSE MIB pending.",
     )
     parser.add_argument("--cash-pct", type=float, default=15, help="Percentuale da lasciare cash nella proposta.")
     parser.add_argument(
@@ -1411,7 +1411,7 @@ def main():
     request = args.request
     if args.scan_mib30:
         log_step(
-            f"Modalita scan MIB30 | scan_limit={args.scan_limit} "
+            f"Modalita scan FTSE MIB | scan_limit={args.scan_limit} "
             f"universe_limit={args.universe_limit} create_proposals={args.create_proposals}"
         )
         if args.deep_chart_confirmation:
@@ -1424,7 +1424,7 @@ def main():
             else "non creare proposte, mostra solo candidati"
         )
         request = (
-            f"Carica il portafoglio virtuale e scannerizza il MIB30 con limite {args.scan_limit}; "
+            f"Carica il portafoglio virtuale e scannerizza il FTSE MIB con limite {args.scan_limit}; "
             f"usa universe_limit={args.universe_limit}; "
             f"{proposal_hint}. "
         )

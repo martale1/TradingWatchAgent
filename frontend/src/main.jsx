@@ -566,7 +566,17 @@ function Watchlist({ rows = [], reload, onChart }) {
   );
 }
 
-function Commodities({ rows = [], onChart }) {
+function MarketScanner({
+  title,
+  subtitle,
+  rows = [],
+  scanEndpoint,
+  countLabel,
+  emptyText,
+  universeColumns = [],
+  chartCondition,
+  onChart,
+}) {
   const [limit, setLimit] = useState(8);
   const [scan, setScan] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -574,9 +584,9 @@ function Commodities({ rows = [], onChart }) {
 
   async function runScan() {
     setBusy(true);
-    setMessage("Scansione materie prime in corso: scarico dati, calcolo indicatori e score...");
+    setMessage(`Scansione ${title} in corso: scarico dati, calcolo indicatori e score...`);
     try {
-      const result = await api("/api/commodities/scan", {
+      const result = await api(scanEndpoint, {
         method: "POST",
         body: JSON.stringify({ limit: Number(limit) || 8, universe_limit: 0 }),
         timeoutMs: 900000,
@@ -584,7 +594,7 @@ function Commodities({ rows = [], onChart }) {
       setScan(result);
       setMessage(`Scansione completata: ${result.count || 0} strumenti validi, ${result.errors?.length || 0} errori.`);
     } catch (error) {
-      setMessage(`Errore scansione materie prime: ${error.message}`);
+      setMessage(`Errore scansione ${title}: ${error.message}`);
     } finally {
       setBusy(false);
     }
@@ -595,17 +605,18 @@ function Commodities({ rows = [], onChart }) {
   return (
     <section className="panel">
       <div className="sectionHeader">
-        <h2>Materie prime</h2>
+        <h2>{title}</h2>
         <div className="sectionActions">
-          <span>{rows.length} strumenti da MateriePrime.xlsx</span>
+          <span>{rows.length} {countLabel}</span>
           <label className="inlineControl">Top
             <input type="number" min="3" max="30" value={limit} onChange={(event) => setLimit(event.target.value)} />
           </label>
           <button onClick={runScan} disabled={busy || !rows.length}>
-            {busy ? "Scansione..." : "Scansiona materie prime"}
+            {busy ? "Scansione..." : `Scansiona ${title}`}
           </button>
         </div>
       </div>
+      {subtitle && <p className="marketSubtitle">{subtitle}</p>}
       {message && <div className={`scanMessage ${busy ? "running" : ""}`}>{message}</div>}
 
       {candidates.length > 0 && (
@@ -635,7 +646,7 @@ function Commodities({ rows = [], onChart }) {
                 </div>
                 <button className="chartButton" onClick={() => onChart({
                   ticker: item.ticker,
-                  condition: `Materia prima / ETC. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`,
+                  condition: chartCondition(item),
                 })}><LineChart size={16} /> Grafico</button>
               </div>
             ))}
@@ -645,30 +656,28 @@ function Commodities({ rows = [], onChart }) {
 
       <h3>Universo disponibile</h3>
       {!rows.length ? (
-        <div className="emptyState">File MateriePrime.xlsx non trovato o vuoto.</div>
+        <div className="emptyState">{emptyText}</div>
       ) : (
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
-                <th>Ticker</th>
-                <th>Nome</th>
-                <th>Ultima quotazione file</th>
-                <th>Mercato</th>
+                {universeColumns.map((column) => <th key={column.key}>{column.label}</th>)}
                 <th>Azioni</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.ticker}>
-                  <td className="ticker">{row.ticker}</td>
-                  <td>{row.name}</td>
-                  <td>{row.latest_quotation || "n/d"}</td>
-                  <td>{row.market || "Materie prime / ETC"}</td>
+                  {universeColumns.map((column) => (
+                    <td key={column.key} className={column.key === "ticker" ? "ticker" : ""}>
+                      {column.render ? column.render(row) : row[column.key] || "n/d"}
+                    </td>
+                  ))}
                   <td>
                     <button className="miniButton" onClick={() => onChart({
                       ticker: row.ticker,
-                      condition: row.name || "Materia prima / ETC",
+                      condition: row.name || title,
                     })}><LineChart size={15} /> Grafico</button>
                   </td>
                 </tr>
@@ -678,9 +687,51 @@ function Commodities({ rows = [], onChart }) {
         </div>
       )}
       <p className="small">
-        Questi strumenti vengono analizzati come universo separato: lo scanner calcola score tecnico, ma l'agente deve verificare volumi, news e rischio specifico prima di decidere.
+        Questo mercato entra nello stesso funnel operativo: scanner tecnico, short-list dei candidati interessanti, approfondimento selettivo e solo poi trigger/proposte.
       </p>
     </section>
+  );
+}
+
+function FtseMib({ rows = [], onChart }) {
+  return (
+    <MarketScanner
+      title="FTSE MIB"
+      subtitle="Azioni italiane dello stesso universo finora chiamato MIB30 nel codice storico."
+      rows={rows}
+      scanEndpoint="/api/ftse-mib/scan"
+      countLabel="titoli disponibili"
+      emptyText="File validtickers_IT_MIB30_with_sector.xlsx non trovato o vuoto."
+      universeColumns={[
+        { key: "ticker", label: "Ticker" },
+        { key: "name", label: "Nome" },
+        { key: "sector", label: "Settore" },
+        { key: "industry", label: "Industry" },
+      ]}
+      chartCondition={(item) => `FTSE MIB. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`}
+      onChart={onChart}
+    />
+  );
+}
+
+function Commodities({ rows = [], onChart }) {
+  return (
+    <MarketScanner
+      title="Materie prime"
+      subtitle="ETC/ETN e strumenti legati a commodity caricati da MateriePrime.xlsx."
+      rows={rows}
+      scanEndpoint="/api/commodities/scan"
+      countLabel="strumenti da MateriePrime.xlsx"
+      emptyText="File MateriePrime.xlsx non trovato o vuoto."
+      universeColumns={[
+        { key: "ticker", label: "Ticker" },
+        { key: "name", label: "Nome" },
+        { key: "latest_quotation", label: "Ultima quotazione file" },
+        { key: "market", label: "Mercato", render: (row) => row.market || "Materie prime / ETC" },
+      ]}
+      chartCondition={(item) => `Materia prima / ETC. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`}
+      onChart={onChart}
+    />
   );
 }
 
@@ -1496,6 +1547,7 @@ function App() {
 
   const tabs = useMemo(() => [
     ["dashboard", "Dashboard"],
+    ["ftse-mib", "FTSE MIB"],
     ["watchlist", "Watchlist"],
     ["commodities", "Materie prime"],
     ["chat", "Chat"],
@@ -1554,6 +1606,7 @@ function App() {
               <Monitoring rows={data.monitored || []} onChart={setChartItem} />
             </>
           )}
+          {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} onChart={setChartItem} />}
           {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
           {tab === "commodities" && <Commodities rows={data.commodities || []} onChart={setChartItem} />}
           {tab === "chat" && <Chat />}
