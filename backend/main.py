@@ -66,6 +66,13 @@ class WatchlistRequest(BaseModel):
     tags: list[str] = []
 
 
+def tail_text(path: Path, max_lines: int = 300):
+    if not path.exists():
+        return ""
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
 def run_agent_command(args, timeout=900):
     cmd = [sys.executable, str(ROOT / "agent_portfolio_manager.py"), *args]
     result = subprocess.run(
@@ -127,6 +134,22 @@ def dashboard():
         "exit_conditions": exits,
         "agent_run_state": agent_schedule_status(),
         "recent_actions": closed,
+    }
+
+
+@app.get("/api/run-logs")
+def run_logs(lines: int = 300):
+    max_lines = max(20, min(int(lines or 300), 2000))
+    log_dir = ROOT / "logs"
+    scheduled_log = log_dir / "scheduled-monitor.log"
+    scheduled_err = log_dir / "scheduled-monitor.err.log"
+    return {
+        "status": "ok",
+        "lines": max_lines,
+        "scheduled_log": tail_text(scheduled_log, max_lines),
+        "scheduled_err": tail_text(scheduled_err, max_lines),
+        "scheduled_log_updated_at": scheduled_log.stat().st_mtime if scheduled_log.exists() else None,
+        "scheduled_err_updated_at": scheduled_err.stat().st_mtime if scheduled_err.exists() else None,
     }
 
 

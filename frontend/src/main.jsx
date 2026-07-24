@@ -1143,6 +1143,51 @@ function Controls({ reload }) {
   );
 }
 
+function RunLogs() {
+  const [state, setState] = useState({ loading: true, error: "", data: null });
+  const [lines, setLines] = useState(300);
+
+  async function loadLogs() {
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const data = await api(`/api/run-logs?lines=${lines}`);
+      setState({ loading: false, error: "", data });
+    } catch (error) {
+      setState({ loading: false, error: error.message, data: null });
+    }
+  }
+
+  useEffect(() => { loadLogs(); }, []);
+
+  return (
+    <section className="panel">
+      <div className="sectionHeader">
+        <h2>Run log</h2>
+        <div className="sectionActions">
+          <label className="logLinesControl">Righe
+            <input type="number" min="50" max="2000" value={lines} onChange={(event) => setLines(event.target.value)} />
+          </label>
+          <button className="iconButton" onClick={loadLogs} disabled={state.loading}><RefreshCw size={16} /> Aggiorna log</button>
+        </div>
+      </div>
+      {state.loading && <div className="chartStatus">Caricamento log run...</div>}
+      {state.error && <div className="error">{state.error}</div>}
+      {state.data && (
+        <div className="runLogsGrid">
+          <div>
+            <h3>scheduled-monitor.log</h3>
+            <pre className="log runLog">{state.data.scheduled_log || "Nessun output disponibile."}</pre>
+          </div>
+          <div>
+            <h3>scheduled-monitor.err.log</h3>
+            <pre className="log runLog errorLog">{state.data.scheduled_err || "Nessun errore disponibile."}</pre>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -1189,6 +1234,7 @@ function App() {
     ["watchlist", "Watchlist"],
     ["chat", "Chat"],
     ["actions", "Azioni"],
+    ["logs", "Run log"],
     ["controls", "Controlli"],
   ], []);
   const [tab, setTab] = useState("dashboard");
@@ -1227,6 +1273,7 @@ function App() {
           {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
           {tab === "chat" && <Chat />}
           {tab === "actions" && <Actions rows={data.recent_actions || []} />}
+          {tab === "logs" && <RunLogs />}
           {tab === "controls" && <Controls reload={load} />}
         </>
       )}

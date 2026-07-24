@@ -417,6 +417,37 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   100% { transform: translateX(100%); }
 }
 .log { max-height: 420px; overflow: auto; background: #0f172a; color: #e5e7eb; padding: 14px; border-radius: 8px; }
+.runLogsGrid {
+  display: grid;
+  gap: 16px;
+}
+.runLogsGrid h3 {
+  margin: 0 0 8px;
+  color: #1f2937;
+  font-size: 16px;
+}
+.runLog {
+  max-height: 560px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.errorLog {
+  background: #2a1111;
+}
+.logLinesControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+.logLinesControl input {
+  width: 86px;
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  padding: 8px;
+}
 .error { background: #fce8e6; color: #b3261e; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
 
 .modalBackdrop {
