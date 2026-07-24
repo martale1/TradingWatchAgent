@@ -34,6 +34,12 @@ function dateTime(value) {
   });
 }
 
+function shortDate(value) {
+  const parts = String(value || "").split("-");
+  if (parts.length < 3) return String(value || "");
+  return `${parts[2]}/${parts[1]}`;
+}
+
 function signedClass(value) {
   const n = Number(value);
   if (n > 0) return "positive";
@@ -233,7 +239,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
   const height = 470;
-  const pad = { top: 30, right: 96, bottom: 54, left: 66 };
+  const pad = { top: 34, right: 142, bottom: 70, left: 88 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   const priceValues = prices
@@ -260,6 +266,15 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   const hoverX = hover ? x(hoverIndex === null ? prices.length - 1 : hoverIndex) : null;
   const bandTop = Number(triggerLevel) > 0 ? y(Number(triggerLevel)) : null;
   const bandBottom = Number(supportLevel) > 0 ? y(Number(supportLevel)) : null;
+  const dateTicks = prices
+    .map((row, index) => ({ ...row, index }))
+    .filter((row, index) => {
+      if (index === 0 || index === prices.length - 1) return true;
+      const previous = prices[index - 1];
+      if (!previous) return false;
+      if (prices.length <= 45) return index % 5 === 0;
+      return String(row.date || "").slice(0, 7) !== String(previous.date || "").slice(0, 7);
+    });
 
   function LevelLine({ value, label, className }) {
     const level = Number(value);
@@ -268,7 +283,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
     return (
       <g className={className}>
         <line x1={pad.left} x2={pad.left + plotW} y1={ly} y2={ly} />
-        <text x={pad.left + plotW + 10} y={ly + 4}>{label} {price(level)}</text>
+        <text x={pad.left + plotW + 12} y={ly + 4}>{label} {price(level)}</text>
       </g>
     );
   }
@@ -298,7 +313,13 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
       {ticks.map((tick) => (
         <g key={tick} className="gridLine">
           <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
-          <text x={pad.left - 10} y={y(tick) + 4}>{price(tick)}</text>
+          <text x={pad.left - 14} y={y(tick) + 4} textAnchor="end">{price(tick)}</text>
+        </g>
+      ))}
+      {dateTicks.map((tick) => (
+        <g key={`${tick.date}-${tick.index}`} className="dateTick">
+          <line x1={x(tick.index)} x2={x(tick.index)} y1={pad.top + plotH} y2={pad.top + plotH + 7} />
+          <text x={x(tick.index)} y={height - 28}>{shortDate(tick.date)}</text>
         </g>
       ))}
       {bandTop !== null && bandBottom !== null && (
@@ -340,7 +361,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
       {last && (
         <g className="lastPoint">
           <circle cx={x(prices.length - 1)} cy={y(Number(last.close))} r="5" />
-          <text x={pad.left + plotW + 10} y={y(Number(last.close)) - 10}>Prezzo {price(last.close)}</text>
+          <text x={pad.left + plotW + 12} y={y(Number(last.close)) - 10}>Prezzo {price(last.close)}</text>
         </g>
       )}
       {hover && hoverX !== null && (
@@ -356,8 +377,8 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
         </g>
       )}
       <g className="axisLabels">
-        <text x={pad.left} y={height - 14}>{first?.date}</text>
-        <text x={pad.left + plotW} y={height - 14} textAnchor="end">{last?.date}</text>
+        <text x={pad.left} y={height - 8}>{first?.date}</text>
+        <text x={pad.left + plotW} y={height - 8} textAnchor="end">{last?.date}</text>
       </g>
     </svg>
   );

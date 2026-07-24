@@ -282,6 +282,15 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .priceChart rect { fill: #fff; }
 .gridLine line { stroke: #e5e7eb; stroke-width: 1; }
 .gridLine text, .axisLabels text { fill: #64748b; font-size: 12px; }
+.dateTick line { stroke: #94a3b8; stroke-width: 1; }
+.dateTick text {
+  fill: #475569;
+  font-size: 11px;
+  text-anchor: middle;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(-28deg);
+}
 .triggerBand { fill: #22c55e; opacity: .08; }
 .areaPath { fill: url(#priceArea); stroke: none; }
 .pricePath {
