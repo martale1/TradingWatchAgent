@@ -437,7 +437,9 @@ invalidated  # contesto tecnico/news peggiorato, condizione non piu utile
 archived     # condizione chiusa e rimossa dal monitoraggio operativo
 ```
 
-Se una condizione diventa `met` e grafico/news confermano, l'agente crea una proposta pending con `create_buy_proposal`; non acquista mai da solo.
+Se una condizione diventa `met` e grafico/news confermano, l'agente crea una proposta pending con `create_buy_proposal`. In modalita interattiva aspetta conferma; in modalita `--autonomous-monitor` puo applicare automaticamente l'operazione virtuale e notificare via Telegram.
+
+Le news sono parte del filtro decisionale: prima di comprare, vendere, ridurre o modificare una posizione virtuale l'agente deve usare le news disponibili, oppure dichiarare che non sono disponibili e abbassare la confidenza della decisione. News negative, downgrade, guidance peggiorativa o eventi societari rilevanti possono invalidare un trigger tecnico anche se il prezzo lo ha raggiunto.
 
 Inizializza portafoglio:
 
