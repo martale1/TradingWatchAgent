@@ -144,21 +144,26 @@ function Monitoring({ rows = [], onChart }) {
   );
 }
 
-function PriceChart({ prices = [], triggerLevel, supportLevel }) {
+function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" }) {
+  const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
-  const height = 430;
-  const pad = { top: 28, right: 86, bottom: 44, left: 64 };
+  const height = 470;
+  const pad = { top: 30, right: 96, bottom: 54, left: 66 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
+  const priceValues = prices
+    .flatMap((row) => [row.open, row.high, row.low, row.close].map(Number))
+    .filter((value) => !Number.isNaN(value));
   const closeValues = prices.map((row) => Number(row.close)).filter((value) => !Number.isNaN(value));
   const levels = [triggerLevel, supportLevel].map(Number).filter((value) => !Number.isNaN(value) && value > 0);
-  const min = Math.min(...closeValues, ...levels);
-  const max = Math.max(...closeValues, ...levels);
+  const min = Math.min(...priceValues, ...levels);
+  const max = Math.max(...priceValues, ...levels);
   const span = max - min || 1;
   const yMin = min - span * 0.08;
   const yMax = max + span * 0.08;
   const x = (index) => pad.left + (prices.length <= 1 ? 0 : (index / (prices.length - 1)) * plotW);
   const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * plotH;
+  const candleW = Math.max(3, Math.min(12, plotW / Math.max(prices.length, 1) * 0.58));
   const path = prices
     .map((row, index) => `${index === 0 ? "M" : "L"} ${x(index).toFixed(2)} ${y(Number(row.close)).toFixed(2)}`)
     .join(" ");
@@ -166,6 +171,10 @@ function PriceChart({ prices = [], triggerLevel, supportLevel }) {
   const ticks = Array.from({ length: 5 }, (_, index) => yMin + ((yMax - yMin) / 4) * index);
   const last = prices[prices.length - 1];
   const first = prices[0];
+  const hover = hoverIndex === null ? last : prices[hoverIndex];
+  const hoverX = hover ? x(hoverIndex === null ? prices.length - 1 : hoverIndex) : null;
+  const bandTop = Number(triggerLevel) > 0 ? y(Number(triggerLevel)) : null;
+  const bandBottom = Number(supportLevel) > 0 ? y(Number(supportLevel)) : null;
 
   function LevelLine({ value, label, className }) {
     const level = Number(value);
@@ -182,7 +191,18 @@ function PriceChart({ prices = [], triggerLevel, supportLevel }) {
   if (!prices.length) return <div className="chartEmpty">Nessun dato prezzo disponibile.</div>;
 
   return (
-    <svg className="priceChart" viewBox={`0 0 ${width} ${height}`} role="img">
+    <svg
+      className="priceChart"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      onMouseMove={(event) => {
+        const box = event.currentTarget.getBoundingClientRect();
+        const localX = ((event.clientX - box.left) / box.width) * width;
+        const ratio = Math.max(0, Math.min(1, (localX - pad.left) / plotW));
+        setHoverIndex(Math.round(ratio * (prices.length - 1)));
+      }}
+      onMouseLeave={() => setHoverIndex(null)}
+    >
       <defs>
         <linearGradient id="priceArea" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
@@ -196,14 +216,58 @@ function PriceChart({ prices = [], triggerLevel, supportLevel }) {
           <text x={pad.left - 10} y={y(tick) + 4}>{price(tick)}</text>
         </g>
       ))}
-      <path className="areaPath" d={area} />
-      <path className="pricePath" d={path} />
+      {bandTop !== null && bandBottom !== null && (
+        <rect
+          className="triggerBand"
+          x={pad.left}
+          y={Math.min(bandTop, bandBottom)}
+          width={plotW}
+          height={Math.abs(bandBottom - bandTop)}
+        />
+      )}
+      {mode === "line" ? (
+        <>
+          <path className="areaPath" d={area} />
+          <path className="pricePath" d={path} />
+        </>
+      ) : (
+        <g className="candles">
+          {prices.map((row, index) => {
+            const open = Number(row.open);
+            const high = Number(row.high);
+            const low = Number(row.low);
+            const close = Number(row.close);
+            if ([open, high, low, close].some((value) => Number.isNaN(value))) return null;
+            const up = close >= open;
+            const bodyY = Math.min(y(open), y(close));
+            const bodyH = Math.max(2, Math.abs(y(open) - y(close)));
+            return (
+              <g key={`${row.date}-${index}`} className={up ? "candleUp" : "candleDown"}>
+                <line x1={x(index)} x2={x(index)} y1={y(high)} y2={y(low)} />
+                <rect x={x(index) - candleW / 2} y={bodyY} width={candleW} height={bodyH} rx="1.5" />
+              </g>
+            );
+          })}
+        </g>
+      )}
       <LevelLine value={triggerLevel} label="TRIGGER" className="triggerLine" />
       <LevelLine value={supportLevel} label="SUPPORTO" className="supportLine" />
       {last && (
         <g className="lastPoint">
           <circle cx={x(prices.length - 1)} cy={y(Number(last.close))} r="5" />
           <text x={pad.left + plotW + 10} y={y(Number(last.close)) - 10}>Prezzo {price(last.close)}</text>
+        </g>
+      )}
+      {hover && hoverX !== null && (
+        <g className="hoverLayer">
+          <line x1={hoverX} x2={hoverX} y1={pad.top} y2={pad.top + plotH} />
+          <circle cx={hoverX} cy={y(Number(hover.close))} r="4" />
+          <g transform={`translate(${Math.min(hoverX + 12, width - 230)} ${pad.top + 12})`}>
+            <rect width="210" height="86" rx="8" />
+            <text x="10" y="22">{hover.date}</text>
+            <text x="10" y="44">Close {price(hover.close)}</text>
+            <text x="10" y="66">O/H/L {price(hover.open)} / {price(hover.high)} / {price(hover.low)}</text>
+          </g>
         </g>
       )}
       <g className="axisLabels">
@@ -216,13 +280,15 @@ function PriceChart({ prices = [], triggerLevel, supportLevel }) {
 
 function ChartModal({ item, onClose }) {
   const [state, setState] = useState({ loading: true, error: "", prices: [] });
+  const [period, setPeriod] = useState("6mo");
+  const [mode, setMode] = useState("candles");
   const ticker = item?.ticker;
 
   useEffect(() => {
     if (!ticker) return;
     let cancelled = false;
     setState({ loading: true, error: "", prices: [] });
-    api(`/api/chart/${encodeURIComponent(ticker)}?period=6mo&interval=1d`)
+    api(`/api/chart/${encodeURIComponent(ticker)}?period=${period}&interval=1d`)
       .then((result) => {
         if (!cancelled) setState({ loading: false, error: "", prices: result.prices || [] });
       })
@@ -230,7 +296,7 @@ function ChartModal({ item, onClose }) {
         if (!cancelled) setState({ loading: false, error: error.message, prices: [] });
       });
     return () => { cancelled = true; };
-  }, [ticker]);
+  }, [ticker, period]);
 
   if (!item) return null;
   const distance = item.trigger_distance_pct;
@@ -250,9 +316,20 @@ function ChartModal({ item, onClose }) {
           <span>Supporto/stop <b>{price(item.support_level)}</b></span>
           <span>Distanza trigger <b className={signedClass(distance)}>{pct(distance)}</b></span>
         </div>
+        <div className="chartToolbar">
+          <div className="segmented">
+            {["1mo", "3mo", "6mo", "1y"].map((value) => (
+              <button key={value} className={period === value ? "active" : ""} onClick={() => setPeriod(value)}>{value}</button>
+            ))}
+          </div>
+          <div className="segmented">
+            <button className={mode === "candles" ? "active" : ""} onClick={() => setMode("candles")}>Candele</button>
+            <button className={mode === "line" ? "active" : ""} onClick={() => setMode("line")}>Linea</button>
+          </div>
+        </div>
         {state.loading && <div className="chartStatus">Caricamento storico prezzi...</div>}
         {state.error && <div className="error">{state.error}</div>}
-        {!state.loading && !state.error && <PriceChart prices={state.prices} triggerLevel={item.trigger_level} supportLevel={item.support_level} />}
+        {!state.loading && !state.error && <PriceChart prices={state.prices} triggerLevel={item.trigger_level} supportLevel={item.support_level} mode={mode} />}
       </div>
     </div>
   );

@@ -175,6 +175,30 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #f8fafc;
 }
 .chartSummary b { display: block; margin-top: 4px; color: #111827; font-size: 18px; }
+.chartToolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+.segmented button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 11px;
+  color: #475569;
+}
+.segmented button.active {
+  background: #111827;
+  color: white;
+}
 .chartStatus, .chartEmpty {
   padding: 28px;
   border: 1px dashed #cbd5e1;
@@ -192,6 +216,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .priceChart rect { fill: #fff; }
 .gridLine line { stroke: #e5e7eb; stroke-width: 1; }
 .gridLine text, .axisLabels text { fill: #64748b; font-size: 12px; }
+.triggerBand { fill: #22c55e; opacity: .08; }
 .areaPath { fill: url(#priceArea); stroke: none; }
 .pricePath {
   fill: none;
@@ -200,6 +225,12 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   stroke-linejoin: round;
   stroke-linecap: round;
 }
+.candles line { stroke-width: 1.5; }
+.candles rect { stroke-width: 1.2; }
+.candleUp line, .candleUp rect { stroke: #15803d; }
+.candleUp rect { fill: #22c55e; fill-opacity: .72; }
+.candleDown line, .candleDown rect { stroke: #b91c1c; }
+.candleDown rect { fill: #ef4444; fill-opacity: .72; }
 .triggerLine line {
   stroke: #dc2626;
   stroke-width: 3;
@@ -222,11 +253,16 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 }
 .lastPoint circle { fill: #2563eb; stroke: white; stroke-width: 2; }
 .lastPoint text { fill: #1d4ed8; font-size: 13px; font-weight: 800; }
+.hoverLayer > line { stroke: #64748b; stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
+.hoverLayer circle { fill: #111827; stroke: white; stroke-width: 2; }
+.hoverLayer rect { fill: #111827; opacity: .92; }
+.hoverLayer text { fill: white; font-size: 12px; font-weight: 700; }
 
 @media (max-width: 900px) {
   main { padding: 18px; }
   header { align-items: flex-start; flex-direction: column; }
   .metrics { grid-template-columns: 1fr; }
   .chartSummary { grid-template-columns: 1fr 1fr; }
+  .chartToolbar { align-items: flex-start; flex-direction: column; }
   .message { max-width: 100%; }
 }
