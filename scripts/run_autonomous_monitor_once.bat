@@ -8,6 +8,7 @@ set LOG_DIR=%PROJECT_DIR%\logs
 set LOCK_DIR=%LOG_DIR%\monitor.lock
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
+set TRADINGWATCH_TIMESTAMP_LOGS=1
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 

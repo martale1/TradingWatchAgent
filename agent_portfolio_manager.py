@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,12 +47,52 @@ DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30
 DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))
 
 
+class TimestampedStream:
+    def __init__(self, stream):
+        self.stream = stream
+        self._buffer = ""
+        self._tradingwatch_timestamped = True
+
+    def write(self, text):
+        if not text:
+            return 0
+        text = str(text)
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._write_line(line, newline=True)
+        return len(text)
+
+    def flush(self):
+        if self._buffer:
+            self._write_line(self._buffer, newline=False)
+            self._buffer = ""
+        self.stream.flush()
+
+    def _write_line(self, line, newline=True):
+        suffix = "\n" if newline else ""
+        if line.strip():
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.stream.write(f"{timestamp} {line}{suffix}")
+        else:
+            self.stream.write(suffix)
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
 def configure_stdout():
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except AttributeError:
         pass
+
+    if os.getenv("TRADINGWATCH_TIMESTAMP_LOGS", "0") == "1":
+        if not getattr(sys.stdout, "_tradingwatch_timestamped", False):
+            sys.stdout = TimestampedStream(sys.stdout)
+        if not getattr(sys.stderr, "_tradingwatch_timestamped", False):
+            sys.stderr = TimestampedStream(sys.stderr)
 
 
 def log_step(message):
