@@ -70,6 +70,97 @@ def dataframe_or_empty(rows):
     return pd.DataFrame(rows)
 
 
+def style_signed(value):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if numeric > 0:
+        return "color: #137333; font-weight: 700; background-color: #e6f4ea;"
+    if numeric < 0:
+        return "color: #b3261e; font-weight: 700; background-color: #fce8e6;"
+    return "color: #5f6368;"
+
+
+def format_eur(value):
+    try:
+        return f"EUR {float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "n/d"
+
+
+def format_pct(value):
+    try:
+        return f"{float(value):+.2f}%"
+    except (TypeError, ValueError):
+        return "n/d"
+
+
+def format_price(value):
+    try:
+        return f"{float(value):,.4f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return "n/d"
+
+
+def display_positions_table(positions_df):
+    columns = {
+        "ticker": "Ticker",
+        "invested_amount": "Investito EUR",
+        "market_value": "Valore attuale EUR",
+        "pnl": "P/L EUR",
+        "pnl_pct": "P/L %",
+        "entry_price": "Prezzo ingresso",
+        "current_price": "Prezzo attuale",
+        "virtual_quantity": "Quantita virtuale",
+    }
+    display_df = positions_df[[c for c in columns if c in positions_df.columns]].rename(columns=columns)
+    styler = (
+        display_df.style
+        .format(
+            {
+                "Investito EUR": format_eur,
+                "Valore attuale EUR": format_eur,
+                "P/L EUR": format_eur,
+                "P/L %": format_pct,
+                "Prezzo ingresso": format_price,
+                "Prezzo attuale": format_price,
+                "Quantita virtuale": "{:,.4f}",
+            }
+        )
+        .map(style_signed, subset=[col for col in ["P/L EUR", "P/L %"] if col in display_df.columns])
+    )
+    st.dataframe(styler, width="stretch", hide_index=True)
+
+
+def display_monitored_table(enriched_df):
+    columns = {
+        "ticker": "Ticker",
+        "status": "Stato",
+        "prezzo_attuale": "Prezzo attuale",
+        "soglie": "Soglie",
+        "soglia_piu_vicina": "Soglia piu vicina",
+        "distanza": "Distanza",
+        "distanza_pct": "Distanza %",
+        "condizione": "Condizione",
+        "azione": "Azione prevista",
+    }
+    display_df = enriched_df[[c for c in columns if c in enriched_df.columns]].rename(columns=columns)
+    styler = (
+        display_df.style
+        .format(
+            {
+                "Prezzo attuale": format_price,
+                "Soglia piu vicina": format_price,
+                "Distanza": format_price,
+                "Distanza %": format_pct,
+            }
+        )
+        .map(style_signed, subset=[col for col in ["Distanza", "Distanza %"] if col in display_df.columns])
+    )
+    st.dataframe(styler, width="stretch", hide_index=True)
+
+
 def parse_condition_levels(condition):
     levels = []
     for match in re.finditer(r"€?\s*([0-9]+(?:[,.][0-9]+)?)", str(condition or "")):
@@ -137,8 +228,8 @@ total_pnl_pct = float(performance.get("total_pnl_pct") or 0)
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Capitale iniziale", f"EUR {initial_capital:,.2f}")
-col2.metric("Valore portafoglio", f"EUR {total_value:,.2f}", f"{total_pnl_pct:.2f}%")
-col3.metric("P/L totale", f"EUR {total_pnl:,.2f}")
+col2.metric("Valore portafoglio", f"EUR {total_value:,.2f}", f"{total_pnl_pct:+.2f}%")
+col3.metric("P/L totale", f"EUR {total_pnl:,.2f}", f"{total_pnl_pct:+.2f}%")
 col4.metric("Cash", f"EUR {cash:,.2f}", f"{performance.get('cash_pct', 0):.1f}%")
 
 tab_chat, tab_overview, tab_monitoring, tab_actions, tab_controls = st.tabs(
@@ -210,17 +301,7 @@ with tab_overview:
     if positions_df.empty:
         st.info("Nessuna posizione aperta.")
     else:
-        columns = [
-            "ticker",
-            "invested_amount",
-            "market_value",
-            "pnl",
-            "pnl_pct",
-            "entry_price",
-            "current_price",
-            "virtual_quantity",
-        ]
-        st.dataframe(positions_df[[c for c in columns if c in positions_df.columns]], width="stretch")
+        display_positions_table(positions_df)
 
     alerts = performance.get("alerts", [])
     st.subheader("Alert performance")
@@ -241,18 +322,7 @@ with tab_monitoring:
     if enriched_df.empty:
         st.info("Nessuna condizione monitorata.")
     else:
-        columns = [
-            "ticker",
-            "status",
-            "prezzo_attuale",
-            "soglie",
-            "soglia_piu_vicina",
-            "distanza",
-            "distanza_pct",
-            "condizione",
-            "azione",
-        ]
-        st.dataframe(enriched_df[[c for c in columns if c in enriched_df.columns]], width="stretch")
+        display_monitored_table(enriched_df)
 
         near = enriched_df[
             enriched_df["distanza_pct"].notna() & (enriched_df["distanza_pct"].abs() <= 2.0)
@@ -260,8 +330,17 @@ with tab_monitoring:
         if not near.empty:
             st.info("Titoli vicini a una soglia entro +/-2%:")
             st.dataframe(
-                near[["ticker", "prezzo_attuale", "soglia_piu_vicina", "distanza_pct", "condizione"]],
+                near[["ticker", "prezzo_attuale", "soglia_piu_vicina", "distanza_pct", "condizione"]].rename(
+                    columns={
+                        "ticker": "Ticker",
+                        "prezzo_attuale": "Prezzo attuale",
+                        "soglia_piu_vicina": "Soglia piu vicina",
+                        "distanza_pct": "Distanza %",
+                        "condizione": "Condizione",
+                    }
+                ),
                 width="stretch",
+                hide_index=True,
             )
 
     st.subheader("Proposte pending")
