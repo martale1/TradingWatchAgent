@@ -538,6 +538,11 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .controlRow { display: flex; gap: 12px; margin-bottom: 12px; }
 .controlRow label { display: grid; gap: 6px; color: #64748b; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.controlHint {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
 .runStatusBar {
   margin: 16px 0;
   border: 1px solid #dbe1ea;

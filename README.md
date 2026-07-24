@@ -72,6 +72,14 @@ Genera grafici e snapshot tecnico:
 python stock_chart_ai_analysis.py --charts-only --stocks "VOD.L" --days 70
 ```
 
+Monitor completo in modalita Playwright-first, senza OpenAI SDK/API key:
+
+```bash
+python playwright_monitor.py --limit 5 --deep-limit 2 --telegram
+```
+
+Questo flusso scarica dati e calcola ranking localmente, poi usa Playwright/ChatGPT nel browser solo sui candidati da approfondire. Serve quando vuoi ridurre il consumo token della tua `OPENAI_API_KEY`; richiede Chrome aperto con debug remoto e login ChatGPT valido, ma non chiama `Runner.run_sync`.
+
 Scanner FTSE MIB tramite agente/tool CLI richiede API key se passa dall'agente:
 
 ```bash
@@ -192,6 +200,7 @@ La web app mostra:
 - grafici apribili con viste prezzo, volumi, RSI/Stocastico/Williams, MACD e ADX
 - chat stile ChatGPT per parlare con l'agente
 - azioni recenti e controlli per run autonoma singola e notifiche Telegram
+- pulsante `Run Playwright no API` per eseguire un ciclo leggero senza OpenAI SDK/API key
 ```
 
 Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Git. Viene aggiornato quando parte `--daemon-monitor`, `--autonomous-monitor` o una run singola dal backend React.

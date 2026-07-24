@@ -64,6 +64,13 @@ class RunMonitorRequest(BaseModel):
     max_auto_trade_pct: float = 25.0
 
 
+class PlaywrightMonitorRequest(BaseModel):
+    limit: int = 5
+    deep_limit: int = 2
+    universe_limit: int = 0
+    telegram: bool = True
+
+
 class WatchlistRequest(BaseModel):
     ticker: str
     name: str = ""
@@ -108,8 +115,8 @@ def append_web_agent_log(line: str):
         handle.write(timestamped(line.rstrip()) + "\n")
 
 
-def run_agent_command(args, timeout=900):
-    cmd = [sys.executable, str(ROOT / "agent_portfolio_manager.py"), *args]
+def run_agent_command(args, timeout=900, script="agent_portfolio_manager.py"):
+    cmd = [sys.executable, str(ROOT / script), *args]
     append_web_agent_log(f"===== START {' '.join(cmd)} =====")
     process = subprocess.Popen(
         cmd,
@@ -363,6 +370,22 @@ def run_once(request: RunMonitorRequest):
             str(float(request.max_auto_trade_pct)),
         ]
     )
+    return {"output": output}
+
+
+@app.post("/api/playwright-monitor/run")
+def run_playwright_monitor(request: PlaywrightMonitorRequest):
+    args = [
+        "--limit",
+        str(max(1, min(int(request.limit), 30))),
+        "--deep-limit",
+        str(max(0, min(int(request.deep_limit), 10))),
+        "--universe-limit",
+        str(max(0, int(request.universe_limit))),
+    ]
+    if request.telegram:
+        args.append("--telegram")
+    output = run_agent_command(args, timeout=1800, script="playwright_monitor.py")
     return {"output": output}
 
 

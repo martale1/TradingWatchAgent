@@ -1458,10 +1458,19 @@ function Controls({ reload }) {
         <label>Max auto trade %<input type="number" value={maxTradePct} min="1" max="100" onChange={(e) => setMaxTradePct(e.target.value)} /></label>
       </div>
       <div className="actions">
-        <button onClick={() => run("/api/agent/run-once", { scan_limit: scanLimit, max_auto_trade_pct: maxTradePct }, "monitor")} disabled={!!busy}>Run monitor once</button>
+        <button onClick={() => run("/api/agent/run-once", { scan_limit: scanLimit, max_auto_trade_pct: maxTradePct }, "monitor SDK")} disabled={!!busy}>Run monitor SDK</button>
+        <button
+          onClick={() => run("/api/playwright-monitor/run", { limit: scanLimit, deep_limit: 2, universe_limit: 0, telegram: true }, "monitor Playwright")}
+          disabled={!!busy}
+        >
+          Run Playwright no API
+        </button>
         <button onClick={() => run("/api/telegram/monitoring", {}, "telegram")} disabled={!!busy}>Telegram monitoraggio</button>
         <button onClick={() => run("/api/telegram/performance", {}, "performance")} disabled={!!busy}>Telegram performance</button>
       </div>
+      <p className="controlHint">
+        Il monitor SDK usa OpenAI API key per orchestrare le decisioni. Il monitor Playwright usa ChatGPT nel browser per gli approfondimenti e riduce il consumo token API.
+      </p>
       <div className="settingsBox">
         <div>
           <h3>Notifiche Telegram</h3>
