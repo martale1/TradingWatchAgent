@@ -314,6 +314,106 @@ function Monitoring({ rows = [], onChart }) {
   );
 }
 
+function Watchlist({ rows = [], reload, onChart }) {
+  const [ticker, setTicker] = useState("");
+  const [reason, setReason] = useState("");
+  const [priority, setPriority] = useState("normal");
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function addItem(event) {
+    event.preventDefault();
+    if (!ticker.trim()) return;
+    setBusy("add");
+    setMessage("");
+    try {
+      await api("/api/watchlist", {
+        method: "POST",
+        body: JSON.stringify({ ticker, reason, priority }),
+      });
+      setTicker("");
+      setReason("");
+      setPriority("normal");
+      setMessage("Titolo aggiunto alla watchlist.");
+      reload();
+    } catch (error) {
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function removeItem(symbol) {
+    setBusy(symbol);
+    setMessage("");
+    try {
+      await api(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" });
+      setMessage(`${symbol} rimosso dalla watchlist.`);
+      reload();
+    } catch (error) {
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="sectionHeader">
+        <h2>Watchlist manuale</h2>
+        <span>Titoli da analizzare anche se non selezionati dallo scanner</span>
+      </div>
+      <form className="watchlistForm" onSubmit={addItem}>
+        <label>Ticker<input value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} placeholder="es. VOD.L" /></label>
+        <label>Priorita
+          <select value={priority} onChange={(event) => setPriority(event.target.value)}>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+        <label className="reasonInput">Motivo<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Perche vuoi seguirlo..." /></label>
+        <button disabled={!!busy || !ticker.trim()}>Aggiungi</button>
+      </form>
+      {message && <p className="small">{message}</p>}
+      {!rows.length ? (
+        <div className="emptyState">Watchlist vuota.</div>
+      ) : (
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Priorita</th>
+                <th>Motivo</th>
+                <th>Aggiunto</th>
+                <th>Azioni</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.ticker}>
+                  <td className="ticker">{row.ticker}</td>
+                  <td><span className={`pill ${row.priority === "high" ? "warning" : "neutral"}`}>{row.priority || "normal"}</span></td>
+                  <td className="reason">{row.reason || "n/d"}</td>
+                  <td>{dateTime(row.added_at)}</td>
+                  <td className="rowActions">
+                    <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, condition: row.reason || "Watchlist manuale" })}><LineChart size={15} /> Grafico</button>
+                    <button className="miniButton" onClick={() => removeItem(row.ticker)} disabled={busy === row.ticker}><X size={15} /> Rimuovi</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="small">
+        Nel monitor ogni 30 minuti l'agente legge anche questa lista e puo creare condizioni monitorate o proposte se un titolo diventa interessante.
+      </p>
+    </section>
+  );
+}
+
 function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" }) {
   const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
@@ -661,6 +761,7 @@ function App() {
 
   const tabs = useMemo(() => [
     ["dashboard", "Dashboard"],
+    ["watchlist", "Watchlist"],
     ["chat", "Chat"],
     ["actions", "Azioni"],
     ["controls", "Controlli"],
@@ -697,6 +798,7 @@ function App() {
               <Monitoring rows={data.monitored || []} onChart={setChartItem} />
             </>
           )}
+          {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
           {tab === "chat" && <Chat />}
           {tab === "actions" && <Actions rows={data.recent_actions || []} />}
           {tab === "controls" && <Controls reload={load} />}

@@ -208,6 +208,57 @@ def portfolio_status_summary(path=PORTFOLIO_FILE):
     }
 
 
+def list_watchlist(path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        return []
+    return portfolio.get("watchlist", [])
+
+
+def add_watchlist_item(ticker, name="", market="", reason="", priority="normal", tags=None, path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
+
+    symbol = ticker.strip().upper()
+    watchlist = portfolio.setdefault("watchlist", [])
+    existing = next((item for item in watchlist if item.get("ticker") == symbol), None)
+    payload = {
+        "ticker": symbol,
+        "name": name.strip() if name else symbol,
+        "market": market.strip() if market else "",
+        "reason": reason.strip() if reason else "",
+        "priority": priority.strip().lower() if priority else "normal",
+        "tags": tags or [],
+        "status": "active",
+        "updated_at": now_iso(),
+        "source": "manual_watchlist",
+    }
+    if existing:
+        existing.update({key: value for key, value in payload.items() if value not in ("", [], None)})
+        existing.setdefault("added_at", now_iso())
+        item = existing
+    else:
+        item = {"added_at": now_iso(), **payload}
+        watchlist.append(item)
+    save_portfolio(portfolio, path)
+    return item
+
+
+def remove_watchlist_item(ticker, path=PORTFOLIO_FILE):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        raise RuntimeError("portfolio.json non esiste.")
+    symbol = ticker.strip().upper()
+    watchlist = portfolio.setdefault("watchlist", [])
+    match = next((item for item in watchlist if item.get("ticker") == symbol), None)
+    if not match:
+        return {"status": "missing", "ticker": symbol}
+    watchlist.remove(match)
+    save_portfolio(portfolio, path)
+    return {"status": "ok", "removed": match}
+
+
 def add_monitored_condition(
     ticker,
     condition,

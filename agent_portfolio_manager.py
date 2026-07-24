@@ -19,13 +19,16 @@ from finance_tools.agent_run_state import mark_agent_run_completed, mark_agent_r
 from finance_tools.portfolio_store import (
     add_buy_proposal,
     add_monitored_condition,
+    add_watchlist_item,
     confirm_proposal as confirm_portfolio_proposal,
     init_portfolio,
     list_monitored_conditions,
     list_pending_proposals,
+    list_watchlist as list_portfolio_watchlist,
     load_portfolio as load_portfolio_file,
     portfolio_status_summary,
     reject_proposal as reject_portfolio_proposal,
+    remove_watchlist_item,
     update_portfolio_capital,
     update_monitored_condition,
 )
@@ -115,6 +118,51 @@ def load_virtual_portfolio() -> str:
     if portfolio is None:
         return json.dumps({"status": "missing", "message": "portfolio.json non esiste."}, ensure_ascii=False)
     return json.dumps({"status": "ok", "portfolio": portfolio}, ensure_ascii=False, indent=2)
+
+
+@function_tool
+def add_ticker_to_watchlist(
+    ticker: str,
+    reason: str = "",
+    name: str = "",
+    market: str = "",
+    priority: str = "normal",
+    tags: str = "",
+) -> str:
+    """Add or update one ticker in the manual watchlist.
+
+    Args:
+        ticker: Stock ticker symbol, for example VOD.L or A2A.MI.
+        reason: Why the user or agent wants to monitor it.
+        name: Optional company name.
+        market: Optional market/exchange.
+        priority: low, normal, high.
+        tags: Optional comma-separated labels.
+    """
+    log_step(f"Tool add_ticker_to_watchlist chiamato | ticker={ticker} priority={priority}")
+    item = add_watchlist_item(
+        ticker=ticker,
+        name=name,
+        market=market,
+        reason=reason,
+        priority=priority,
+        tags=[tag.strip() for tag in tags.split(",") if tag.strip()],
+    )
+    return json.dumps({"status": "ok", "watchlist_item": item}, ensure_ascii=False, indent=2)
+
+
+@function_tool
+def remove_ticker_from_watchlist(ticker: str) -> str:
+    """Remove one ticker from the manual watchlist."""
+    log_step(f"Tool remove_ticker_from_watchlist chiamato | ticker={ticker}")
+    return json.dumps(remove_watchlist_item(ticker), ensure_ascii=False, indent=2)
+
+
+@function_tool
+def list_manual_watchlist() -> str:
+    """List all tickers in the manual watchlist."""
+    log_step("Tool list_manual_watchlist chiamato")
+    return json.dumps({"status": "ok", "watchlist": list_portfolio_watchlist()}, ensure_ascii=False, indent=2)
 
 
 @function_tool
@@ -414,6 +462,9 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         analyze_stock_news,
         confirm_candidate_chart_with_playwright,
         load_watchlist,
+        add_ticker_to_watchlist,
+        remove_ticker_from_watchlist,
+        list_manual_watchlist,
         load_virtual_portfolio,
         get_portfolio_operating_status,
         set_virtual_portfolio_capital,
@@ -446,6 +497,11 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "e poi mostra il nuovo stato operativo. "
             "Quando inizi un monitoraggio, una proposta o una domanda sullo stato operativo, usa get_portfolio_operating_status "
             "per costruire una vista unica: posizioni in portafoglio, proposte pending, condizioni monitorate e watchlist. "
+            "Quando l'utente chiede di aggiungere un titolo alla watchlist o dice che vuole tenerlo sotto osservazione, "
+            "usa add_ticker_to_watchlist. Quando chiede di rimuoverlo, usa remove_ticker_from_watchlist. "
+            "La watchlist manuale e diversa dallo scanner: contiene titoli da analizzare piu approfonditamente anche se "
+            "non filtrati dall'algoritmo. Quando analizzi opportunita o fai un monitor periodico, considera sempre anche "
+            "i titoli della watchlist manuale prima di concludere. "
             "Quando l'utente chiede rendimento, performance o guadagno/perdita, usa get_portfolio_performance. "
             "Durante il monitor periodico valuta la performance del portafoglio e segnala alert di rendimento rilevanti. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
@@ -549,6 +605,9 @@ def build_periodic_monitor_request(
         "Poi rivaluta tutte le condizioni waiting una alla volta: per ogni ticker usa analyze_stock_chart e news disponibili, "
         "poi aggiorna la condizione come waiting, met, invalidated o archived. "
         "Se una condizione e met e il quadro resta valido, crea una proposta pending motivata. "
+        "Poi controlla i titoli della watchlist manuale una alla volta con list_manual_watchlist; "
+        "per i ticker prioritari o non analizzati di recente usa analyze_stock_chart e news disponibili. "
+        "Se un titolo in watchlist diventa interessante, crea una condizione monitorata concreta o una proposta motivata. "
         f"Infine scannerizza il MIB30 con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
         f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati solo se servono davvero per una proposta o per un monitoraggio serio; "
         "in tal caso usa confirm_candidate_chart_with_playwright un ticker alla volta. "

@@ -111,6 +111,29 @@ th { text-align: left; color: #64748b; background: #f8fafc; }
 td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
 .ticker { font-weight: 800; color: #0f172a; }
 .reason { max-width: 560px; color: #4b5563; }
+.rowActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.watchlistForm {
+  display: grid;
+  grid-template-columns: 170px 140px minmax(260px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin: 12px 0 16px;
+}
+.watchlistForm label {
+  display: grid;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+.watchlistForm input,
+.watchlistForm select {
+  width: 100%;
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+  color: #111827;
+}
 
 .positive { color: #137333; background: #e6f4ea; }
 .negative { color: #b3261e; background: #fce8e6; }
@@ -373,6 +396,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   .metrics { grid-template-columns: 1fr; }
   .agentStatus { grid-template-columns: 1fr; }
   .agentStatus > div { border-right: 0; border-bottom: 1px solid #eef2f7; padding-bottom: 10px; }
+  .watchlistForm { grid-template-columns: 1fr; }
   .chartSummary { grid-template-columns: 1fr 1fr; }
   .chartToolbar { align-items: flex-start; flex-direction: column; }
   .message { max-width: 100%; }

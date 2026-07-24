@@ -15,7 +15,13 @@ from finance_tools.agent_run_state import agent_schedule_status  # noqa: E402
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
 from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
-from finance_tools.portfolio_store import load_portfolio, portfolio_status_summary  # noqa: E402
+from finance_tools.portfolio_store import (  # noqa: E402
+    add_watchlist_item,
+    list_watchlist,
+    load_portfolio,
+    portfolio_status_summary,
+    remove_watchlist_item,
+)
 from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary  # noqa: E402
 import yfinance as yf  # noqa: E402
 
@@ -47,6 +53,15 @@ class ChatRequest(BaseModel):
 class RunMonitorRequest(BaseModel):
     scan_limit: int = 5
     max_auto_trade_pct: float = 25.0
+
+
+class WatchlistRequest(BaseModel):
+    ticker: str
+    name: str = ""
+    market: str = ""
+    reason: str = ""
+    priority: str = "normal"
+    tags: list[str] = []
 
 
 def run_agent_command(args, timeout=900):
@@ -146,6 +161,37 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
         raise HTTPException(status_code=404, detail=f"Nessun dato close disponibile per {symbol}")
 
     return {"ticker": symbol, "period": period, "interval": interval, "prices": rows}
+
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    return {"status": "ok", "watchlist": list_watchlist()}
+
+
+@app.post("/api/watchlist")
+def add_watchlist(request: WatchlistRequest):
+    if not request.ticker.strip():
+        raise HTTPException(status_code=400, detail="Ticker mancante")
+    try:
+        item = add_watchlist_item(
+            ticker=request.ticker,
+            name=request.name,
+            market=request.market,
+            reason=request.reason,
+            priority=request.priority,
+            tags=request.tags,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "item": item}
+
+
+@app.delete("/api/watchlist/{ticker}")
+def delete_watchlist(ticker: str):
+    try:
+        return remove_watchlist_item(ticker)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/agent/chat")

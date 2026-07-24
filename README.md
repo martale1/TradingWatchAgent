@@ -164,12 +164,27 @@ La web app mostra:
 - stato agente: ultima analisi avviata/completata e prossimo giro atteso
 - capitale, valore portafoglio, cash e P/L con colori positivi/negativi
 - posizioni aperte con P/L per titolo
+- watchlist manuale per titoli da analizzare anche se non filtrati dallo scanner
 - condizioni monitorate con prezzo attuale, trigger, supporto e distanza dal trigger
 - chat stile ChatGPT per parlare con l'agente
 - azioni recenti e controlli per run autonoma singola e notifiche Telegram
 ```
 
 Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Git. Viene aggiornato quando parte `--daemon-monitor`, `--autonomous-monitor` o una run singola dal backend React.
+
+### Watchlist manuale
+
+La watchlist e una lista di ticker scelti dall'utente, separata dai candidati trovati dallo scanner MIB30. Serve per seguire titoli che vuoi analizzare piu a fondo anche se l'algoritmo non li seleziona.
+
+Dalla dashboard React apri il tab `Watchlist`, inserisci ticker, priorita e motivo. L'agente la considera nei monitor periodici e puo creare condizioni monitorate o proposte se il quadro diventa interessante.
+
+Puoi gestirla anche dalla chat:
+
+```text
+aggiungi VOD.L alla watchlist con priorita high perche voglio seguirla
+mostra watchlist
+rimuovi VOD.L dalla watchlist
+```
 
 ## Scheduler Windows ogni 30 minuti
 
