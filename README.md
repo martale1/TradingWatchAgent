@@ -45,10 +45,10 @@ copy .env.example .env
 
 Compila `.env` con i valori reali. `OPENAI_API_KEY` serve solo per usare l'agente SDK, non per i tool locali.
 
-Il modello dell'agente SDK si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Per ridurre rate limit e consumo token, il default consigliato per ora e:
+Il modello dell'agente SDK si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Per avere piu capacita rispetto a `gpt-4.1-mini` senza tornare ai modelli piu pesanti, il default consigliato per ora e:
 
 ```env
-OPENAI_AGENT_MODEL=gpt-4.1-mini
+OPENAI_AGENT_MODEL=gpt-5-mini
 OPENAI_AGENT_MAX_TURNS=35
 MONITOR_INTERVAL_MINUTES=30
 MAX_AUTO_TRADE_PCT=25
@@ -61,7 +61,7 @@ MAX_AUTO_TRADE_PCT=25
 Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
 
 ```bash
-python agent_portfolio_manager.py --interactive --model gpt-4.1-mini
+python agent_portfolio_manager.py --interactive --model gpt-5-mini
 ```
 
 ## Test tool senza API key

@@ -25,7 +25,7 @@ echo. >> "%LOG_DIR%\scheduled-monitor.log"
 echo ===== %DATE% %TIME% START scheduled monitor ===== >> "%LOG_DIR%\scheduled-monitor.log"
 
 "%PYTHON_EXE%" "%PROJECT_DIR%\agent_portfolio_manager.py" ^
-  --model gpt-4.1-mini ^
+  --model gpt-5-mini ^
   --autonomous-monitor ^
   --once ^
   --monitor-interval-minutes 30 ^

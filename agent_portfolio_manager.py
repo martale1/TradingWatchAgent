@@ -43,7 +43,7 @@ from finance_tools.telegram_tool import (
 )
 
 
-DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-4.1-mini")
+DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-mini")
 DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "35"))
 DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30"))
 DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))

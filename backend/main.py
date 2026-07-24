@@ -36,7 +36,7 @@ import yfinance as yf  # noqa: E402
 
 
 load_env_file()
-SDK_MODEL = "gpt-4.1-mini"
+SDK_MODEL = "gpt-5-mini"
 
 app = FastAPI(title="TradingWatchAgent API")
 app.add_middleware(
