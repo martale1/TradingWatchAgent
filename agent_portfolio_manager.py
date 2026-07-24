@@ -1072,7 +1072,7 @@ def print_interactive_help(portfolio=None):
     print("- creare un portafoglio virtuale partendo da capitale iniziale")
     print("- scannerizzare i titoli MIB30 e trovare candidati interessanti")
     print("- decidere se confermare i candidati migliori con analisi visuale grafici via Playwright/ChatGPT")
-    print("- proporre acquisti/vendite/ribilanciamenti sempre come proposte pending")
+    print("- proporre acquisti/vendite/ribilanciamenti oppure applicarli se avviato in modalita autonoma virtuale")
     print("- salvare condizioni non ancora verificate e rivalutarle nei controlli successivi")
     print("- mostrare una vista unica con portafoglio, proposte, condizioni monitorate e watchlist")
     print("- aggiornare il capitale virtuale quando lo dichiari esplicitamente")
@@ -1099,7 +1099,7 @@ def print_interactive_help(portfolio=None):
     print("- monitor periodico ogni 30 minuti: usa da CLI --daemon-monitor --monitor-interval-minutes 30")
     print("- monitor autonomo virtuale: usa da CLI --autonomous-monitor")
     print()
-    print("Regola di sicurezza: non modifico mai il portafoglio senza tua conferma esplicita.")
+    print("Regola operativa: in modalita interattiva chiedo conferma; in --autonomous-monitor opero sul portafoglio virtuale e notifico via Telegram.")
     print("Scrivi 'aiuto' per rivedere questa guida, oppure 'esci' per terminare.")
     return print_next_options(portfolio)
 

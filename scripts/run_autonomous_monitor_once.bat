@@ -28,9 +28,8 @@ echo ===== %DATE% %TIME% START scheduled monitor ===== >> "%LOG_DIR%\scheduled-m
   --autonomous-monitor ^
   --once ^
   --monitor-interval-minutes 30 ^
-  --no-auto-deep-confirmation ^
   --scan-limit 5 ^
-  --deep-confirm-limit 0 ^
+  --deep-confirm-limit 2 ^
   --max-auto-trade-pct 25 ^
   >> "%LOG_DIR%\scheduled-monitor.log" 2>> "%LOG_DIR%\scheduled-monitor.err.log"
 

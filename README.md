@@ -205,10 +205,10 @@ scripts\run_autonomous_monitor_once.bat
 Ogni giro lancia un ciclo singolo:
 
 ```text
-agent_portfolio_manager.py --autonomous-monitor --once --monitor-interval-minutes 30 --no-auto-deep-confirmation --deep-confirm-limit 0
+agent_portfolio_manager.py --autonomous-monitor --once --monitor-interval-minutes 30 --deep-confirm-limit 2
 ```
 
-Il job schedulato evita la conferma visuale Playwright (`--no-auto-deep-confirmation --deep-confirm-limit 0`) per non restare dipendente da Chrome/ChatGPT aperto. Gli approfondimenti con grafici inviati a ChatGPT via Playwright restano disponibili da CLI o dalla dashboard quando vuoi fare un controllo manuale/live.
+Il job schedulato gira in modalita autonoma virtuale: puo comprare, vendere, ridurre o modificare posizioni nel solo portafoglio virtuale, registrando le azioni nello storico e notificando via Telegram secondo la policy configurata. L'agente puo usare anche conferme visuali Playwright/ChatGPT fino al limite indicato da `--deep-confirm-limit`, se Chrome con debug remoto e disponibile; se non lo e, continua con dati tecnici e cache disponibili.
 
 Log:
 
