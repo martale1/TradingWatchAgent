@@ -63,7 +63,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .agentStatus {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1.1fr repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
   padding: 14px;
@@ -74,10 +74,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 .agentStatus > div {
   min-width: 0;
-  border-right: 1px solid #eef2f7;
-  padding-right: 12px;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  padding: 10px;
 }
-.agentStatus > div:last-child { border-right: 0; }
 .agentStatus span {
   display: block;
   color: #64748b;
@@ -94,8 +94,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .agentStatusError {
   grid-column: 1 / -1;
   border-top: 1px solid #fee2e2;
-  border-right: 0 !important;
-  padding-top: 10px;
+  border-color: #fee2e2 !important;
 }
 
 nav { display: flex; gap: 8px; margin: 18px 0; border-bottom: 1px solid #dbe1ea; }

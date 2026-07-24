@@ -87,10 +87,12 @@ function AgentRunStatus({ state = {} }) {
         <span className="agentStatusLabel">Stato agente</span>
         <strong className={`pill ${statusClass}`}>{status === "never_run" ? "mai eseguito" : status}</strong>
       </div>
-      <div><span>Ultima analisi avviata</span><b>{dateTime(state.last_started_at)}</b></div>
-      <div><span>Ultima analisi completata</span><b>{dateTime(state.last_completed_at)}</b></div>
-      <div><span>Prossimo giro atteso</span><b>{dateTime(state.next_expected_at)}</b></div>
+      <div><span>Ultima analisi titoli</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
+      <div><span>Ultimo ticker analizzato</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
+      <div><span>Prossimo scheduled expected</span><b>{state.next_scheduled_expected_at ? dateTime(state.next_scheduled_expected_at) : "Non schedulato"}</b></div>
       <div><span>Intervallo</span><b>{state.interval_minutes || 30} min</b></div>
+      <div><span>Analisi disponibili</span><b>{state.analyzed_tickers_count || 0} titoli</b></div>
+      <div><span>Ultima run agente</span><b>{dateTime(state.last_completed_at)}</b></div>
       <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
     </section>

@@ -7,6 +7,7 @@ from finance_tools.common import PROJECT_ROOT
 
 
 STATE_FILE = PROJECT_ROOT / "agent_run_state.json"
+ANALYSIS_ROOT = PROJECT_ROOT / "output" / "stock_ai"
 
 
 def now_iso():
@@ -51,6 +52,40 @@ def load_agent_run_state(path=STATE_FILE):
         if completed:
             state["next_expected_at"] = (completed + timedelta(minutes=interval)).isoformat()
     return state
+
+
+def latest_stock_analysis_state():
+    files = []
+    if ANALYSIS_ROOT.exists():
+        files = list(ANALYSIS_ROOT.glob("*/*_analysis.txt"))
+    if not files:
+        state = load_agent_run_state()
+        return {
+            "last_stock_analysis_at": state.get("last_completed_at"),
+            "last_stock_analysis_source": "agent_run_state" if state.get("last_completed_at") else "none",
+            "last_stock_analysis_ticker": None,
+            "analyzed_tickers_count": 0,
+        }
+
+    latest = max(files, key=lambda item: item.stat().st_mtime)
+    tickers = sorted({path.parent.name.upper() for path in files})
+    return {
+        "last_stock_analysis_at": datetime.fromtimestamp(latest.stat().st_mtime).replace(microsecond=0).isoformat(),
+        "last_stock_analysis_source": "Playwright/ChatGPT chart analysis",
+        "last_stock_analysis_ticker": latest.parent.name.upper(),
+        "analyzed_tickers_count": len(tickers),
+        "analyzed_tickers": tickers,
+    }
+
+
+def agent_schedule_status():
+    state = load_agent_run_state()
+    stock = latest_stock_analysis_state()
+    return {
+        **state,
+        **stock,
+        "next_scheduled_expected_at": state.get("next_expected_at"),
+    }
 
 
 def save_agent_run_state(state, path=STATE_FILE):
