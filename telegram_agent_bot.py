@@ -1,4 +1,5 @@
 import argparse
+import html
 import json
 import re
 import subprocess
@@ -53,14 +54,46 @@ def split_message(text):
     return chunks
 
 
-def send_text(bot, chat_id, text):
+def telegram_html(text):
+    escaped = html.escape(str(text or "").strip())
+    escaped = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", escaped)
+    escaped = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", escaped)
+    lines = []
+    for raw_line in escaped.splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines.append("")
+            continue
+        heading = re.match(r"^#{2,4}\s+(.+)$", line)
+        if heading:
+            lines.append(f"<b>{heading.group(1)}</b>")
+            continue
+        numbered = re.match(r"^(\d+)\.\s+(.+)$", line)
+        if numbered:
+            lines.append(f"{numbered.group(1)}. {numbered.group(2)}")
+            continue
+        bullet = re.match(r"^[-*]\s+(.+)$", line)
+        if bullet:
+            lines.append(f"• {bullet.group(1)}")
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def send_text(bot, chat_id, text, parse=True):
     for chunk in split_message(text):
-        bot.sendMessage(chat_id, chunk)
+        if parse:
+            bot.sendMessage(chat_id, telegram_html(chunk), parse_mode="HTML", disable_web_page_preview=True)
+        else:
+            bot.sendMessage(chat_id, chunk, disable_web_page_preview=True)
 
 
 def send_photo(bot, chat_id, path, caption=""):
     with Path(path).open("rb") as image:
-        bot.sendPhoto(chat_id, image, caption=caption[:1024] if caption else None)
+        if caption:
+            bot.sendPhoto(chat_id, image, caption=telegram_html(caption[:1024]), parse_mode="HTML")
+        else:
+            bot.sendPhoto(chat_id, image)
 
 
 def extract_ticker(text, history=None):
@@ -97,7 +130,7 @@ def handle_chart_request(bot, chat_id, text, history):
         send_text(bot, chat_id, "Dimmi anche il ticker, per esempio: mandami il grafico di CPR.MI")
         return "Richiesto grafico ma ticker mancante."
 
-    send_text(bot, chat_id, f"Genero e invio i grafici di {ticker}...")
+    send_text(bot, chat_id, f"📊 **{ticker}**\nGenero e invio i grafici tecnici...")
     result = generate_chart_context(ticker=ticker, days=70, period="1y")
     if result.get("status") != "ok":
         raise RuntimeError(f"Errore generazione grafici {ticker}: {result}")
@@ -143,6 +176,8 @@ def build_agent_context(history, message):
     lines = [
         "Questa richiesta arriva da Telegram.",
         "Rispondi in modo compatto, chiaro e adatto a Telegram.",
+        "Usa sezioni brevi, bullet con trattino, pochi emoji funzionali e niente tabelle Markdown.",
+        "Usa grassetto solo per ticker, stato e decisioni importanti.",
         "Se l'utente chiede stato, segnali di uscita, performance, watchlist o condizioni, usa i tool del portafoglio.",
         "Se l'utente chiede analisi live con Playwright, falla solo se necessario e avvisa che puo richiedere tempo.",
         "",
@@ -233,7 +268,7 @@ def main():
                 elif is_chart_request(text):
                     answer = handle_chart_request(bot, chat_id, text, state.get("history", []))
                 else:
-                    send_text(bot, chat_id, "Ricevuto. Interrogo l'agente...")
+                    send_text(bot, chat_id, "⏳ **Richiesta ricevuta**\nInterrogo l'agente e preparo una risposta leggibile.")
                     answer = run_agent(text, state.get("history", []), timeout=args.timeout)
 
                 send_text(bot, chat_id, answer)

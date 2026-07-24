@@ -245,7 +245,7 @@ Il bridge:
 - usa TELEGRAM_BOT_TOKEN o TELEGRAM_BOT_TOKEN_CH1
 - salva offset e contesto breve in telegram_agent_state.json
 - passa le richieste all'agente OpenAI SDK
-- risponde su Telegram spezzando i messaggi lunghi
+- risponde su Telegram spezzando i messaggi lunghi e rendendo grassetti/liste in formato leggibile
 ```
 
 Esempi da scrivere in Telegram:
