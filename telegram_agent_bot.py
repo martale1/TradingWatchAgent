@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import telepot
 
+from finance_tools.chart_tool import generate_chart_context
 from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.telegram_tool import (
     TELEGRAM_RECEIVER_ENV,
@@ -54,6 +56,80 @@ def split_message(text):
 def send_text(bot, chat_id, text):
     for chunk in split_message(text):
         bot.sendMessage(chat_id, chunk)
+
+
+def send_photo(bot, chat_id, path, caption=""):
+    with Path(path).open("rb") as image:
+        bot.sendPhoto(chat_id, image, caption=caption[:1024] if caption else None)
+
+
+def extract_ticker(text, history=None):
+    matches = re.findall(r"\b[A-Z]{1,6}(?:[.-][A-Z]{1,4})?\b", str(text or "").upper())
+    ignored = {
+        "EUR", "MACD", "RSI", "ADX", "DI", "AI", "WILLIAMS",
+        "IL", "LO", "LA", "LE", "GLI", "DEL", "DEI", "DI", "DA", "SU", "PER",
+        "MI", "TU", "SI", "NO", "OK",
+        "TITOLO", "GRAFICO", "GRAFICI", "MANDAMI", "MANDA", "INVIA", "APRIMI",
+        "PREZZO", "VOLUMI", "VOLUME", "USCIRE", "ENTRARE", "SEGNALE", "SEGNALI",
+    }
+    for match in matches:
+        if match not in ignored and ("." in match or "-" in match):
+            return match
+    for match in matches:
+        if match not in ignored and len(match) >= 2:
+            return match
+    for item in reversed(history or []):
+        ticker = extract_ticker(item.get("content", ""), history=[])
+        if ticker:
+            return ticker
+    return ""
+
+
+def is_chart_request(text):
+    command = str(text or "").lower()
+    chart_words = ("grafico", "grafici", "chart", "immagine")
+    return any(word in command for word in chart_words)
+
+
+def handle_chart_request(bot, chat_id, text, history):
+    ticker = extract_ticker(text, history=history)
+    if not ticker:
+        send_text(bot, chat_id, "Dimmi anche il ticker, per esempio: mandami il grafico di CPR.MI")
+        return "Richiesto grafico ma ticker mancante."
+
+    send_text(bot, chat_id, f"Genero e invio i grafici di {ticker}...")
+    result = generate_chart_context(ticker=ticker, days=70, period="1y")
+    if result.get("status") != "ok":
+        raise RuntimeError(f"Errore generazione grafici {ticker}: {result}")
+
+    files = result.get("files", [])
+    labels = {
+        "price_alligator": "Prezzo, trend e livelli",
+        "momentum": "Volumi, RSI, Stocastico, Williams e MACD",
+        "adx": "ADX e direzionalita",
+    }
+    sent = 0
+    for file_path in files:
+        name = Path(file_path).stem.lower()
+        caption_label = next((label for key, label in labels.items() if key in name), "Grafico tecnico")
+        send_photo(bot, chat_id, file_path, caption=f"{ticker} - {caption_label}")
+        sent += 1
+
+    snapshot = result.get("snapshot", {})
+    close = snapshot.get("close")
+    rsi = snapshot.get("rsi")
+    macd = snapshot.get("macd")
+    macd_signal = snapshot.get("macd_signal")
+    adx = snapshot.get("adx")
+    summary = (
+        f"{ticker} - grafici inviati: {sent}\n"
+        f"Close: {close if close is not None else 'n/d'} | "
+        f"RSI: {rsi if rsi is not None else 'n/d'} | "
+        f"MACD: {macd if macd is not None else 'n/d'} / Signal {macd_signal if macd_signal is not None else 'n/d'} | "
+        f"ADX: {adx if adx is not None else 'n/d'}"
+    )
+    send_text(bot, chat_id, summary)
+    return summary
 
 
 def extract_agent_answer(output):
@@ -109,6 +185,7 @@ def handle_command(text):
             "- mostra performance\n"
             "- quali titoli stai monitorando?\n"
             "- aggiungi VOD.L alla watchlist con priorita high\n"
+            "- mandami il grafico di CPR.MI\n"
             "- analizza AMP.MI\n\n"
             "Le operazioni restano sul portafoglio virtuale."
         )
@@ -153,6 +230,8 @@ def main():
                 shortcut = handle_command(text)
                 if shortcut:
                     answer = shortcut
+                elif is_chart_request(text):
+                    answer = handle_chart_request(bot, chat_id, text, state.get("history", []))
                 else:
                     send_text(bot, chat_id, "Ricevuto. Interrogo l'agente...")
                     answer = run_agent(text, state.get("history", []), timeout=args.timeout)

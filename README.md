@@ -257,8 +257,11 @@ mostra performance
 mostra stato operativo
 quali titoli stai monitorando?
 aggiungi VOD.L alla watchlist con priorita high
+mandami il grafico di CPR.MI
 analizza AMP.MI
 ```
+
+Se chiedi un grafico, il bridge invia direttamente le immagini PNG generate dal tool tecnico: prezzo/trend, momentum e ADX.
 
 Log:
 
