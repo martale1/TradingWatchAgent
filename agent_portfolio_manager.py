@@ -14,6 +14,7 @@ from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.news_tool import get_news_report_json
+from finance_tools.performance_tool import calculate_portfolio_performance_json
 from finance_tools.portfolio_store import (
     add_buy_proposal,
     add_monitored_condition,
@@ -27,7 +28,7 @@ from finance_tools.portfolio_store import (
     update_portfolio_capital,
     update_monitored_condition,
 )
-from finance_tools.telegram_tool import send_monitoring_summary
+from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
@@ -285,6 +286,20 @@ def send_monitoring_telegram_summary(extra_note: str = "") -> str:
 
 
 @function_tool
+def get_portfolio_performance() -> str:
+    """Calculate current virtual portfolio performance with P/L per position and portfolio totals."""
+    log_step("Tool get_portfolio_performance chiamato")
+    return calculate_portfolio_performance_json()
+
+
+@function_tool
+def send_portfolio_performance_telegram(extra_note: str = "") -> str:
+    """Send a Telegram message with current virtual portfolio performance."""
+    log_step("Tool send_portfolio_performance_telegram chiamato")
+    return json.dumps(send_performance_summary(extra_note=extra_note), ensure_ascii=False, indent=2)
+
+
+@function_tool
 def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
     """Confirm and apply a pending portfolio proposal.
 
@@ -409,6 +424,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         update_condition_status,
         create_buy_proposal,
         send_monitoring_telegram_summary,
+        get_portfolio_performance,
+        send_portfolio_performance_telegram,
         reject_portfolio_proposal_tool,
     ]
     if auto_apply_virtual:
@@ -428,6 +445,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "e poi mostra il nuovo stato operativo. "
             "Quando inizi un monitoraggio, una proposta o una domanda sullo stato operativo, usa get_portfolio_operating_status "
             "per costruire una vista unica: posizioni in portafoglio, proposte pending, condizioni monitorate e watchlist. "
+            "Quando l'utente chiede rendimento, performance o guadagno/perdita, usa get_portfolio_performance. "
+            "Durante il monitor periodico valuta la performance del portafoglio e segnala alert di rendimento rilevanti. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
             "devi creare una proposta pending e motivarla; applicala solo se la policy operativa corrente lo consente. "
             "Se l'utente chiede una proposta o chiede se ci sono titoli da comprare, devi rispondere in modo operativo: "
@@ -522,7 +541,8 @@ def build_periodic_monitor_request(
         "Esegui un ciclo periodico di monitoraggio operativo. "
         "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita dal MIB30. "
         + operation_hint +
-        "Prima chiama get_portfolio_operating_status. "
+        "Prima chiama get_portfolio_operating_status e get_portfolio_performance. "
+        "Se get_portfolio_performance mostra alert rilevanti su P/L posizione o portafoglio, chiama send_portfolio_performance_telegram. "
         "Se ci sono posizioni aperte, analizzale una alla volta con analyze_stock_chart e analyze_stock_news; "
         f"{live_news_hint}. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending. "
         "Poi rivaluta tutte le condizioni waiting una alla volta: per ogni ticker usa analyze_stock_chart e news disponibili, "

@@ -19,6 +19,7 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 agent_portfolio_manager.py      # CLI agente OpenAI SDK
 chatgpt_playwright_demo.py      # news/report via ChatGPT nel browser con Playwright
 stock_chart_ai_analysis.py      # grafici + analisi ChatGPT via Playwright
+streamlit_app.py                # dashboard prototipo Streamlit
 finance_charts/                 # indicatori e grafici tecnici
 finance_tools/                  # tool portfolio, scanner, news, chart
 validTickers/                   # universo titoli MIB30
@@ -96,6 +97,56 @@ python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --no-auto-deep-con
 ```
 
 ## Portafoglio virtuale
+
+## Performance portafoglio
+
+Il sistema calcola rendimento corrente delle posizioni virtuali usando prezzi Yahoo Finance:
+
+```text
+- valore attuale portafoglio
+- P/L totale EUR e %
+- P/L per posizione EUR e %
+- cash, investito, esposizione
+- best/worst position
+- alert su soglie di rendimento
+```
+
+Nel ciclo periodico l'agente usa `get_portfolio_performance`; se trova alert rilevanti puo inviare un Telegram performance. Anche il riepilogo monitoraggio Telegram include ora valore portafoglio e P/L totale.
+
+Soglie alert iniziali:
+
+```text
+- posizione >= +5%: alert positivo
+- posizione <= -3%: alert rischio
+- portafoglio >= +2%: alert positivo
+- portafoglio <= -2%: alert rischio
+```
+
+## Dashboard Streamlit
+
+Dashboard prototipo locale:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Poi apri:
+
+```text
+http://localhost:8501
+```
+
+La dashboard mostra:
+
+```text
+- capitale, cash, valore portafoglio e P/L
+- posizioni aperte
+- alert performance
+- condizioni monitorate
+- proposte pending
+- azioni agente recenti
+- pulsanti per inviare Telegram e lanciare un monitor autonomo singolo
+```
 
 ## Modalita interattiva
 

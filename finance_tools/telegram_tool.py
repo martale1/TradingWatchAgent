@@ -3,6 +3,7 @@ import os
 import telepot
 
 from finance_tools.portfolio_store import list_monitored_conditions, load_portfolio, portfolio_status_summary
+from finance_tools.performance_tool import build_performance_summary, calculate_portfolio_performance
 
 
 TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
@@ -61,6 +62,7 @@ def send_telegram_message(text_message):
 
 def build_monitoring_summary(extra_note=""):
     status = portfolio_status_summary()
+    performance = calculate_portfolio_performance()
     conditions = list_monitored_conditions(status=None)
     waiting = [item for item in conditions if item.get("status") == "waiting"]
     met = [item for item in conditions if item.get("status") == "met"]
@@ -75,6 +77,8 @@ def build_monitoring_summary(extra_note=""):
         "",
         f"Capitale: EUR {float(status.get('initial_capital') or 0):.2f}",
         f"Cash: EUR {float(status.get('cash') or 0):.2f}",
+        f"Valore portafoglio: EUR {float(performance.get('total_value') or 0):.2f}",
+        f"P/L totale: EUR {float(performance.get('total_pnl') or 0):.2f} ({float(performance.get('total_pnl_pct') or 0):.2f}%)",
         f"Posizioni aperte: {len(positions)}",
         f"Proposte buy pending: {len(pending_buy)}",
         "",
@@ -141,5 +145,13 @@ def build_monitoring_summary(extra_note=""):
 
 def send_monitoring_summary(extra_note=""):
     message = build_monitoring_summary(extra_note=extra_note)
+    result = send_telegram_message(message)
+    return {**result, "message": message}
+
+
+def send_performance_summary(extra_note=""):
+    message = build_performance_summary()
+    if extra_note:
+        message = f"{message}\n\n{str(extra_note).strip()}"
     result = send_telegram_message(message)
     return {**result, "message": message}
