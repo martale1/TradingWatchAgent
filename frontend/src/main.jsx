@@ -201,10 +201,12 @@ function AgentRunStatus({ state = {} }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
   const schedulerDisabled = state.scheduler_state === "Disabled" || state.scheduler_enabled === false;
-  const scheduleClass = schedulerDisabled || state.running_state_is_stale ? "negative" : state.next_scheduled_is_overdue ? "warning" : "neutral";
   const primaryNextRun = state.scheduler_enabled && state.scheduler_next_run_at
     ? state.scheduler_next_run_at
     : state.next_scheduled_expected_at;
+  const primaryNextRunTime = primaryNextRun ? new Date(primaryNextRun).getTime() : null;
+  const primaryNextRunIsOverdue = Boolean(primaryNextRunTime && primaryNextRunTime < Date.now());
+  const scheduleClass = schedulerDisabled || state.running_state_is_stale ? "negative" : primaryNextRunIsOverdue ? "warning" : "neutral";
   const scheduleText = schedulerDisabled
     ? "Scheduler disabilitato"
     : primaryNextRun
@@ -214,7 +216,7 @@ function AgentRunStatus({ state = {} }) {
     ? "task disabled"
     : state.running_state_is_stale
       ? "running stale"
-      : state.next_scheduled_is_overdue
+      : primaryNextRunIsOverdue
         ? "in ritardo"
         : "";
   return (
