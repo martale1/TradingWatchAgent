@@ -588,6 +588,19 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   font-weight: 700;
 }
 .chartViews button { min-width: 76px; }
+.allChartsStack {
+  display: grid;
+  gap: 18px;
+}
+.allChartsStack > div {
+  display: grid;
+  gap: 8px;
+}
+.allChartsStack h3 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 16px;
+}
 
 @media (max-width: 900px) {
   main { padding: 18px; }

@@ -924,6 +924,7 @@ function ChartModal({ item, onClose }) {
           </div>
           <div className="segmented chartViews">
             {[
+              ["all", "Tutti"],
               ["price", "Prezzo"],
               ["volume", "Volumi"],
               ["oscillators", "RSI/Stoch/W%R"],
@@ -937,7 +938,30 @@ function ChartModal({ item, onClose }) {
         {state.loading && <div className="chartStatus">Caricamento storico prezzi...</div>}
         {state.error && <div className="error">{state.error}</div>}
         {!state.loading && !state.error && (
-          view === "price"
+          view === "all" ? (
+            <div className="allChartsStack">
+              <div>
+                <h3>Prezzo</h3>
+                <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} mode={mode} />
+              </div>
+              <div>
+                <h3>Volumi</h3>
+                <TechnicalChart prices={state.prices} type="volume" />
+              </div>
+              <div>
+                <h3>RSI / Stocastico / Williams %R</h3>
+                <TechnicalChart prices={state.prices} type="oscillators" />
+              </div>
+              <div>
+                <h3>MACD</h3>
+                <TechnicalChart prices={state.prices} type="macd" />
+              </div>
+              <div>
+                <h3>ADX</h3>
+                <TechnicalChart prices={state.prices} type="adx" />
+              </div>
+            </div>
+          ) : view === "price"
             ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} mode={mode} />
             : <TechnicalChart prices={state.prices} type={view} />
         )}
