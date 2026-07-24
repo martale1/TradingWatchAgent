@@ -656,6 +656,11 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .candleUp rect { fill: #22c55e; fill-opacity: .72; }
 .candleDown line, .candleDown rect { stroke: #b91c1c; }
 .candleDown rect { fill: #ef4444; fill-opacity: .72; }
+.inlineVolumes > line { stroke: #cbd5e1; stroke-width: 1; }
+.inlineVolumes text { fill: #64748b; font-size: 11px; font-weight: 700; }
+.inlineVolumes rect { opacity: .42; }
+.inlineVolumes .volumeUp { fill: #16a34a; }
+.inlineVolumes .volumeDown { fill: #dc2626; }
 .triggerLine line {
   stroke: #dc2626;
   stroke-width: 3;

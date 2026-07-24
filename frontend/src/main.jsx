@@ -569,14 +569,20 @@ function Watchlist({ rows = [], reload, onChart }) {
 function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" }) {
   const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
-  const height = 470;
+  const height = 500;
   const pad = { top: 34, right: 142, bottom: 70, left: 88 };
   const plotW = width - pad.left - pad.right;
-  const plotH = height - pad.top - pad.bottom;
+  const volumeH = 64;
+  const volumeGap = 14;
+  const pricePlotH = height - pad.top - pad.bottom - volumeH - volumeGap;
+  const volumeTop = pad.top + pricePlotH + volumeGap;
+  const plotBottom = volumeTop + volumeH;
   const priceValues = prices
     .flatMap((row) => [row.open, row.high, row.low, row.close].map(Number))
     .filter((value) => !Number.isNaN(value));
   const closeValues = prices.map((row) => Number(row.close)).filter((value) => !Number.isNaN(value));
+  const volumeValues = prices.map((row) => Number(row.volume)).filter((value) => !Number.isNaN(value) && value > 0);
+  const maxVolume = Math.max(...volumeValues, 1);
   const levels = [triggerLevel, supportLevel].map(Number).filter((value) => !Number.isNaN(value) && value > 0);
   const min = Math.min(...priceValues, ...levels);
   const max = Math.max(...priceValues, ...levels);
@@ -584,12 +590,14 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   const yMin = min - span * 0.08;
   const yMax = max + span * 0.08;
   const x = (index) => pad.left + (prices.length <= 1 ? 0 : (index / (prices.length - 1)) * plotW);
-  const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * plotH;
+  const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * pricePlotH;
+  const volumeY = (value) => plotBottom - (Number(value || 0) / maxVolume) * volumeH;
   const candleW = Math.max(3, Math.min(12, plotW / Math.max(prices.length, 1) * 0.58));
+  const volumeW = Math.max(2, Math.min(9, plotW / Math.max(prices.length, 1) * 0.72));
   const path = prices
     .map((row, index) => `${index === 0 ? "M" : "L"} ${x(index).toFixed(2)} ${y(Number(row.close)).toFixed(2)}`)
     .join(" ");
-  const area = `${path} L ${pad.left + plotW} ${pad.top + plotH} L ${pad.left} ${pad.top + plotH} Z`;
+  const area = `${path} L ${pad.left + plotW} ${pad.top + pricePlotH} L ${pad.left} ${pad.top + pricePlotH} Z`;
   const ticks = Array.from({ length: 5 }, (_, index) => yMin + ((yMax - yMin) / 4) * index);
   const last = prices[prices.length - 1];
   const first = prices[0];
@@ -649,7 +657,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
       ))}
       {dateTicks.map((tick) => (
         <g key={`${tick.date}-${tick.index}`} className="dateTick">
-          <line x1={x(tick.index)} x2={x(tick.index)} y1={pad.top + plotH} y2={pad.top + plotH + 7} />
+          <line x1={x(tick.index)} x2={x(tick.index)} y1={plotBottom} y2={plotBottom + 7} />
           <text x={x(tick.index)} y={height - 28}>{shortDate(tick.date)}</text>
         </g>
       ))}
@@ -687,6 +695,29 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
           })}
         </g>
       )}
+      <g className="inlineVolumes">
+        <line x1={pad.left} x2={pad.left + plotW} y1={plotBottom} y2={plotBottom} />
+        <text x={pad.left - 14} y={volumeTop + 12} textAnchor="end">Vol</text>
+        {prices.map((row, index) => {
+          const open = Number(row.open);
+          const close = Number(row.close);
+          const volume = Number(row.volume);
+          if (Number.isNaN(volume) || volume <= 0) return null;
+          const up = !Number.isNaN(open) && !Number.isNaN(close) ? close >= open : true;
+          const barY = volumeY(volume);
+          return (
+            <rect
+              key={`volume-${row.date}-${index}`}
+              className={up ? "volumeUp" : "volumeDown"}
+              x={x(index) - volumeW / 2}
+              y={barY}
+              width={volumeW}
+              height={Math.max(1, plotBottom - barY)}
+              rx="1"
+            />
+          );
+        })}
+      </g>
       <LevelLine value={triggerLevel} label="TRIGGER" className="triggerLine" />
       <LevelLine value={supportLevel} label="SUPPORTO" className="supportLine" />
       {last && (
@@ -697,7 +728,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
       )}
       {hover && hoverX !== null && (
         <g className="hoverLayer">
-          <line x1={hoverX} x2={hoverX} y1={pad.top} y2={pad.top + plotH} />
+          <line x1={hoverX} x2={hoverX} y1={pad.top} y2={plotBottom} />
           <circle cx={hoverX} cy={y(Number(hover.close))} r="4" />
           <g transform={`translate(${Math.min(hoverX + 12, width - 172)} ${pad.top + 12})`}>
             <rect width="152" height="56" rx="8" />
