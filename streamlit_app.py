@@ -26,6 +26,43 @@ def run_command(args):
     return result
 
 
+def build_chat_request(messages, user_prompt, max_messages=8):
+    recent = messages[-max_messages:]
+    if not recent:
+        return user_prompt
+    lines = [
+        "Questa richiesta arriva dalla dashboard Streamlit di TradingWatchAgent.",
+        "Usa il contesto recente per capire riferimenti come 'questi titoli', 'la proposta', 'il portafoglio'.",
+        "",
+        "Contesto recente:",
+    ]
+    for message in recent:
+        role = "Utente" if message["role"] == "user" else "Agente"
+        lines.append(f"{role}: {message['content']}")
+    lines.extend(["", "Nuova richiesta utente:", user_prompt])
+    return "\n".join(lines)
+
+
+def extract_agent_answer(result):
+    output = result.stdout.strip() if result.stdout else result.stderr.strip()
+    marker = "[agent] Risposta finale agente ricevuta"
+    if marker in output:
+        return output.split(marker, 1)[1].strip()
+    interrupted = "Run interrotta prima della risposta finale"
+    if interrupted in output:
+        return output[output.find(interrupted):].strip()
+    return output.strip()
+
+
+def run_agent_chat(messages, user_prompt):
+    request = build_chat_request(messages, user_prompt)
+    result = run_command([request])
+    answer = extract_agent_answer(result)
+    if result.returncode != 0:
+        answer = f"Errore agente, exit code {result.returncode}.\n\n{answer}"
+    return answer
+
+
 def dataframe_or_empty(rows):
     if not rows:
         return pd.DataFrame()
@@ -56,9 +93,61 @@ col2.metric("Valore portafoglio", f"EUR {total_value:,.2f}", f"{total_pnl_pct:.2
 col3.metric("P/L totale", f"EUR {total_pnl:,.2f}")
 col4.metric("Cash", f"EUR {cash:,.2f}", f"{performance.get('cash_pct', 0):.1f}%")
 
-tab_overview, tab_monitoring, tab_actions, tab_controls = st.tabs(
-    ["Performance", "Monitoraggio", "Azioni agente", "Controlli"]
+tab_chat, tab_overview, tab_monitoring, tab_actions, tab_controls = st.tabs(
+    ["Chat agente", "Performance", "Monitoraggio", "Azioni agente", "Controlli"]
 )
+
+with tab_chat:
+    st.subheader("Chat con TradingWatchAgent")
+    st.caption("Parla con l'agente usando linguaggio naturale. Le operazioni reali restano simulate nel portfolio.json.")
+
+    if "agent_chat_messages" not in st.session_state:
+        st.session_state.agent_chat_messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Ciao, sono TradingWatchAgent. Puoi chiedermi stato portafoglio, rendimento, "
+                    "condizioni monitorate, scan MIB, news, oppure decisioni operative virtuali."
+                ),
+            }
+        ]
+
+    queued_prompt = st.session_state.pop("queued_agent_prompt", None)
+    if queued_prompt:
+        history = list(st.session_state.agent_chat_messages)
+        st.session_state.agent_chat_messages.append({"role": "user", "content": queued_prompt})
+        with st.spinner("L'agente sta analizzando..."):
+            answer = run_agent_chat(history, queued_prompt)
+        st.session_state.agent_chat_messages.append({"role": "assistant", "content": answer})
+
+    for message in st.session_state.agent_chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    prompt = st.chat_input("Scrivi all'agente...")
+    if prompt:
+        st.session_state.agent_chat_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        with st.chat_message("assistant"):
+            with st.spinner("L'agente sta analizzando..."):
+                answer = run_agent_chat(st.session_state.agent_chat_messages[:-1], prompt)
+            st.markdown(answer)
+        st.session_state.agent_chat_messages.append({"role": "assistant", "content": answer})
+
+    c1, c2, c3, c4 = st.columns(4)
+    if c1.button("Stato portafoglio", key="chat_status"):
+        st.session_state.queued_agent_prompt = "mostra stato operativo del portafoglio"
+        st.rerun()
+    if c2.button("Performance", key="chat_perf"):
+        st.session_state.queued_agent_prompt = "mostra rendimento e performance del portafoglio"
+        st.rerun()
+    if c3.button("Condizioni", key="chat_conditions"):
+        st.session_state.queued_agent_prompt = "mostra condizioni monitorate"
+        st.rerun()
+    if c4.button("Pulisci chat", key="chat_clear"):
+        st.session_state.agent_chat_messages = []
+        st.rerun()
 
 with tab_overview:
     st.subheader("Posizioni aperte")
@@ -76,7 +165,7 @@ with tab_overview:
             "current_price",
             "virtual_quantity",
         ]
-        st.dataframe(positions_df[[c for c in columns if c in positions_df.columns]], use_container_width=True)
+        st.dataframe(positions_df[[c for c in columns if c in positions_df.columns]], width="stretch")
 
     alerts = performance.get("alerts", [])
     st.subheader("Alert performance")
@@ -97,7 +186,7 @@ with tab_monitoring:
         st.info("Nessuna condizione monitorata.")
     else:
         columns = ["id", "ticker", "status", "condition", "action_if_met", "updated_at"]
-        st.dataframe(conditions_df[[c for c in columns if c in conditions_df.columns]], use_container_width=True)
+        st.dataframe(conditions_df[[c for c in columns if c in conditions_df.columns]], width="stretch")
 
     st.subheader("Proposte pending")
     pending = status.get("pending_buy_proposals", []) + status.get("pending_other_proposals", [])
@@ -105,7 +194,7 @@ with tab_monitoring:
     if pending_df.empty:
         st.success("Nessuna proposta pending.")
     else:
-        st.dataframe(pending_df, use_container_width=True)
+        st.dataframe(pending_df, width="stretch")
 
 with tab_actions:
     st.subheader("Azioni agente recenti")
@@ -114,7 +203,7 @@ with tab_actions:
     if closed_df.empty:
         st.info("Nessuna azione recente.")
     else:
-        st.dataframe(closed_df, use_container_width=True)
+        st.dataframe(closed_df, width="stretch")
 
 with tab_controls:
     st.subheader("Comandi")

@@ -139,6 +139,7 @@ http://localhost:8501
 La dashboard mostra:
 
 ```text
+- chat stile ChatGPT per parlare con l'agente
 - capitale, cash, valore portafoglio e P/L
 - posizioni aperte
 - alert performance
@@ -146,6 +147,15 @@ La dashboard mostra:
 - proposte pending
 - azioni agente recenti
 - pulsanti per inviare Telegram e lanciare un monitor autonomo singolo
+```
+
+Nella scheda `Chat agente` puoi scrivere richieste in linguaggio naturale, ad esempio:
+
+```text
+mostra stato operativo del portafoglio
+mostra rendimento e performance
+scannerizza il MIB30 e dimmi se ci sono opportunita
+rivaluta le condizioni monitorate
 ```
 
 ## Modalita interattiva
