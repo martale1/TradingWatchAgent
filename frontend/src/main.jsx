@@ -228,9 +228,6 @@ function AgentRunStatus({ state = {} }) {
       <div>
         <span>Prossimo scheduled expected</span>
         <b>{scheduleText}</b>
-        {state.scheduler_next_run_at && !schedulerDisabled && state.next_scheduled_expected_at && state.scheduler_next_run_at !== state.next_scheduled_expected_at && (
-          <small className="agentScheduleDetail">Stima agente: {dateTime(state.next_scheduled_expected_at)}</small>
-        )}
         {state.scheduler_next_run_at && schedulerDisabled && (
           <small className="agentScheduleDetail">Task Windows: {dateTime(state.scheduler_next_run_at)}</small>
         )}
