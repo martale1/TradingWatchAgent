@@ -21,6 +21,72 @@ function price(value) {
   return Number(value).toLocaleString("it-IT", { maximumFractionDigits: 4 });
 }
 
+function cleanText(value) {
+  return String(value || "")
+    .replaceAll("â‚¬", "€")
+    .replaceAll("Ã¨", "è")
+    .replaceAll("Ã©", "é")
+    .replaceAll("Ã ", "à")
+    .replaceAll("Ã²", "ò")
+    .replaceAll("Ã¹", "ù")
+    .replaceAll("Ã¬", "ì")
+    .replaceAll("Â°", "°");
+}
+
+function renderInline(text) {
+  const parts = cleanText(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index}>{part.slice(1, -1)}</code>;
+    }
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
+}
+
+function MarkdownMessage({ content }) {
+  const lines = cleanText(content).split(/\r?\n/);
+  const elements = [];
+  let listItems = [];
+
+  function flushList() {
+    if (!listItems.length) return;
+    elements.push(
+      <ul key={`ul-${elements.length}`} className="markdownList">
+        {listItems.map((item, index) => <li key={index}>{renderInline(item)}</li>)}
+      </ul>
+    );
+    listItems = [];
+  }
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushList();
+      return;
+    }
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      listItems.push(bullet[1]);
+      return;
+    }
+    flushList();
+    if (trimmed.startsWith("### ")) {
+      elements.push(<h4 key={index}>{renderInline(trimmed.slice(4))}</h4>);
+    } else if (trimmed.startsWith("## ")) {
+      elements.push(<h3 key={index}>{renderInline(trimmed.slice(3))}</h3>);
+    } else if (trimmed.match(/^\d+\.\s+/)) {
+      elements.push(<p key={index} className="numberedLine">{renderInline(trimmed)}</p>);
+    } else {
+      elements.push(<p key={index}>{renderInline(trimmed)}</p>);
+    }
+  });
+  flushList();
+  return <div className="markdownMessage">{elements}</div>;
+}
+
 function dateTime(value) {
   if (!value) return "n/d";
   const date = new Date(value);
@@ -48,12 +114,13 @@ function signedClass(value) {
 }
 
 async function api(path, options = {}) {
+  const { timeoutMs = 30000, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 30000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   const response = await fetch(`${API}${path}`, {
     headers: { "Content-Type": "application/json" },
     signal: controller.signal,
-    ...options,
+    ...fetchOptions,
   }).finally(() => window.clearTimeout(timeout));
   if (!response.ok) {
     let text = await response.text();
@@ -65,7 +132,17 @@ async function api(path, options = {}) {
     }
     throw new Error(text || `Errore HTTP ${response.status}`);
   }
-  return response.json();
+  const data = await response.json();
+  return normalizeData(data);
+}
+
+function normalizeData(value) {
+  if (typeof value === "string") return cleanText(value);
+  if (Array.isArray(value)) return value.map(normalizeData);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeData(item)]));
+  }
+  return value;
 }
 
 function Metric({ label, value, delta, icon }) {
@@ -484,6 +561,7 @@ function Chat() {
       const result = await api("/api/agent/chat", {
         method: "POST",
         body: JSON.stringify({ message, history: messages }),
+        timeoutMs: 900000,
       });
       setMessages([...next, { role: "assistant", content: result.answer }]);
     } catch (error) {
@@ -504,9 +582,15 @@ function Chat() {
       <div className="messages">
         {messages.map((message, index) => (
           <div key={index} className={`message ${message.role}`}>
-            <pre>{message.content}</pre>
+            <MarkdownMessage content={message.content} />
           </div>
         ))}
+        {busy && (
+          <div className="message assistant pending">
+            <div className="typingDots"><span /> <span /> <span /></div>
+            <p>Sto analizzando la richiesta. Se servono grafici, scan o agent tool posso impiegare qualche minuto.</p>
+          </div>
+        )}
       </div>
       <form className="chatInput" onSubmit={(event) => { event.preventDefault(); send(); }}>
         <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Scrivi all'agente..." />
@@ -526,7 +610,7 @@ function Controls({ reload }) {
     setBusy(label);
     setLog("");
     try {
-      const result = await api(path, { method: "POST", body: JSON.stringify(body || {}) });
+      const result = await api(path, { method: "POST", body: JSON.stringify(body || {}), timeoutMs: 900000 });
       setLog(result.output || result.message || JSON.stringify(result, null, 2));
       reload();
     } catch (error) {

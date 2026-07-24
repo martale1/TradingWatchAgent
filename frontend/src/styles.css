@@ -184,7 +184,42 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .message { max-width: 78%; padding: 12px; border-radius: 8px; }
 .message.user { margin-left: auto; background: #2563eb; color: white; }
 .message.assistant { background: white; border: 1px solid #e2e8f0; }
-.message pre { white-space: pre-wrap; font-family: inherit; margin: 0; }
+.message.pending { color: #64748b; }
+.markdownMessage { display: grid; gap: 8px; line-height: 1.45; }
+.markdownMessage p,
+.markdownMessage h3,
+.markdownMessage h4,
+.markdownMessage ul { margin: 0; }
+.markdownMessage h3 { margin-top: 6px; font-size: 18px; }
+.markdownMessage h4 { margin-top: 4px; font-size: 15px; }
+.markdownMessage code {
+  border: 1px solid #dbe3ef;
+  border-radius: 5px;
+  background: #f1f5f9;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+.message.user .markdownMessage code {
+  border-color: rgba(255, 255, 255, .35);
+  background: rgba(255, 255, 255, .14);
+}
+.markdownList { padding-left: 18px; display: grid; gap: 5px; }
+.numberedLine { padding-left: 2px; }
+.typingDots { display: flex; gap: 4px; margin-bottom: 8px; }
+.typingDots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #94a3b8;
+  animation: pulseDot 1.2s infinite ease-in-out;
+}
+.typingDots span:nth-child(2) { animation-delay: .15s; }
+.typingDots span:nth-child(3) { animation-delay: .3s; }
+@keyframes pulseDot {
+  0%, 80%, 100% { opacity: .35; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
 .chatInput { display: flex; gap: 8px; margin-top: 12px; }
 .chatInput input, .controlRow input {
   width: 100%;

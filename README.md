@@ -171,6 +171,39 @@ La web app mostra:
 
 Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Git. Viene aggiornato quando parte `--daemon-monitor`, `--autonomous-monitor` o una run singola dal backend React.
 
+## Scheduler Windows ogni 30 minuti
+
+Per far girare l'agente autonomo ogni 30 minuti su Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_windows_monitor_task.ps1
+```
+
+La task Windows `TradingWatchAgentMonitor` esegue:
+
+```text
+scripts\run_autonomous_monitor_once.bat
+```
+
+Ogni giro lancia un ciclo singolo:
+
+```text
+agent_portfolio_manager.py --autonomous-monitor --once --monitor-interval-minutes 30 --no-auto-deep-confirmation --deep-confirm-limit 0
+```
+
+Il job schedulato evita la conferma visuale Playwright (`--no-auto-deep-confirmation --deep-confirm-limit 0`) per non restare dipendente da Chrome/ChatGPT aperto. Gli approfondimenti con grafici inviati a ChatGPT via Playwright restano disponibili da CLI o dalla dashboard quando vuoi fare un controllo manuale/live.
+
+Log:
+
+```text
+logs/scheduled-monitor.log
+logs/scheduled-monitor.err.log
+```
+
+Lo script usa anche un lock locale (`logs/monitor.lock`) per evitare run sovrapposte: se un ciclo dura piu di 30 minuti, il giro successivo viene saltato e scritto nel log.
+
+La dashboard React mostra `Ultima analisi titoli`, `Ultima run agente` e `Prossimo scheduled expected` leggendo `agent_run_state.json`.
+
 ## Modalita interattiva
 
 Da PyCharm puoi lanciare:
