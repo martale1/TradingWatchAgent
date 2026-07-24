@@ -23,6 +23,7 @@ from finance_tools.portfolio_store import (  # noqa: E402
     remove_watchlist_item,
 )
 from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary  # noqa: E402
+from finance_charts.technical_charts import add_indicators  # noqa: E402
 import yfinance as yf  # noqa: E402
 
 
@@ -140,6 +141,19 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
     if history.empty:
         raise HTTPException(status_code=404, detail=f"Nessun dato prezzo disponibile per {symbol}")
 
+    try:
+        history = add_indicators(history)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Errore calcolo indicatori {symbol}: {exc}") from exc
+
+    def clean_number(value, digits=4):
+        if value is None or value != value:
+            return None
+        try:
+            return round(float(value), digits)
+        except (TypeError, ValueError):
+            return None
+
     history = history.reset_index()
     rows = []
     for _, row in history.iterrows():
@@ -155,6 +169,18 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
                 "low": round(float(row.get("Low", close)), 4),
                 "close": round(float(close), 4),
                 "volume": int(row.get("Volume", 0) or 0),
+                "vol_ma5": clean_number(row.get("Vol_MA5"), 0),
+                "vol_ma10": clean_number(row.get("Vol_MA10"), 0),
+                "rsi": clean_number(row.get("RSI")),
+                "stoch_k": clean_number(row.get("Stoch_K")),
+                "stoch_d": clean_number(row.get("Stoch_D")),
+                "williams_r": clean_number(row.get("Williams_R")),
+                "macd": clean_number(row.get("MACD")),
+                "macd_signal": clean_number(row.get("MACD_Signal")),
+                "macd_hist": clean_number(row.get("MACD_Hist")),
+                "adx": clean_number(row.get("ADX")),
+                "plus_di": clean_number(row.get("PLUS_DI")),
+                "minus_di": clean_number(row.get("MINUS_DI")),
             }
         )
     if not rows:

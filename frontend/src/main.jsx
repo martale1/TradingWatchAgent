@@ -563,10 +563,160 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   );
 }
 
+function TechnicalChart({ prices = [], type }) {
+  const width = 1040;
+  const height = 430;
+  const pad = { top: 34, right: 96, bottom: 66, left: 88 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const configs = {
+    volume: {
+      title: "Volumi + medie",
+      series: [
+        { key: "volume", label: "Volume", color: "#64748b", kind: "bar", signedBy: "close" },
+        { key: "vol_ma5", label: "MA5", color: "#f97316" },
+        { key: "vol_ma10", label: "MA10", color: "#2563eb" },
+      ],
+      yMin: 0,
+    },
+    oscillators: {
+      title: "RSI / Stocastico / Williams %R",
+      series: [
+        { key: "rsi", label: "RSI", color: "#f59e0b" },
+        { key: "stoch_k", label: "Stoch K", color: "#2563eb" },
+        { key: "stoch_d", label: "Stoch D", color: "#ef4444" },
+        { key: "williams_r", label: "Williams %R", color: "#0ea5e9" },
+      ],
+      guides: [
+        { value: 70, label: "70", color: "#60a5fa" },
+        { value: 50, label: "50", color: "#f59e0b" },
+        { value: 30, label: "30", color: "#22c55e" },
+        { value: -20, label: "W -20", color: "#0ea5e9" },
+        { value: -80, label: "W -80", color: "#0ea5e9" },
+      ],
+      yMin: -100,
+      yMax: 100,
+    },
+    macd: {
+      title: "MACD / Signal / Histogram",
+      series: [
+        { key: "macd_hist", label: "Histogram", color: "#16a34a", negativeColor: "#ef4444", kind: "barZero" },
+        { key: "macd", label: "MACD", color: "#2563eb" },
+        { key: "macd_signal", label: "Signal", color: "#ef4444" },
+      ],
+      guides: [{ value: 0, label: "0", color: "#94a3b8" }],
+    },
+    adx: {
+      title: "ADX + DI",
+      series: [
+        { key: "adx", label: "ADX", color: "#16a34a" },
+        { key: "plus_di", label: "DI+", color: "#2563eb" },
+        { key: "minus_di", label: "DI-", color: "#f97316" },
+      ],
+      guides: [{ value: 25, label: "25 trend", color: "#ef4444" }],
+      yMin: 0,
+    },
+  };
+  const config = configs[type] || configs.volume;
+  const values = prices
+    .flatMap((row) => config.series.map((serie) => Number(row[serie.key])))
+    .filter((value) => !Number.isNaN(value));
+  if (!prices.length || !values.length) return <div className="chartEmpty">Nessun dato tecnico disponibile.</div>;
+
+  const guideValues = (config.guides || []).map((guide) => guide.value);
+  const min = config.yMin ?? Math.min(...values, ...guideValues);
+  const max = config.yMax ?? Math.max(...values, ...guideValues);
+  const span = max - min || 1;
+  const yMin = config.yMin ?? min - span * 0.12;
+  const yMax = config.yMax ?? max + span * 0.12;
+  const x = (index) => pad.left + (prices.length <= 1 ? 0 : (index / (prices.length - 1)) * plotW);
+  const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * plotH;
+  const ticks = Array.from({ length: 5 }, (_, index) => yMin + ((yMax - yMin) / 4) * index);
+  const barW = Math.max(2, Math.min(13, plotW / Math.max(prices.length, 1) * 0.62));
+  const dateTicks = prices
+    .map((row, index) => ({ ...row, index }))
+    .filter((row, index) => {
+      if (index === 0 || index === prices.length - 1) return true;
+      const previous = prices[index - 1];
+      if (!previous) return false;
+      if (prices.length <= 45) return index % 5 === 0;
+      return String(row.date || "").slice(0, 7) !== String(previous.date || "").slice(0, 7);
+    });
+
+  function linePath(serie) {
+    return prices
+      .map((row, index) => ({ value: Number(row[serie.key]), index }))
+      .filter((point) => !Number.isNaN(point.value))
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.index).toFixed(2)} ${y(point.value).toFixed(2)}`)
+      .join(" ");
+  }
+
+  return (
+    <svg className="priceChart technicalChart" viewBox={`0 0 ${width} ${height}`} role="img">
+      <rect x="0" y="0" width={width} height={height} rx="8" />
+      <text className="chartTitle" x={pad.left} y="22">{config.title}</text>
+      {ticks.map((tick) => (
+        <g key={tick} className="gridLine">
+          <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
+          <text x={pad.left - 14} y={y(tick) + 4} textAnchor="end">{price(tick)}</text>
+        </g>
+      ))}
+      {(config.guides || []).map((guide) => (
+        <g key={guide.label} className="guideLine">
+          <line x1={pad.left} x2={pad.left + plotW} y1={y(guide.value)} y2={y(guide.value)} style={{ stroke: guide.color }} />
+          <text x={pad.left + plotW + 10} y={y(guide.value) + 4}>{guide.label}</text>
+        </g>
+      ))}
+      {dateTicks.map((tick) => (
+        <g key={`${tick.date}-${tick.index}`} className="dateTick">
+          <line x1={x(tick.index)} x2={x(tick.index)} y1={pad.top + plotH} y2={pad.top + plotH + 7} />
+          <text x={x(tick.index)} y={height - 26}>{shortDate(tick.date)}</text>
+        </g>
+      ))}
+      {config.series.map((serie) => {
+        if (serie.kind === "bar" || serie.kind === "barZero") {
+          const zeroY = serie.kind === "barZero" ? y(0) : y(0);
+          return (
+            <g key={serie.key} className="indicatorBars">
+              {prices.map((row, index) => {
+                const value = Number(row[serie.key]);
+                if (Number.isNaN(value)) return null;
+                const up = serie.signedBy ? Number(row.close) >= Number(row.open) : value >= 0;
+                const top = Math.min(y(value), zeroY);
+                const heightValue = Math.max(1, Math.abs(zeroY - y(value)));
+                return (
+                  <rect
+                    key={`${serie.key}-${row.date}`}
+                    x={x(index) - barW / 2}
+                    y={top}
+                    width={barW}
+                    height={heightValue}
+                    fill={up ? serie.color : (serie.negativeColor || "#ef4444")}
+                  />
+                );
+              })}
+            </g>
+          );
+        }
+        return <path key={serie.key} className="indicatorLine" d={linePath(serie)} style={{ stroke: serie.color }} />;
+      })}
+      <g className="legend">
+        {config.series.map((serie, index) => (
+          <g key={serie.key} transform={`translate(${pad.left + index * 140} ${height - 14})`}>
+            <line x1="0" x2="18" y1="0" y2="0" style={{ stroke: serie.color }} />
+            <text x="24" y="4">{serie.label}</text>
+          </g>
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 function ChartModal({ item, onClose }) {
   const [state, setState] = useState({ loading: true, error: "", prices: [] });
   const [period, setPeriod] = useState("6mo");
   const [mode, setMode] = useState("candles");
+  const [view, setView] = useState("price");
   const ticker = item?.ticker;
 
   useEffect(() => {
@@ -611,10 +761,25 @@ function ChartModal({ item, onClose }) {
             <button className={mode === "candles" ? "active" : ""} onClick={() => setMode("candles")}>Candele</button>
             <button className={mode === "line" ? "active" : ""} onClick={() => setMode("line")}>Linea</button>
           </div>
+          <div className="segmented chartViews">
+            {[
+              ["price", "Prezzo"],
+              ["volume", "Volumi"],
+              ["oscillators", "RSI/Stoch/W%R"],
+              ["macd", "MACD"],
+              ["adx", "ADX"],
+            ].map(([id, label]) => (
+              <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}>{label}</button>
+            ))}
+          </div>
         </div>
         {state.loading && <div className="chartStatus">Caricamento storico prezzi...</div>}
         {state.error && <div className="error">{state.error}</div>}
-        {!state.loading && !state.error && <PriceChart prices={state.prices} triggerLevel={item.trigger_level} supportLevel={item.support_level} mode={mode} />}
+        {!state.loading && !state.error && (
+          view === "price"
+            ? <PriceChart prices={state.prices} triggerLevel={item.trigger_level} supportLevel={item.support_level} mode={mode} />
+            : <TechnicalChart prices={state.prices} type={view} />
+        )}
       </div>
     </div>
   );

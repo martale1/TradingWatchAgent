@@ -301,6 +301,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .chartToolbar {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -389,6 +390,35 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .hoverLayer circle { fill: #111827; stroke: white; stroke-width: 2; }
 .hoverLayer rect { fill: #111827; opacity: .92; }
 .hoverLayer text { fill: white; font-size: 12px; font-weight: 700; }
+.technicalChart .chartTitle {
+  fill: #111827;
+  font-size: 14px;
+  font-weight: 800;
+}
+.indicatorLine {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.indicatorBars rect { opacity: .72; }
+.guideLine line {
+  stroke-width: 1.5;
+  stroke-dasharray: 4 5;
+  opacity: .72;
+}
+.guideLine text {
+  fill: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+.legend line { stroke-width: 3; }
+.legend text {
+  fill: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+.chartViews button { min-width: 76px; }
 
 @media (max-width: 900px) {
   main { padding: 18px; }
@@ -399,5 +429,6 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   .watchlistForm { grid-template-columns: 1fr; }
   .chartSummary { grid-template-columns: 1fr 1fr; }
   .chartToolbar { align-items: flex-start; flex-direction: column; }
+  .segmented { flex-wrap: wrap; }
   .message { max-width: 100%; }
 }

@@ -166,6 +166,7 @@ La web app mostra:
 - posizioni aperte con P/L per titolo
 - watchlist manuale per titoli da analizzare anche se non filtrati dallo scanner
 - condizioni monitorate con prezzo attuale, trigger, supporto e distanza dal trigger
+- grafici apribili con viste prezzo, volumi, RSI/Stocastico/Williams, MACD e ADX
 - chat stile ChatGPT per parlare con l'agente
 - azioni recenti e controlli per run autonoma singola e notifiche Telegram
 ```
