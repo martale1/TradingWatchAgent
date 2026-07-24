@@ -20,6 +20,8 @@ agent_portfolio_manager.py      # CLI agente OpenAI SDK
 chatgpt_playwright_demo.py      # news/report via ChatGPT nel browser con Playwright
 stock_chart_ai_analysis.py      # grafici + analisi ChatGPT via Playwright
 streamlit_app.py                # dashboard prototipo Streamlit
+backend/main.py                 # API FastAPI per dashboard React
+frontend/                       # frontend React/Vite
 finance_charts/                 # indicatori e grafici tecnici
 finance_tools/                  # tool portfolio, scanner, news, chart
 validTickers/                   # universo titoli MIB30
@@ -156,6 +158,51 @@ mostra stato operativo del portafoglio
 mostra rendimento e performance
 scannerizza il MIB30 e dimmi se ci sono opportunita
 rivaluta le condizioni monitorate
+```
+
+## Web app React + FastAPI
+
+La dashboard React e pensata come frontend principale quando il prodotto diventa piu stabile. Usa un backend FastAPI separato:
+
+```text
+backend/main.py      # API portfolio, performance, monitoraggio, chat agente, Telegram
+frontend/            # UI React/Vite
+```
+
+Avvia backend:
+
+```bash
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Avvia frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Apri:
+
+```text
+http://127.0.0.1:5174
+```
+
+API docs:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+La web app mostra:
+
+```text
+- capitale, valore portafoglio, cash e P/L con colori positivi/negativi
+- posizioni aperte con P/L per titolo
+- condizioni monitorate con prezzo attuale, trigger, supporto e distanza dal trigger
+- chat stile ChatGPT per parlare con l'agente
+- azioni recenti e controlli per run autonoma singola e notifiche Telegram
 ```
 
 ## Modalita interattiva
