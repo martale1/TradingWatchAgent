@@ -179,6 +179,15 @@ La watchlist e una lista di ticker scelti dall'utente, separata dai candidati tr
 
 Dalla dashboard React apri il tab `Watchlist`, inserisci ticker, priorita, motivo e, se vuoi, una `condizione ingresso` esplicita da monitorare. Se la condizione e presente, l'agente la usa come trigger principale nei monitor periodici; se manca, durante l'analisi puo proporre o salvare una condizione concreta con livello prezzo, conferma volumi e supporto di invalidazione.
 
+### Scenari di ingresso
+
+L'agente distingue due scenari, da usare nella motivazione e nella condizione monitorata:
+
+- `BREAKOUT`: ingresso su chiusura sopra resistenza/trigger con volumi almeno in recupero o sopra media. Lo stop/invalidazione resta sotto il supporto o sotto il livello appena rotto. Serve quando si vuole conferma di forza prima di entrare.
+- `PULLBACK_SUPPORTO`: ingresso vicino al supporto solo se il supporto tiene e compare una reazione positiva, per esempio candela di rimbalzo, close sopra supporto, momentum che smette di peggiorare e volumi non contrari. Stop stretto sotto supporto e primo target verso resistenza/trigger breakout.
+
+Il semplice prezzo vicino al supporto non basta per comprare: deve esserci tenuta/rimbalzo e le news non devono invalidare il setup.
+
 Puoi gestirla anche dalla chat:
 
 ```text

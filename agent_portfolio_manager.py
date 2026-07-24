@@ -48,6 +48,17 @@ DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30
 DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))
 
 
+ENTRY_SCENARIOS_GUIDE = (
+    "Modella sempre gli ingressi con uno di questi scenari, dichiarandolo nella condizione e nella motivazione. "
+    "SCENARIO BREAKOUT: ingresso solo su chiusura sopra resistenza/trigger con volumi almeno in recupero o sopra media; "
+    "stop/invalidazione sotto il supporto o sotto il livello rotto; e utile quando vuoi conferma di forza. "
+    "SCENARIO PULLBACK_SUPPORTO: ingresso vicino al supporto solo se il supporto tiene e compare reazione positiva "
+    "(candela di rimbalzo, tenuta intraday/close sopra supporto, momentum che smette di peggiorare, volumi non contrari); "
+    "stop stretto sotto supporto; target iniziale verso resistenza/trigger breakout. "
+    "Non considerare il semplice arrivo vicino al supporto come buy automatico: serve evidenza di tenuta/rimbalzo e news non negative. "
+)
+
+
 class TimestampedStream:
     def __init__(self, stream):
         self.stream = stream
@@ -596,6 +607,7 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Ogni titolo in watchlist puo avere una entry_condition impostata dall'utente. Se esiste, usala come trigger "
             "principale da verificare; se manca, durante l'analisi proponi o salva una condizione di ingresso concreta "
             "con livello prezzo, conferma volumi e supporto di invalidazione. "
+            + ENTRY_SCENARIOS_GUIDE +
             "Se analizzi titoli in watchlist e trovi una condizione gia presente tra le condizioni monitorate, "
             "non crearne una duplicata: cita quella esistente oppure aggiornala solo se cambia davvero il trigger. "
             "Quando l'utente chiede rendimento, performance o guadagno/perdita, usa get_portfolio_performance. "
@@ -709,7 +721,9 @@ def build_periodic_monitor_request(
         "Se una condizione e met e il quadro resta valido anche dopo controllo news, crea una proposta pending motivata e applicala se la modalita autonoma virtuale e abilitata. "
         "Poi controlla i titoli della watchlist manuale una alla volta con list_manual_watchlist; "
         "per i ticker prioritari o non analizzati di recente usa analyze_stock_chart e news disponibili. "
-        "Se un titolo in watchlist ha entry_condition, verifica quella; se non ce l'ha, definisci una condizione di ingresso concreta. "
+        "Se un titolo in watchlist ha entry_condition, verifica quella; se non ce l'ha, definisci una condizione di ingresso concreta "
+        "usando esplicitamente scenario BREAKOUT oppure PULLBACK_SUPPORTO. "
+        + ENTRY_SCENARIOS_GUIDE +
         "Se un titolo in watchlist diventa interessante, crea una condizione monitorata concreta o una proposta motivata. "
         f"Infine scannerizza il MIB30 con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
         f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati solo se servono davvero per una proposta o per un monitoraggio serio; "
