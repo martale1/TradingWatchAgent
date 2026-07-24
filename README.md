@@ -19,7 +19,6 @@ Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati
 agent_portfolio_manager.py      # CLI agente OpenAI SDK
 chatgpt_playwright_demo.py      # news/report via ChatGPT nel browser con Playwright
 stock_chart_ai_analysis.py      # grafici + analisi ChatGPT via Playwright
-streamlit_app.py                # dashboard prototipo Streamlit
 backend/main.py                 # API FastAPI per dashboard React
 frontend/                       # frontend React/Vite
 finance_charts/                 # indicatori e grafici tecnici
@@ -122,42 +121,6 @@ Soglie alert iniziali:
 - posizione <= -3%: alert rischio
 - portafoglio >= +2%: alert positivo
 - portafoglio <= -2%: alert rischio
-```
-
-## Dashboard Streamlit
-
-Dashboard prototipo locale:
-
-```bash
-streamlit run streamlit_app.py
-```
-
-Poi apri:
-
-```text
-http://localhost:8501
-```
-
-La dashboard mostra:
-
-```text
-- chat stile ChatGPT per parlare con l'agente
-- capitale, cash, valore portafoglio e P/L
-- posizioni aperte
-- alert performance
-- condizioni monitorate
-- proposte pending
-- azioni agente recenti
-- pulsanti per inviare Telegram e lanciare un monitor autonomo singolo
-```
-
-Nella scheda `Chat agente` puoi scrivere richieste in linguaggio naturale, ad esempio:
-
-```text
-mostra stato operativo del portafoglio
-mostra rendimento e performance
-scannerizza il MIB30 e dimmi se ci sono opportunita
-rivaluta le condizioni monitorate
 ```
 
 ## Web app React + FastAPI

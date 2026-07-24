@@ -5,7 +5,6 @@ openai-agents
 openpyxl
 pandas
 playwright
-streamlit
 telepot
 uvicorn
 yfinance
