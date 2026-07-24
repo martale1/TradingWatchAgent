@@ -423,12 +423,25 @@ function ExitConditions({ rows = [], onChart }) {
 function TriggerCard({ item, onChart }) {
   const progress = item.trigger_progress ?? 0;
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
+  const scenarioKind = item.scenario_state === "BUY_CANDIDATE"
+    ? "positive"
+    : item.scenario_state === "CONFIRMING" || item.scenario_state === "NEAR_TRIGGER"
+      ? "warning"
+      : item.scenario_state === "INVALIDATED"
+        ? "negative"
+        : "neutral";
   return (
     <div className="triggerCard">
       <div className="triggerHeader">
         <strong>{item.ticker}</strong>
         <span className={`status ${item.trigger_status_kind}`}>{item.trigger_status}</span>
       </div>
+      {item.scenario_state && (
+        <div className="scenarioLine">
+          <span className={`status ${scenarioKind}`}>{item.scenario_state}</span>
+          {item.volume_ratio !== null && item.volume_ratio !== undefined && <em>Vol/MA10 {item.volume_ratio}x</em>}
+        </div>
+      )}
       <div className="triggerGrid">
         <div><span>Prezzo attuale</span><b>{price(item.current_price)}</b></div>
         <div><span>Oggi</span><b className={signedClass(item.daily_change_pct)}>{pct(item.daily_change_pct)}</b></div>
@@ -446,22 +459,74 @@ function TriggerCard({ item, onChart }) {
             : "Distanza dal trigger non disponibile."}
       </p>
       <p className="condition">{item.condition}</p>
+      {item.scenario_reason && <p className="small scenarioReason">{item.scenario_reason}</p>}
       <button className="chartButton" onClick={() => onChart(item)}><LineChart size={16} /> Apri grafico trigger</button>
+    </div>
+  );
+}
+
+function marketGroupForCondition(row) {
+  const market = `${row.market || ""} ${row.asset_class || ""} ${row.source || ""} ${row.condition || ""}`.toLowerCase();
+  if (market.includes("materie") || market.includes("commodity") || market.includes("etc") || market.includes("etn")) {
+    return "commodities";
+  }
+  if (market.includes("ftse") || market.includes("mib") || row.ticker?.endsWith(".MI")) {
+    return "ftse";
+  }
+  return "other";
+}
+
+function MonitoringGroup({ title, subtitle, rows, onChart }) {
+  if (!rows.length) return null;
+  const near = rows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
+  return (
+    <div className="monitoringGroup">
+      <div className="monitoringGroupHeader">
+        <div>
+          <h3>{title}</h3>
+          {subtitle && <p>{subtitle}</p>}
+        </div>
+        <span>{rows.length} trigger | {near.length} vicini entro +/-3%</span>
+      </div>
+      <div className="cardsGrid">
+        {rows.map((item) => <TriggerCard key={item.id || item.ticker} item={item} onChart={onChart} />)}
+      </div>
     </div>
   );
 }
 
 function Monitoring({ rows = [], onChart }) {
   const near = rows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
+  const groups = {
+    ftse: rows.filter((row) => marketGroupForCondition(row) === "ftse"),
+    commodities: rows.filter((row) => marketGroupForCondition(row) === "commodities"),
+    other: rows.filter((row) => marketGroupForCondition(row) === "other"),
+  };
   return (
     <section className="panel">
       <div className="sectionHeader">
         <h2>Monitoraggio trigger</h2>
         <span>{near.length} vicini entro +/-3%</span>
       </div>
-      <div className="cardsGrid">
-        {rows.map((item) => <TriggerCard key={item.id || item.ticker} item={item} onChart={onChart} />)}
-      </div>
+      <MonitoringGroup
+        title="FTSE MIB"
+        subtitle="Azioni italiane e condizioni operative sul listino principale."
+        rows={groups.ftse}
+        onChart={onChart}
+      />
+      <MonitoringGroup
+        title="Materie prime / ETC"
+        subtitle="Strumenti commodity, ETC/ETN e sottostanti materie prime."
+        rows={groups.commodities}
+        onChart={onChart}
+      />
+      <MonitoringGroup
+        title="Altri strumenti e watchlist"
+        subtitle="Ticker esteri o condizioni manuali non classificate."
+        rows={groups.other}
+        onChart={onChart}
+      />
+      {!rows.length && <div className="okBox">Nessuna condizione monitorata.</div>}
     </section>
   );
 }
@@ -706,13 +771,20 @@ function MarketScanner({
                     <b>{item.ticker}</b>
                     <span>{item.name}</span>
                   </div>
-                  <span className={`scoreBadge ${Number(item.score) >= 7 ? "good" : Number(item.score) >= 4 ? "warning" : "neutral"}`}>score {item.score}</span>
+                  <div className="badgeStack">
+                    <span className={`scoreBadge ${Number(item.score) >= 7 ? "good" : Number(item.score) >= 4 ? "warning" : "neutral"}`}>score {item.score}</span>
+                    <span className={`scoreBadge ${item.liquidity_ok === false ? "bad" : "good"}`}>
+                      {item.liquidity_ok === false ? "liquidita bassa" : "liquidita ok"}
+                    </span>
+                  </div>
                 </div>
                 <div className="commodityStats">
                   <div><span>Prezzo</span><b>{price(item.close)}</b></div>
                   <div><span>Oggi</span><b className={signedClass(item.change_1d_pct)}>{pct(item.change_1d_pct)}</b></div>
                   <div><span>RSI</span><b>{price(item.rsi)}</b></div>
                   <div><span>ADX</span><b>{price(item.adx)}</b></div>
+                  <div><span>Vol MA10</span><b>{Number(item.avg_volume || item.volume_ma10 || 0).toLocaleString("it-IT", { maximumFractionDigits: 0 })}</b></div>
+                  <div><span>Turnover</span><b>{eur(item.turnover_eur)}</b></div>
                   <div><span>Supporto</span><b>{price(item.support_10)}</b></div>
                   <div><span>Resistenza</span><b>{price(item.resistance_10)}</b></div>
                 </div>
@@ -1274,7 +1346,7 @@ function Actions({ rows = [] }) {
 
 function Chat() {
   const [messages, setMessages] = useState([
-    { role: "assistant", content: "Ciao, sono TradingWatchAgent. Chiedimi stato, performance, condizioni o nuove analisi." },
+    { role: "assistant", content: "Ciao, sono Autonomous Trading Agent. Chiedimi stato, performance, condizioni o nuove analisi." },
   ]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1650,8 +1722,8 @@ function App() {
     <main>
       <header>
         <div>
-          <h1><Bot size={34} /> TradingWatchAgent</h1>
-          <p>Portafoglio virtuale, agent autonomia e monitoraggio trigger.</p>
+          <h1><Bot size={34} /> Autonomous Trading Agent</h1>
+          <p>Portafoglio virtuale con trading automatico.</p>
         </div>
         <div className="headerActions">
           <button className="iconButton primaryHeaderAction" onClick={runNow} disabled={runNowBusy}>

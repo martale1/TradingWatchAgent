@@ -31,6 +31,59 @@ def default_interval_minutes():
         return 30
 
 
+def trading_start_hour():
+    try:
+        return int(os.getenv("MARKET_MONITOR_START_HOUR", "9"))
+    except ValueError:
+        return 9
+
+
+def trading_end_hour():
+    try:
+        return int(os.getenv("MARKET_MONITOR_END_HOUR", "21"))
+    except ValueError:
+        return 21
+
+
+def is_trading_monitor_window(value=None):
+    moment = value or datetime.now()
+    if moment.weekday() >= 5:
+        return False
+    return trading_start_hour() <= moment.hour < trading_end_hour()
+
+
+def next_trading_monitor_time(value=None, interval_minutes=None):
+    moment = (value or datetime.now()).replace(microsecond=0)
+    interval = int(interval_minutes or default_interval_minutes())
+    if is_trading_monitor_window(moment):
+        return moment
+
+    candidate = moment
+    if candidate.hour >= trading_end_hour():
+        candidate = (candidate + timedelta(days=1)).replace(
+            hour=trading_start_hour(),
+            minute=0,
+            second=0,
+        )
+    elif candidate.hour < trading_start_hour():
+        candidate = candidate.replace(hour=trading_start_hour(), minute=0, second=0)
+
+    while candidate.weekday() >= 5:
+        candidate = (candidate + timedelta(days=1)).replace(
+            hour=trading_start_hour(),
+            minute=0,
+            second=0,
+        )
+
+    return candidate
+
+
+def next_expected_run_after(value, interval_minutes=None):
+    interval = int(interval_minutes or default_interval_minutes())
+    candidate = (value + timedelta(minutes=interval)).replace(microsecond=0)
+    return next_trading_monitor_time(candidate, interval_minutes=interval)
+
+
 def load_agent_run_state(path=STATE_FILE):
     file_path = Path(path)
     if not file_path.exists():
@@ -51,11 +104,11 @@ def load_agent_run_state(path=STATE_FILE):
     if not state.get("next_expected_at") and state.get("last_completed_at"):
         completed = parse_iso(state.get("last_completed_at"))
         if completed:
-            state["next_expected_at"] = (completed + timedelta(minutes=interval)).isoformat()
+            state["next_expected_at"] = next_expected_run_after(completed, interval).isoformat()
     if not state.get("next_expected_at") and state.get("last_started_at"):
         started = parse_iso(state.get("last_started_at"))
         if started:
-            state["next_expected_at"] = (started + timedelta(minutes=interval)).isoformat()
+            state["next_expected_at"] = next_expected_run_after(started, interval).isoformat()
     return state
 
 
@@ -194,7 +247,7 @@ def mark_agent_run_completed(interval_minutes=None, once=False, error=""):
             "status": "error" if error else "ok",
             "last_completed_at": completed.isoformat(),
             "interval_minutes": interval,
-            "next_expected_at": (completed + timedelta(minutes=interval)).isoformat(),
+            "next_expected_at": next_expected_run_after(completed, interval).isoformat(),
             "last_error": str(error or ""),
             "last_warning": "" if not error else state.get("last_warning", ""),
             "last_run_was_once": bool(once),

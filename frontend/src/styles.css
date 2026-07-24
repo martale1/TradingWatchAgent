@@ -380,6 +380,13 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .scoreBadge.good { background: #e6f4ea; color: #137333; }
 .scoreBadge.warning { background: #fff4e5; color: #b06000; }
 .scoreBadge.neutral { background: #f1f3f4; color: #5f6368; }
+.scoreBadge.bad { background: #fde8e7; color: #c5221f; }
+.badgeStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
 .commodityStats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -427,6 +434,37 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
   gap: 14px;
 }
+.monitoringGroup {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.monitoringGroup:first-of-type {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: 0;
+}
+.monitoringGroupHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.monitoringGroupHeader h3 {
+  margin: 0;
+  font-size: 19px;
+}
+.monitoringGroupHeader p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.monitoringGroupHeader span {
+  color: #475569;
+  font-size: 13px;
+  white-space: nowrap;
+}
 .triggerCard {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -434,6 +472,19 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #fbfdff;
 }
 .triggerHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.scenarioLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px 0 12px;
+}
+.scenarioLine em {
+  color: #64748b;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
 .triggerGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -446,6 +497,10 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .progress div { height: 100%; background: #2563eb; border-radius: 999px; }
 .small { font-size: 13px; color: #64748b; }
 .condition { font-size: 13px; color: #374151; min-height: 38px; }
+.scenarioReason {
+  margin-top: -4px;
+  color: #475569;
+}
 .emptyState {
   border: 1px dashed #cbd5e1;
   border-radius: 8px;

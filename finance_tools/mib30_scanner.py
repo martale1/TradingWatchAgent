@@ -5,6 +5,7 @@ import pandas as pd
 
 from finance_tools.chart_tool import generate_snapshot_context
 from finance_tools.common import PROJECT_ROOT
+from finance_tools.liquidity import apply_liquidity_to_score
 from finance_tools.portfolio_store import add_allocation_proposal, add_proposal
 
 
@@ -94,6 +95,7 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
             if verbose:
                 print(f"[scanner] {ticker} - calcolo score tecnico...", flush=True)
             score, reasons, risks = score_snapshot(snapshot)
+            score, liquidity = apply_liquidity_to_score(score, risks, snapshot, asset_class="equity")
             if verbose:
                 reason_preview = "; ".join(reasons[:2]) if reasons else "nessun segnale positivo forte"
                 risk_preview = "; ".join(risks[:2]) if risks else "nessun rischio tecnico principale"
@@ -115,6 +117,10 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
                     "minus_di": snapshot["minus_di"],
                     "support_10": snapshot["support_10"],
                     "resistance_10": snapshot["resistance_10"],
+                    "volume": snapshot["volume"],
+                    "volume_ma5": snapshot["volume_ma5"],
+                    "volume_ma10": snapshot["volume_ma10"],
+                    **liquidity,
                     "reasons": reasons,
                     "risks": risks,
                     "files": [],

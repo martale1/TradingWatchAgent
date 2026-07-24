@@ -317,7 +317,7 @@ def add_monitored_condition(
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
     item = {
-        "id": datetime.now().strftime("%Y%m%d-%H%M%S"),
+        "id": datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "ticker": ticker.strip().upper(),

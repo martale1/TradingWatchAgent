@@ -38,7 +38,7 @@ import yfinance as yf  # noqa: E402
 load_env_file()
 SDK_MODEL = "gpt-5-mini"
 
-app = FastAPI(title="TradingWatchAgent API")
+app = FastAPI(title="Autonomous Trading Agent API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -159,7 +159,7 @@ def extract_agent_answer(output):
 
 def build_context(history, message):
     lines = [
-        "Questa richiesta arriva dalla web app React di TradingWatchAgent.",
+        "Questa richiesta arriva dalla web app React di Autonomous Trading Agent.",
         "Usa il contesto recente per capire riferimenti a portafoglio, condizioni, proposte o titoli.",
         "",
         "Contesto recente:",
@@ -182,7 +182,12 @@ def dashboard():
     status = portfolio_status_summary()
     performance = calculate_portfolio_performance()
     performance_history = build_performance_history_view()
-    monitored = enrich_monitored_conditions(status.get("monitored_conditions", []))
+    active_conditions = [
+        item
+        for item in status.get("monitored_conditions", [])
+        if item.get("status") in {"waiting", "met"}
+    ]
+    monitored = enrich_monitored_conditions(active_conditions)
     exits = build_exit_conditions(performance, portfolio)
     closed = list(reversed((portfolio or {}).get("closed_proposals", [])))[:20]
     return {

@@ -1,41 +1,204 @@
-# TradingWatchAgent
+# Autonomous Trading Agent
 
-Agente Python per creare e monitorare un portafoglio virtuale, cercare candidati dal FTSE MIB, generare grafici tecnici e produrre proposte di modifica sempre soggette a conferma utente.
+Portafoglio virtuale con trading automatico, monitoraggio trigger, analisi tecnica, news via Playwright/ChatGPT, notifiche Telegram e dashboard React.
 
-## Principi
+Il progetto e pensato per simulazione, studio e monitoraggio operativo. Non invia ordini reali a broker e non e consulenza finanziaria.
 
-- I tool locali non richiedono OpenAI API key.
-- L'agente OpenAI SDK richiede `OPENAI_API_KEY`.
-- In modalita standard le modifiche al portafoglio non vengono mai applicate automaticamente: l'agente crea proposte pending e l'utente deve confermare un `proposal_id`.
-- In modalita autonoma virtuale l'agente puo applicare da solo operazioni simulate sul `portfolio.json`; l'utente viene notificato via Telegram.
-- Le condizioni non ancora verificate vengono salvate in `portfolio.json` come `monitored_conditions`, cosi possono essere rivalutate nei controlli successivi.
-- Le analisi news live possono usare Playwright con Chrome gia loggato, senza API key OpenAI.
-- I candidati FTSE MIB e gli strumenti materie prime seguono lo stesso processo: filtro tecnico locale, short-list unica dei candidati interessanti, approfondimento selettivo con Playwright/ChatGPT solo dove serve, poi eventuale trigger/proposta/operazione virtuale.
-- In modalita interattiva l'agente mantiene il contesto recente della sessione, quindi capisce riferimenti come "questi 5 titoli" o "i candidati precedenti".
+## Cosa fa
 
-## Struttura
+- Gestisce un portafoglio virtuale salvato in `portfolio.json`.
+- Monitora posizioni aperte, P/L, cash, esposizione e performance storica.
+- Scannerizza due mercati:
+  - FTSE MIB da `validTickers/validtickers_IT_MIB30_with_sector.xlsx`
+  - Materie prime / ETC da `validTickers/MateriePrime.xlsx`
+- Filtra i candidati con indicatori tecnici locali e controlli di liquidita.
+- Approfondisce solo i candidati interessanti con Playwright/ChatGPT.
+- Usa le news live via Playwright per supportare le decisioni operative.
+- Crea condizioni monitorate con scenari di ingresso.
+- In modalita autonoma virtuale puo comprare, vendere, ridurre e ribilanciare il portafoglio virtuale.
+- Notifica l'utente via Telegram secondo la policy configurata.
+- Espone una GUI React con dashboard, watchlist, chat agente, grafici e log run.
+
+## Principio operativo
+
+Il sistema separa tre livelli:
+
+1. **Calcolo locale**
+   Scarica dati da Yahoo Finance, calcola indicatori, score, livelli, liquidita, performance e trigger.
+
+2. **Playwright/ChatGPT nel browser**
+   Viene usato per news live e conferme visuali dei grafici. Richiede Chrome aperto con debug remoto e login ChatGPT gia valido.
+
+3. **OpenAI SDK Agent**
+   Coordina le decisioni, sceglie quali tool chiamare, sintetizza i risultati e decide le azioni sul portafoglio virtuale. Usa `OPENAI_API_KEY`.
+
+L'obiettivo e usare l'API OpenAI solo per orchestrare l'agente, non per fare tutto il lavoro pesante di news e analisi visuale.
+
+## Architettura
 
 ```text
-agent_portfolio_manager.py      # CLI agente OpenAI SDK
-chatgpt_playwright_demo.py      # news/report via ChatGPT nel browser con Playwright
-stock_chart_ai_analysis.py      # grafici + analisi ChatGPT via Playwright
-backend/main.py                 # API FastAPI per dashboard React
-frontend/                       # frontend React/Vite
-finance_charts/                 # indicatori e grafici tecnici
-finance_tools/                  # tool portfolio, scanner, news, chart
-validTickers/                   # universi titoli: FTSE MIB, crypto, materie prime
-portfolio.example.json          # esempio watchlist
+agent_portfolio_manager.py        # CLI principale e agente OpenAI SDK
+playwright_monitor.py             # monitor Playwright-first, meno consumo API
+chatgpt_playwright_demo.py        # news/report via ChatGPT nel browser
+stock_chart_ai_analysis.py        # grafici + analisi visuale ChatGPT via Playwright
+
+backend/main.py                   # API FastAPI per dashboard React
+frontend/                         # UI React/Vite
+
+finance_charts/                   # indicatori e dati grafico
+finance_tools/                    # tool portfolio, scanner, news, chart, Telegram
+scripts/                          # scheduler Windows e launcher
+validTickers/                     # universi ticker
+logs/                             # log schedulati e Telegram bot
+output/                           # grafici, analisi e cache news
 ```
 
-Universi ticker:
+## Mercati supportati
+
+### FTSE MIB
+
+Il file principale e:
 
 ```text
-validTickers/validtickers_IT_MIB30_with_sector.xlsx  # azioni monitorate dallo scanner FTSE MIB
-validTickers/validtickers_CRYPTO.xlsx                # crypto separate: BTC/ETH/SOL/ADA
-validTickers/MateriePrime.xlsx                       # ETC/ETN materie prime quotati, es. oro, rame, gas, coffee
+validTickers/validtickers_IT_MIB30_with_sector.xlsx
 ```
+
+Lo scanner FTSE MIB analizza i ticker italiani, calcola score tecnico, rischi, supporti, resistenze e liquidita.
+
+### Materie prime / ETC
+
+Il file principale e:
+
+```text
+validTickers/MateriePrime.xlsx
+```
+
+Gli strumenti commodity vengono trattati come universo separato. Sono spesso ETC/ETN quotati a Milano, quindi l'agente considera:
+
+- liquidita;
+- volatilita;
+- rischio specifico dello strumento;
+- esposizione massima commodity;
+- news non negative;
+- trigger tecnico confermato.
+
+In dashboard i trigger sono divisi tra **FTSE MIB**, **Materie prime / ETC** e **Altri strumenti e watchlist**.
+
+## Scoring e filtri
+
+Gli scanner calcolano indicatori tecnici locali, tra cui:
+
+- RSI
+- MACD e signal
+- Stocastico
+- Williams %R
+- ADX, DI+ e DI-
+- volumi e volume MA10
+- supporti e resistenze recenti
+- variazione giornaliera
+
+Lo score serve solo per creare una short-list. Non e un ordine di acquisto.
+
+Prima di diventare operativo, un candidato deve superare anche:
+
+- liquidita minima;
+- distanza ragionevole dal trigger;
+- volumi non contrari;
+- news non negative;
+- eventuale conferma grafica via Playwright se il caso e vicino a una decisione.
+
+## Scenari di ingresso
+
+Le condizioni monitorate usano scenari strutturati. Questo permette all'agente di decidere senza basarsi solo su testo libero.
+
+### BREAKOUT
+
+Ingresso solo su chiusura sopra una resistenza/trigger con volumi almeno in recupero o sopra MA10.
+
+Esempio:
+
+```text
+SCENARIO BREAKOUT: chiusura sopra 11.80 con volumi in recupero o sopra MA10; invalidazione sotto 10.57
+```
+
+### PULLBACK_SUPPORTO
+
+Ingresso vicino al supporto solo se il supporto tiene e compare una reazione positiva.
+
+Esempio:
+
+```text
+SCENARIO PULLBACK_SUPPORTO: ingresso in area 10.57-10.83 solo su tenuta/rimbalzo del supporto, stop sotto 10.44 e news non negative
+```
+
+Il semplice arrivo vicino al supporto non basta per comprare. Servono tenuta/rimbalzo, volumi non contrari, liquidita adeguata e news non negative.
+
+### Stati scenario
+
+Gli scenari possono avere questi stati:
+
+```text
+WAIT              # non vicino al trigger
+NEAR_TRIGGER      # vicino, ma non ancora confermato
+CONFIRMING        # filtro numerico ok, serve Playwright/news
+BUY_CANDIDATE     # confermato, l'agente puo decidere acquisto
+BOUGHT            # scenario usato per acquisto virtuale
+INVALIDATED       # contesto non piu valido
+```
+
+## Modalita operative
+
+### Interattiva
+
+Da PyCharm o CLI:
+
+```bash
+python agent_portfolio_manager.py --interactive
+```
+
+Esempi:
+
+```text
+mostra stato operativo
+scannerizza 5 titoli FTSE MIB e dimmi i migliori
+scannerizza le materie prime e dimmi i migliori
+analizza VOD.L con news live
+rivaluta condizioni monitorate
+mostra performance
+aggiungi VOD.L alla watchlist con priorita high
+```
+
+In modalita interattiva l'agente crea proposte pending e aspetta conferma utente, salvo comandi locali espliciti gia gestiti dal sistema.
+
+### Autonoma virtuale
+
+```bash
+python agent_portfolio_manager.py --autonomous-monitor --once --scan-limit 5
+```
+
+In questa modalita l'agente puo applicare operazioni simulate sul solo `portfolio.json`:
+
+- buy;
+- sell;
+- reduce;
+- ribilanciamento;
+- aggiornamento condizioni;
+- invalidazione trigger;
+- notifica Telegram.
+
+Non fa ordini reali.
+
+Limiti principali:
+
+- `MAX_AUTO_TRADE_PCT`: percentuale massima del cash usabile per una nuova operazione;
+- `MAX_COMMODITY_ALLOCATION_PCT`: esposizione indicativa massima su commodity/ETC;
+- liquidita obbligatoria;
+- news non negative;
+- Playwright solo sui candidati da confermare, non su tutto l'universo.
 
 ## Setup
+
+Installa dipendenze nell'ambiente Python, per esempio `openaiAgent`:
 
 ```bash
 pip install -r requirements.txt
@@ -43,125 +206,60 @@ playwright install chromium
 copy .env.example .env
 ```
 
-Compila `.env` con i valori reali. `OPENAI_API_KEY` serve solo per usare l'agente SDK, non per i tool locali.
+Compila `.env` con i valori reali.
 
-Il modello dell'agente SDK si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Per avere piu capacita rispetto a `gpt-4.1-mini` senza tornare ai modelli piu pesanti, il default consigliato per ora e:
+Variabili principali:
 
 ```env
+OPENAI_API_KEY=your_openai_api_key_for_agent_only
 OPENAI_AGENT_MODEL=gpt-5-mini
 OPENAI_AGENT_MAX_TURNS=35
+OPENAI_PERIODIC_MAX_TURNS=80
+
 MONITOR_INTERVAL_MINUTES=30
+MARKET_MONITOR_START_HOUR=9
+MARKET_MONITOR_END_HOUR=21
+
 MAX_AUTO_TRADE_PCT=25
+MAX_COMMODITY_ALLOCATION_PCT=20
+
+MIN_EQUITY_AVG_VOLUME=100000
+MIN_COMMODITY_AVG_VOLUME=5000
+MIN_LIQUIDITY_TURNOVER_EUR=100000
+
+BREAKOUT_NEAR_PCT=3
+PULLBACK_ENTRY_DISTANCE_PCT=2.5
+PULLBACK_STOP_BUFFER_PCT=1.2
+MIN_CONFIRM_VOLUME_RATIO=0.8
+
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_RECEIVER_ID=your_telegram_chat_id
 ```
 
-`OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Tienilo basso se usi il monitor SDK; per i cicli pesanti preferisci `playwright_monitor.py` o il pulsante `Run Playwright no API`, che spostano il grosso lavoro su Playwright/ChatGPT nel browser.
-`MONITOR_INTERVAL_MINUTES` e l'intervallo default del monitor periodico.
-`MAX_AUTO_TRADE_PCT` limita quanto cash puo usare una nuova operazione autonoma virtuale.
+`OPENAI_AGENT_MAX_TURNS` vale per chat e richieste normali.
+`OPENAI_PERIODIC_MAX_TURNS` vale per il monitor periodico, che usa piu tool.
 
-Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
+## Chrome con debug remoto
 
-```bash
-python agent_portfolio_manager.py --interactive --model gpt-5-mini
+Per news live e analisi Playwright, apri Chrome cosi:
+
+```cmd
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%TEMP%\chatgpt-cdp-profile"
 ```
 
-## Test tool senza API key
+Poi entra su ChatGPT e verifica di essere loggato.
 
-Genera grafici e snapshot tecnico:
+Il sistema usa Playwright solo quando serve:
 
-```bash
-python stock_chart_ai_analysis.py --charts-only --stocks "VOD.L" --days 70
-```
+- news live di un ticker operativo;
+- conferma visuale del grafico;
+- candidato vicino a trigger;
+- posizione in portafoglio da ridurre/vendere;
+- decisione autonoma da motivare.
 
-Monitor completo in modalita Playwright-first, senza OpenAI SDK/API key:
+Non deve usare Playwright per ogni titolo del file Excel.
 
-```bash
-python playwright_monitor.py --limit 5 --deep-limit 2 --telegram
-```
-
-Questo flusso scarica dati e calcola ranking localmente, poi usa Playwright/ChatGPT nel browser solo sui candidati da approfondire. Serve quando vuoi ridurre il consumo token della tua `OPENAI_API_KEY`; richiede Chrome aperto con debug remoto e login ChatGPT valido, ma non chiama `Runner.run_sync`.
-
-Scanner FTSE MIB tramite agente/tool CLI richiede API key se passa dall'agente:
-
-```bash
-python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
-```
-
-Scanner materie prime come tool locale, senza API key:
-
-```bash
-python -c "from finance_tools.commodity_scanner import scan_commodity_candidates; print(scan_commodity_candidates(limit=8)['candidates'])"
-```
-
-Oppure dalla chat agente:
-
-```text
-Tu> scannerizza le materie prime e dimmi i migliori candidati
-Tu> analizza oro e rame dalla lista materie prime
-Tu> mostrami le materie prime con score alto e rischi principali
-```
-
-Scanner FTSE MIB. Per default l'agente puo decidere autonomamente se approfondire i migliori candidati con Playwright/ChatGPT:
-
-```bash
-python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
-```
-
-Puoi forzare la conferma approfondita dei migliori candidati tramite Playwright/ChatGPT:
-
-```bash
-python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --deep-chart-confirmation --deep-confirm-limit 3
-```
-
-In questo flusso lo scanner locale scarica i dati da Yahoo Finance, calcola indicatori e seleziona i candidati senza generare PNG. Se l'agente decide di approfondire, o se lo forzi con `--deep-chart-confirmation`, chiama `confirm_candidate_chart_with_playwright`: solo in quel momento vengono creati i grafici e caricati in ChatGPT via Playwright per ottenere una conferma visuale.
-
-Per disattivare la scelta autonoma:
-
-```bash
-python agent_portfolio_manager.py --scan-mib30 --scan-limit 5 --no-auto-deep-confirmation
-```
-
-## Portafoglio virtuale
-
-## Performance portafoglio
-
-Il sistema calcola rendimento corrente delle posizioni virtuali usando prezzi Yahoo Finance:
-
-```text
-- valore attuale portafoglio
-- P/L totale EUR e %
-- P/L per posizione EUR e %
-- cash, investito, esposizione
-- best/worst position
-- alert su soglie di rendimento
-```
-
-Nel ciclo periodico l'agente usa `get_portfolio_performance`; se trova alert rilevanti puo inviare un Telegram performance. Anche il riepilogo monitoraggio Telegram include ora valore portafoglio e P/L totale.
-
-Ogni calcolo performance salva anche uno snapshot nello storico locale:
-
-```text
-output/portfolio_performance_history.json
-```
-
-La dashboard React usa questo file per mostrare il grafico del valore portafoglio nel tempo, il rendimento giornaliero, il P/L ultimo snapshot e il range storico giornaliero. Se il refresh viene eseguito piu volte ravvicinate, lo snapshot degli ultimi 10 minuti viene aggiornato invece di creare punti duplicati.
-
-Soglie alert iniziali:
-
-```text
-- posizione >= +5%: alert positivo
-- posizione <= -3%: alert rischio
-- portafoglio >= +2%: alert positivo
-- portafoglio <= -2%: alert rischio
-```
-
-## Web app React + FastAPI
-
-La dashboard React e pensata come frontend principale quando il prodotto diventa piu stabile. Usa un backend FastAPI separato:
-
-```text
-backend/main.py      # API portfolio, performance, monitoraggio, chat agente, Telegram
-frontend/            # UI React/Vite
-```
+## Dashboard React + FastAPI
 
 Avvia backend:
 
@@ -189,67 +287,117 @@ API docs:
 http://127.0.0.1:8000/docs
 ```
 
-La web app mostra:
+La dashboard mostra:
+
+- stato agente;
+- ultimo ciclo completato;
+- prossimo ciclo atteso;
+- capitale, cash, valore portafoglio e P/L;
+- rendimento giornaliero del portafoglio;
+- posizioni aperte con variazione giornaliera;
+- condizioni di uscita;
+- trigger di ingresso divisi per mercato;
+- watchlist manuale;
+- grafici prezzo, volumi, RSI/Stoch/Williams, MACD, ADX;
+- chat stile ChatGPT;
+- azioni recenti;
+- run log;
+- controlli Telegram e monitor.
+
+Endpoint principali:
 
 ```text
-- stato agente: ultima analisi avviata/completata e prossimo giro atteso
-- capitale, valore portafoglio, cash e P/L con colori positivi/negativi
-- posizioni aperte con P/L per titolo
-- watchlist manuale per titoli da analizzare anche se non filtrati dallo scanner
-- condizioni monitorate con prezzo attuale, trigger, supporto e distanza dal trigger
-- grafici apribili con viste prezzo, volumi, RSI/Stocastico/Williams, MACD e ADX
-- chat stile ChatGPT per parlare con l'agente
-- azioni recenti e controlli per run autonoma singola e notifiche Telegram
-- pulsante `Run Playwright no API` per eseguire un ciclo leggero senza OpenAI SDK/API key
+GET  /api/dashboard
+GET  /api/ftse-mib
+POST /api/ftse-mib/scan
+GET  /api/commodities
+POST /api/commodities/scan
+GET  /api/chart/{ticker}
+GET  /api/watchlist
+POST /api/watchlist
+POST /api/agent/chat
+POST /api/agent/run-once
+POST /api/playwright-monitor/run
+POST /api/agent/analyze-watchlist-entry-conditions
+GET  /api/run-logs
+GET  /api/telegram/settings
+POST /api/telegram/settings
 ```
 
-Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Git. Viene aggiornato quando parte `--daemon-monitor`, `--autonomous-monitor` o una run singola dal backend React.
+## Watchlist manuale
 
-### Watchlist manuale
+La watchlist contiene ticker scelti dall'utente, anche se non filtrati dallo scanner.
 
-La watchlist e una lista di ticker scelti dall'utente, separata dai candidati trovati dallo scanner FTSE MIB. Serve per seguire titoli che vuoi analizzare piu a fondo anche se l'algoritmo non li seleziona.
+Dalla GUI puoi:
 
-Dalla dashboard React apri il tab `Watchlist`, inserisci ticker, priorita, motivo e, se vuoi, una `condizione ingresso` esplicita da monitorare. Se la condizione e presente, l'agente la usa come trigger principale nei monitor periodici; se manca, durante l'analisi puo proporre o salvare una condizione concreta con livello prezzo, conferma volumi e supporto di invalidazione.
+- aggiungere ticker;
+- impostare priorita;
+- inserire motivo;
+- inserire una condizione di ingresso;
+- chiedere all'AI di impostare condizioni;
+- aprire grafici;
+- rimuovere ticker.
 
-### Scenari di ingresso
+Nel ciclo periodico l'agente considera anche la watchlist. Se manca una condizione di ingresso, puo proporne una con scenario `BREAKOUT` o `PULLBACK_SUPPORTO`.
 
-L'agente distingue due scenari, da usare nella motivazione e nella condizione monitorata:
+## Portafoglio virtuale
 
-- `BREAKOUT`: ingresso su chiusura sopra resistenza/trigger con volumi almeno in recupero o sopra media. Lo stop/invalidazione resta sotto il supporto o sotto il livello appena rotto. Serve quando si vuole conferma di forza prima di entrare.
-- `PULLBACK_SUPPORTO`: ingresso vicino al supporto solo se il supporto tiene e compare una reazione positiva, per esempio candela di rimbalzo, close sopra supporto, momentum che smette di peggiorare e volumi non contrari. Stop stretto sotto supporto e primo target verso resistenza/trigger breakout.
+Inizializza:
 
-Il semplice prezzo vicino al supporto non basta per comprare: deve esserci tenuta/rimbalzo e le news non devono invalidare il setup.
+```bash
+python agent_portfolio_manager.py --init-portfolio --capital 20000
+```
 
-Puoi gestirla anche dalla chat:
+Mostra stato:
+
+```bash
+python agent_portfolio_manager.py "mostra stato operativo"
+```
+
+Aggiorna capitale:
+
+```bash
+python agent_portfolio_manager.py "aggiorna il capitale a 20000 euro"
+```
+
+In interattivo:
 
 ```text
-aggiungi VOD.L alla watchlist con priorita high perche voglio seguirla
-aggiungi VOD.L alla watchlist con condizione ingresso chiusura sopra 121 con volumi in recupero
-mostra watchlist
-rimuovi VOD.L dalla watchlist
+compriamo 10000 euro di HER.MI
+conferma proposta 20260724-003101
+rifiuta proposta 20260724-003101
 ```
 
-## Scheduler Windows ogni 30 minuti
+In modalita autonoma virtuale l'agente puo invece applicare da solo operazioni virtuali, rispettando i limiti configurati.
 
-Per far girare l'agente autonomo ogni 30 minuti su Windows:
+## Scheduler Windows
+
+Installa il task:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_windows_monitor_task.ps1
 ```
 
-La task Windows `TradingWatchAgentMonitor` esegue:
+La task Windows esegue:
 
 ```text
 scripts\run_autonomous_monitor_once.bat
 ```
 
-Ogni giro lancia un ciclo singolo:
+Il batch avvia:
 
 ```text
-agent_portfolio_manager.py --autonomous-monitor --once --monitor-interval-minutes 30 --deep-confirm-limit 2
+agent_portfolio_manager.py --model gpt-5-mini --autonomous-monitor --once --monitor-interval-minutes 30 --periodic-live-news --periodic-max-turns 80 --scan-limit 5 --deep-confirm-limit 2 --max-auto-trade-pct 25
 ```
 
-Il job schedulato gira in modalita autonoma virtuale: puo comprare, vendere, ridurre o modificare posizioni nel solo portafoglio virtuale, registrando le azioni nello storico e notificando via Telegram secondo la policy configurata. L'agente puo usare anche conferme visuali Playwright/ChatGPT fino al limite indicato da `--deep-confirm-limit`, se Chrome con debug remoto e disponibile; se non lo e, continua con dati tecnici e cache disponibili.
+La finestra operativa e:
+
+```text
+lunedi-venerdi
+09:00-20:59
+```
+
+Fuori finestra o nel weekend il batch scrive `SKIP` nei log e non avvia il ciclo.
 
 Log:
 
@@ -258,306 +406,135 @@ logs/scheduled-monitor.log
 logs/scheduled-monitor.err.log
 ```
 
-Lo script usa anche un lock locale (`logs/monitor.lock`) per evitare run sovrapposte: se un ciclo dura piu di 30 minuti, il giro successivo viene saltato e scritto nel log.
+Esiste anche un lock:
 
-La dashboard React mostra `Ultima analisi titoli`, `Ultima run agente` e `Prossimo scheduled expected` leggendo `agent_run_state.json`.
+```text
+logs/monitor.lock
+```
 
-Le notifiche performance automatiche sono deduplicate: lo stesso alert non viene reinviato a ogni ciclo. Per default un alert identico puo essere rimandato solo dopo 180 minuti; l'invio manuale dalla dashboard resta sempre disponibile.
+Se una run e ancora attiva, quella successiva viene saltata.
 
-## Chat Telegram con agente
+## Telegram
 
-Oltre alle notifiche Telegram, puoi usare lo stesso bot come chat remota per interrogare l'agente.
+Il sistema puo inviare:
 
-Avvio da terminale:
+- riepilogo monitoraggio;
+- performance portafoglio;
+- alert;
+- grafici richiesti;
+- risposte dell'agente via chat Telegram.
+
+Avvio bot interattivo:
 
 ```powershell
 C:\Users\theoi\anaconda3\envs\openaiAgent\python.exe telegram_agent_bot.py
 ```
 
-Oppure con launcher Windows:
+Oppure:
 
 ```powershell
 scripts\run_telegram_agent_bot.bat
 ```
 
-Il bridge:
-
-```text
-- ascolta solo TELEGRAM_RECEIVER_ID configurato in .env
-- usa TELEGRAM_BOT_TOKEN o TELEGRAM_BOT_TOKEN_CH1
-- salva offset e contesto breve in telegram_agent_state.json
-- passa le richieste all'agente OpenAI SDK
-- risponde su Telegram spezzando i messaggi lunghi e rendendo grassetti/liste in formato leggibile
-- sopprime i riepiloghi Telegram automatici generati dal runner, cosi una domanda Telegram produce una sola risposta mirata
-```
-
-Esempi da scrivere in Telegram:
+Esempi da Telegram:
 
 ```text
 aiuto
-quali segnali attendi per uscire da CPR.MI?
 mostra performance
 mostra stato operativo
 quali titoli stai monitorando?
-aggiungi VOD.L alla watchlist con priorita high
+quali segnali attendi per uscire da CPR.MI?
 mandami il grafico di CPR.MI
 analizza AMP.MI
 ```
 
-Se chiedi un grafico, il bridge invia direttamente le immagini PNG generate dal tool tecnico: prezzo/trend, momentum e ADX.
+Le impostazioni Telegram si gestiscono dalla GUI:
 
-Log:
+- invia sempre;
+- invia solo se ci sono variazioni;
+- invia solo alert;
+- disattivato.
 
-```text
-logs/telegram-agent.log
-logs/telegram-agent.err.log
-```
+## Playwright-first senza API OpenAI
 
-## Modalita interattiva
-
-Da PyCharm puoi lanciare:
+Per fare un ciclo piu leggero e ridurre consumo token API:
 
 ```bash
-python agent_portfolio_manager.py --interactive
+python playwright_monitor.py --limit 5 --deep-limit 2 --telegram
 ```
 
-In questa modalita puoi continuare la conversazione usando riferimenti al turno precedente. Esempio:
+Questo flusso:
 
-```text
-Tu> scannerizza il FTSE MIB e proponi 5 candidati per 20000 euro
-Tu> cerca le news per questi 5 titoli
-Tu> conferma i migliori 3 con analisi grafica Playwright
-```
+1. scarica dati;
+2. calcola ranking localmente;
+3. usa Playwright/ChatGPT solo sui candidati da approfondire;
+4. invia eventuale riepilogo Telegram.
 
-L'agente chiude le risposte operative con una sezione `Opzioni successive`, scegliendo comandi coerenti con lo stato corrente. Esempio:
+Serve Chrome aperto con debug remoto e ChatGPT loggato.
 
-```text
-Opzioni successive:
-1. rivaluta le condizioni monitorate
-2. mostra stato operativo del portafoglio
-3. scannerizza il FTSE MIB e cerca nuovi candidati
-4. analizza HER.MI con grafico e news live
-```
+## Comandi utili
 
-Anche al primo avvio di `--interactive` viene mostrata una lista di opzioni operative costruita dal contenuto di `portfolio.json`.
-Puoi scrivere il comando completo oppure solo il numero dell'opzione, per esempio `1`. Dopo ogni risposta, i numeri si aggiornano usando le ultime `Opzioni successive` mostrate dall'agente.
-
-Per una verifica veloce senza chiamare il modello:
-
-```text
-Tu> titoli monitorati
-```
-
-La memoria e limitata alla sessione aperta: se chiudi il processo, riparti da una nuova conversazione. Il portafoglio e le proposte pending restano invece salvati in `portfolio.json`.
-
-Quando un titolo e interessante ma non ancora acquistabile, l'agente deve salvarlo come condizione monitorata. Esempio: `HER.MI buy solo sopra 3,966 con volumi`. Nei turni successivi puoi chiedere:
-
-```text
-Tu> mostra stato operativo del portafoglio
-Tu> mostra condizioni da monitorare
-Tu> rivaluta le condizioni monitorate
-```
-
-La vista operativa include:
-
-```text
-- titoli in portafoglio
-- proposte pending di acquisto o allocazione
-- condizioni monitorate con stato e trigger
-- watchlist
-```
-
-Durante ogni monitoraggio l'agente deve valutare anche i titoli gia in portafoglio. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending e aspetta conferma utente.
-
-Dopo uno screening completo del FTSE MIB con analisi dettagliata grafico/news e salvataggio o aggiornamento dei titoli monitorati, il runner invia automaticamente un riepilogo Telegram con condizioni waiting/met/invalidated, proposte pending e stato del portafoglio. L'invio e deterministico: parte quando cambiano condizioni monitorate, proposte o stato operativo durante screening/rivalutazione/proposta.
-
-## Monitor periodico
-
-Il monitor periodico esegue cicli ricorrenti con questa priorita:
-
-```text
-1. controlla titoli gia in portafoglio e propone eventuali azioni pending
-2. rivaluta condizioni monitorate e le aggiorna come waiting/met/invalidated/archived
-3. scannerizza il FTSE MIB per trovare nuovi candidati interessanti
-4. scannerizza anche `MateriePrime.xlsx` se disponibile, mantenendo il mercato separato dal FTSE MIB
-5. salva nuove condizioni o crea nuove proposte pending se serve
-6. invia riepilogo Telegram quando lo stato operativo cambia
-```
-
-## Materie prime
-
-La pagina React contiene una tab **Materie prime**. Da qui puoi:
-
-- vedere tutti gli strumenti caricati da `validTickers/MateriePrime.xlsx`;
-- avviare una scansione tecnica dell'universo commodity;
-- confrontare score, prezzo, variazione giornaliera, RSI, ADX, supporto e resistenza;
-- aprire il grafico dello strumento con gli stessi indicatori usati per le azioni.
-
-Lo scanner commodity usa gli stessi indicatori tecnici dello scanner FTSE MIB. Nel processo operativo l'agente:
-
-1. scansiona FTSE MIB e materie prime come universi separati;
-2. confronta i risultati in una short-list unica mantenendo chiaro il mercato di provenienza;
-3. approfondisce con Playwright/ChatGPT solo gli strumenti davvero interessanti, per esempio score alto, trigger vicino, posizione/watchlist rilevante o rischio non chiaro;
-4. evita di approfondire tutti gli strumenti solo perche sono presenti nel file;
-5. per gli ETC/ETN considera rischio specifico, volatilita del sottostante e volumi.
-
-In modalita autonoma, se trova uno strumento interessante ma non ancora confermato, deve preferire una condizione monitorata con scenario `BREAKOUT` o `PULLBACK_SUPPORTO`.
-
-Per provarlo una sola volta da PyCharm o CLI:
+Grafici locali:
 
 ```bash
-python agent_portfolio_manager.py --daemon-monitor --once --scan-limit 5
+python stock_chart_ai_analysis.py --charts-only --stocks "VOD.L" --days 70
 ```
 
-Per lasciarlo girare ogni 30 minuti:
-
-```bash
-python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --scan-limit 5
-```
-
-Per test veloci puoi limitare l'universo:
-
-```bash
-python agent_portfolio_manager.py --daemon-monitor --once --scan-limit 3 --universe-limit 10
-```
-
-Le news live via Playwright nel monitor periodico sono disattivate per default. Puoi abilitarle solo se Chrome e aperto con debug remoto:
-
-```bash
-python agent_portfolio_manager.py --daemon-monitor --monitor-interval-minutes 30 --periodic-live-news
-```
-
-In modalita periodica standard non viene mai applicata una modifica al portafoglio senza conferma esplicita del `proposal_id`.
-
-### Modalita autonoma virtuale
-
-Se vuoi che l'agente decida e applichi autonomamente operazioni sul solo portafoglio virtuale, senza conferma utente e con sola notifica Telegram, usa il flag esplicito:
-
-```bash
-python agent_portfolio_manager.py --autonomous-monitor --scan-limit 5 --max-auto-trade-pct 25
-```
-
-`--autonomous-monitor` equivale a `--daemon-monitor --auto-apply-virtual` e usa l'intervallo default `MONITOR_INTERVAL_MINUTES=30`.
-
-Puoi comunque sovrascrivere l'intervallo:
-
-```bash
-python agent_portfolio_manager.py --autonomous-monitor --monitor-interval-minutes 15 --scan-limit 5 --max-auto-trade-pct 25
-```
-
-In questa modalita l'agente puo:
-
-```text
-- analizzare posizioni aperte e proporre/attuare azioni simulate
-- creare una proposta pending motivata
-- applicare autonomamente quella proposta sul portfolio.json virtuale
-- aggiornare condizioni monitorate
-- inviare riepilogo Telegram quando cambia lo stato
-```
-
-Limiti:
-
-```text
-- nessun ordine reale su broker
-- nessuna operazione fuori dal portfolio.json virtuale
-- ogni nuova operazione autonoma deve rispettare --max-auto-trade-pct
-- se il segnale e debole o contraddittorio deve monitorare, non comprare
-- l'utente non conferma prima: viene notificato via Telegram dopo le decisioni/applicazioni virtuali
-```
-
-Puoi inviare manualmente il riepilogo:
-
-```text
-Tu> invia riepilogo telegram
-```
-
-Se l'utente chiede esplicitamente di procedere con un acquisto anche quando il segnale non e confermato, l'agente deve assecondarlo creando una proposta pending, evidenziando i rischi e indicando che si tratta di una forzatura consapevole. La proposta richiede comunque conferma tramite `proposal_id`.
-In modalita interattiva i comandi espliciti di acquisto vengono intercettati localmente per essere affidabili:
-
-```text
-Tu> compriamo 10000 euro di HER.MI
-Tu> acquista 2500 euro su AMP.MI
-```
-
-Questi comandi creano una proposta pending, non aprono direttamente la posizione.
-
-Puoi aggiornare il capitale virtuale con una richiesta esplicita:
-
-```text
-Tu> aggiorna il capitale a 20000 euro
-```
-
-L'aggiornamento modifica `initial_capital` e adegua la liquidita del delta, senza cancellare posizioni, proposte o condizioni monitorate.
-
-Durante la rivalutazione l'agente deve aggiornare ogni condizione:
-
-```text
-waiting      # condizione ancora valida ma non scattata
-met          # condizione scattata; puo generare proposta pending
-invalidated  # contesto tecnico/news peggiorato, condizione non piu utile
-archived     # condizione chiusa e rimossa dal monitoraggio operativo
-```
-
-Se una condizione diventa `met` e grafico/news confermano, l'agente crea una proposta pending con `create_buy_proposal`. In modalita interattiva aspetta conferma; in modalita `--autonomous-monitor` puo applicare automaticamente l'operazione virtuale e notificare via Telegram.
-
-Le news sono parte del filtro decisionale: prima di comprare, vendere, ridurre o modificare una posizione virtuale l'agente deve usare le news disponibili, oppure dichiarare che non sono disponibili e abbassare la confidenza della decisione. News negative, downgrade, guidance peggiorativa o eventi societari rilevanti possono invalidare un trigger tecnico anche se il prezzo lo ha raggiunto.
-
-Inizializza portafoglio:
-
-```bash
-python agent_portfolio_manager.py --init-portfolio
-```
-
-Oppure capitale diretto:
-
-```bash
-python agent_portfolio_manager.py --init-portfolio --capital 10000
-```
-
-Se il portafoglio e vuoto, chiedi all'agente di creare una proposta:
-
-```bash
-python agent_portfolio_manager.py --build-empty-portfolio --scan-limit 5 --cash-pct 15
-```
-
-L'agente chiede il capitale se non passi `--capital`, scannerizza il FTSE MIB e crea una proposta pending.
-
-Quando chiedi una proposta di portafoglio, l'agente puo decidere autonomamente di approfondire i migliori candidati prima di proporre l'allocazione. Puoi anche forzarlo:
-
-```bash
-python agent_portfolio_manager.py --build-empty-portfolio --capital 20000 --scan-limit 5 --cash-pct 15 --deep-chart-confirmation --deep-confirm-limit 3
-```
-
-## Conferme
-
-Le proposte vengono salvate in `portfolio.json`.
-
-Per ora puoi chiedere all'agente:
-
-```bash
-python agent_portfolio_manager.py "Mostra le proposte pending"
-python agent_portfolio_manager.py "Conferma la proposta 20260723-203433"
-python agent_portfolio_manager.py "Rifiuta la proposta 20260723-203433"
-```
-
-## News live via Playwright
-
-Apri Chrome con debug remoto:
-
-```cmd
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%TEMP%\chatgpt-cdp-profile"
-```
-
-Poi:
+Analisi titolo con news live:
 
 ```bash
 python agent_portfolio_manager.py --stocks "VOD.L" --live-news
 ```
 
-In questa modalita il tool news richiama `chatgpt_playwright_demo.py`, quindi usa Playwright e il tuo login ChatGPT nel browser. Non usa `OPENAI_API_KEY`.
+Scanner FTSE MIB:
 
-L'agente e configurato con `parallel_tool_calls=False`: analizza i candidati in sequenza e aspetta il risultato di un tool prima di lanciare il successivo. La regola operativa e "un ticker alla volta": completa grafico, eventuali news, sintesi e giudizio provvisorio di un candidato prima di passare al candidato successivo. In piu, i tool che usano Playwright vengono messi in coda: una sola sessione Chrome/ChatGPT alla volta. Questo evita blocchi quando l'agente decide di approfondire piu candidati.
+```bash
+python agent_portfolio_manager.py --scan-mib30 --scan-limit 5
+```
 
-## Note
+Scanner commodity locale:
 
-Questo progetto e per simulazione, studio e monitoraggio. Non e consulenza finanziaria.
+```bash
+python -c "from finance_tools.commodity_scanner import scan_commodity_candidates; print(scan_commodity_candidates(limit=8)['candidates'])"
+```
+
+Run autonoma singola:
+
+```bash
+python agent_portfolio_manager.py --autonomous-monitor --once --scan-limit 5 --periodic-live-news --periodic-max-turns 80
+```
+
+Run autonoma continua:
+
+```bash
+python agent_portfolio_manager.py --autonomous-monitor --monitor-interval-minutes 30 --scan-limit 5 --periodic-live-news
+```
+
+## File generati
+
+```text
+portfolio.json                         # stato portafoglio virtuale
+agent_run_state.json                   # stato ultimo ciclo agente
+telegram_settings.json                 # policy notifiche Telegram
+telegram_agent_state.json              # offset e contesto bot Telegram
+telegram_notification_state.json       # deduplica notifiche
+output/stock_ai/                       # grafici, news, analisi
+output/portfolio_performance_history.json
+logs/scheduled-monitor.log
+logs/scheduled-monitor.err.log
+logs/telegram-agent.log
+logs/telegram-agent.err.log
+```
+
+Questi file operativi non devono contenere segreti nel repository. Le credenziali vanno solo in `.env`.
+
+## Regole di sicurezza
+
+- Nessun ordine reale.
+- Operazioni solo su `portfolio.json`.
+- In modalita interattiva l'agente crea proposte pending.
+- In `--autonomous-monitor` l'agente puo applicare operazioni virtuali e notificare.
+- La liquidita e obbligatoria.
+- Le news devono essere considerate prima di buy/sell/reduce.
+- Playwright va usato solo per candidati o posizioni rilevanti, non per ogni ticker dell'universo.
+- I mercati vengono monitorati solo lun-ven e nella finestra 09:00-20:59.

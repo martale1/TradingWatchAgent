@@ -8,6 +8,7 @@ from finance_tools.commodity_scanner import scan_commodity_candidates
 from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
 from finance_tools.mib30_scanner import scan_mib30_candidates
+from finance_tools.monitoring_rules import ensure_candidate_conditions, invalidate_illiquid_monitored_conditions
 from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.portfolio_store import list_monitored_conditions, list_watchlist
 from finance_tools.telegram_tool import send_telegram_message
@@ -106,9 +107,22 @@ def run(limit=5, deep_limit=2, universe_limit=0, send_telegram=False):
     log("Avvio monitor Playwright-first: nessuna chiamata OpenAI SDK")
     performance = calculate_portfolio_performance()
     log("Performance portafoglio calcolata")
+    invalidated_liquidity = invalidate_illiquid_monitored_conditions()
+    if invalidated_liquidity:
+        log(f"Trigger invalidati per liquidita insufficiente: {len(invalidated_liquidity)}")
 
     mib_scan = scan_mib30_candidates(limit=limit, universe_limit=universe_limit or None, verbose=True)
     commodity_scan = scan_commodity_candidates(limit=limit, universe_limit=universe_limit or None, verbose=True)
+    mib_created = ensure_candidate_conditions(mib_scan.get("candidates", []), market="FTSE MIB", max_items=limit)
+    commodity_created = ensure_candidate_conditions(
+        commodity_scan.get("candidates", []),
+        market="Materie prime",
+        max_items=limit,
+    )
+    log(
+        "Condizioni monitorate create da scanner: "
+        f"FTSE MIB={len(mib_created)} Materie prime={len(commodity_created)}"
+    )
     candidates = select_candidates(mib_scan, commodity_scan, limit=limit)
     log(f"Shortlist unica pronta: {len(candidates)} candidati")
 
@@ -133,6 +147,10 @@ def run(limit=5, deep_limit=2, universe_limit=0, send_telegram=False):
                 "confirmations": confirmations,
                 "watchlist_count": len(watchlist),
                 "conditions_count": len(conditions),
+                "monitored_conditions_created": {
+                    "ftse_mib": mib_created,
+                    "commodities": commodity_created,
+                },
             },
             ensure_ascii=False,
             indent=2,

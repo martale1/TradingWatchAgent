@@ -14,6 +14,13 @@ if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 cd /d "%PROJECT_DIR%"
 
+for /f %%I in ('powershell -NoProfile -Command "$now=Get-Date; if ($now.DayOfWeek -in @(''Saturday'',''Sunday'') -or $now.Hour -lt 9 -or $now.Hour -ge 21) { ''SKIP'' } else { ''RUN'' }"') do set MARKET_WINDOW=%%I
+if "%MARKET_WINDOW%"=="SKIP" (
+  echo. >> "%LOG_DIR%\scheduled-monitor.log"
+  echo ===== %DATE% %TIME% SKIP: fuori finestra mercati lun-ven 09:00-20:59 ===== >> "%LOG_DIR%\scheduled-monitor.log"
+  goto :end
+)
+
 mkdir "%LOCK_DIR%" 2>nul
 if errorlevel 1 (
   echo. >> "%LOG_DIR%\scheduled-monitor.log"
@@ -29,6 +36,8 @@ echo ===== %DATE% %TIME% START scheduled monitor ===== >> "%LOG_DIR%\scheduled-m
   --autonomous-monitor ^
   --once ^
   --monitor-interval-minutes 30 ^
+  --periodic-live-news ^
+  --periodic-max-turns 80 ^
   --scan-limit 5 ^
   --deep-confirm-limit 2 ^
   --max-auto-trade-pct 25 ^

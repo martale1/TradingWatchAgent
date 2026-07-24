@@ -258,7 +258,7 @@ def build_monitoring_summary(extra_note=""):
     total_pnl_pct = float(performance.get("total_pnl_pct") or 0)
 
     lines = [
-        "📊 TradingWatchAgent",
+        "📊 Autonomous Trading Agent",
         f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M')}",
         "",
         "💼 PORTAFOGLIO",

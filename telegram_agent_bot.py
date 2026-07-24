@@ -218,7 +218,7 @@ def handle_command(text):
     command = text.strip().lower()
     if command in {"/start", "start", "aiuto", "/help"}:
         return (
-            "TradingWatchAgent Telegram attivo.\n\n"
+            "Autonomous Trading Agent Telegram attivo.\n\n"
             "Puoi chiedere ad esempio:\n"
             "- quali segnali attendi per uscire da CPR.MI?\n"
             "- mostra stato operativo\n"
@@ -233,7 +233,7 @@ def handle_command(text):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Telegram bridge per TradingWatchAgent.")
+    parser = argparse.ArgumentParser(description="Telegram bridge per Autonomous Trading Agent.")
     parser.add_argument("--poll-seconds", type=float, default=3.0, help="Intervallo polling Telegram.")
     parser.add_argument("--timeout", type=int, default=900, help="Timeout massimo richiesta agente.")
     parser.add_argument("--once", action="store_true", help="Legge eventuali messaggi una sola volta e termina.")
@@ -249,7 +249,7 @@ def main():
     bot = telepot.Bot(token)
     state = load_state()
     log(f"Bridge Telegram avviato | allowed_chat_id={allowed_chat_id}")
-    send_text(bot, allowed_chat_id, "TradingWatchAgent Telegram bridge avviato. Scrivi 'aiuto' per i comandi.")
+    send_text(bot, allowed_chat_id, "Autonomous Trading Agent Telegram bridge avviato. Scrivi 'aiuto' per i comandi.")
 
     while True:
         try:

@@ -7,11 +7,16 @@ if (-not (Test-Path $ScriptPath)) {
 }
 
 $Action = New-ScheduledTaskAction -Execute $ScriptPath -WorkingDirectory $ProjectDir
-$Trigger = New-ScheduledTaskTrigger `
-    -Once `
-    -At (Get-Date).Date.AddMinutes(1) `
-    -RepetitionInterval (New-TimeSpan -Minutes 30) `
-    -RepetitionDuration (New-TimeSpan -Days 3650)
+$Triggers = @()
+foreach ($Hour in 9..20) {
+    foreach ($Minute in @(0, 30)) {
+        $At = (Get-Date).Date.AddHours($Hour).AddMinutes($Minute)
+        $Triggers += New-ScheduledTaskTrigger `
+            -Weekly `
+            -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday `
+            -At $At
+    }
+}
 $Settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -21,9 +26,9 @@ $Settings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $Action `
-    -Trigger $Trigger `
+    -Trigger $Triggers `
     -Settings $Settings `
-    -Description "TradingWatchAgent autonomous virtual portfolio monitor every 30 minutes." `
+    -Description "TradingWatchAgent autonomous virtual portfolio monitor every 30 minutes, Monday-Friday 09:00-20:30." `
     -Force | Out-Null
 
 Write-Host "Task installato: $TaskName"

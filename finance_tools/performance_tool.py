@@ -296,7 +296,7 @@ def build_performance_summary(performance=None):
         return perf.get("message", "Performance non disponibile.")
 
     lines = [
-        "TradingWatchAgent - performance portafoglio",
+        "Autonomous Trading Agent - performance portafoglio",
         "",
         f"Valore totale: EUR {perf['total_value']:.2f}",
         f"P/L totale: EUR {perf['total_pnl']:.2f} ({perf['total_pnl_pct']:.2f}%)",
