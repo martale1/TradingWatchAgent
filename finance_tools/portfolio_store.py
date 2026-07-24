@@ -215,7 +215,16 @@ def list_watchlist(path=PORTFOLIO_FILE):
     return portfolio.get("watchlist", [])
 
 
-def add_watchlist_item(ticker, name="", market="", reason="", priority="normal", tags=None, path=PORTFOLIO_FILE):
+def add_watchlist_item(
+    ticker,
+    name="",
+    market="",
+    reason="",
+    priority="normal",
+    tags=None,
+    entry_condition="",
+    path=PORTFOLIO_FILE,
+):
     portfolio = load_portfolio(path)
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
@@ -228,6 +237,7 @@ def add_watchlist_item(ticker, name="", market="", reason="", priority="normal",
         "name": name.strip() if name else symbol,
         "market": market.strip() if market else "",
         "reason": reason.strip() if reason else "",
+        "entry_condition": entry_condition.strip() if entry_condition else "",
         "priority": priority.strip().lower() if priority else "normal",
         "tags": tags or [],
         "status": "active",

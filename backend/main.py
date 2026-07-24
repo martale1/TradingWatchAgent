@@ -61,6 +61,7 @@ class WatchlistRequest(BaseModel):
     name: str = ""
     market: str = ""
     reason: str = ""
+    entry_condition: str = ""
     priority: str = "normal"
     tags: list[str] = []
 
@@ -204,6 +205,7 @@ def add_watchlist(request: WatchlistRequest):
             name=request.name,
             market=request.market,
             reason=request.reason,
+            entry_condition=request.entry_condition,
             priority=request.priority,
             tags=request.tags,
         )

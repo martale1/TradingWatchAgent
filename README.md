@@ -177,12 +177,13 @@ Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Gi
 
 La watchlist e una lista di ticker scelti dall'utente, separata dai candidati trovati dallo scanner MIB30. Serve per seguire titoli che vuoi analizzare piu a fondo anche se l'algoritmo non li seleziona.
 
-Dalla dashboard React apri il tab `Watchlist`, inserisci ticker, priorita e motivo. L'agente la considera nei monitor periodici e puo creare condizioni monitorate o proposte se il quadro diventa interessante.
+Dalla dashboard React apri il tab `Watchlist`, inserisci ticker, priorita, motivo e, se vuoi, una `condizione ingresso` esplicita da monitorare. Se la condizione e presente, l'agente la usa come trigger principale nei monitor periodici; se manca, durante l'analisi puo proporre o salvare una condizione concreta con livello prezzo, conferma volumi e supporto di invalidazione.
 
 Puoi gestirla anche dalla chat:
 
 ```text
 aggiungi VOD.L alla watchlist con priorita high perche voglio seguirla
+aggiungi VOD.L alla watchlist con condizione ingresso chiusura sopra 121 con volumi in recupero
 mostra watchlist
 rimuovi VOD.L dalla watchlist
 ```

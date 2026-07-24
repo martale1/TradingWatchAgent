@@ -114,7 +114,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .rowActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .watchlistForm {
   display: grid;
-  grid-template-columns: 170px 140px minmax(260px, 1fr) auto;
+  grid-template-columns: 170px 140px minmax(220px, 1fr) minmax(280px, 1fr) auto;
   gap: 10px;
   align-items: end;
   margin: 12px 0 16px;
@@ -126,13 +126,24 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   font-size: 12px;
 }
 .watchlistForm input,
-.watchlistForm select {
+.watchlistForm select,
+.entryConditionCell textarea {
   width: 100%;
   border: 1px solid #d7dce5;
   border-radius: 8px;
   padding: 10px;
   background: white;
   color: #111827;
+}
+.entryConditionCell {
+  min-width: 320px;
+}
+.entryConditionCell textarea {
+  min-height: 64px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.35;
+  margin-bottom: 8px;
 }
 
 .positive { color: #137333; background: #e6f4ea; }

@@ -317,9 +317,11 @@ function Monitoring({ rows = [], onChart }) {
 function Watchlist({ rows = [], reload, onChart }) {
   const [ticker, setTicker] = useState("");
   const [reason, setReason] = useState("");
+  const [entryCondition, setEntryCondition] = useState("");
   const [priority, setPriority] = useState("normal");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const [conditionDrafts, setConditionDrafts] = useState({});
 
   async function addItem(event) {
     event.preventDefault();
@@ -329,12 +331,39 @@ function Watchlist({ rows = [], reload, onChart }) {
     try {
       await api("/api/watchlist", {
         method: "POST",
-        body: JSON.stringify({ ticker, reason, priority }),
+        body: JSON.stringify({ ticker, reason, priority, entry_condition: entryCondition }),
       });
       setTicker("");
       setReason("");
+      setEntryCondition("");
       setPriority("normal");
       setMessage("Titolo aggiunto alla watchlist.");
+      reload();
+    } catch (error) {
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveCondition(row) {
+    const draft = conditionDrafts[row.ticker] ?? row.entry_condition ?? "";
+    setBusy(`condition-${row.ticker}`);
+    setMessage("");
+    try {
+      await api("/api/watchlist", {
+        method: "POST",
+        body: JSON.stringify({
+          ticker: row.ticker,
+          name: row.name || "",
+          market: row.market || "",
+          reason: row.reason || "",
+          priority: row.priority || "normal",
+          tags: row.tags || [],
+          entry_condition: draft,
+        }),
+      });
+      setMessage(`Condizione ingresso salvata per ${row.ticker}.`);
       reload();
     } catch (error) {
       setMessage(`Errore: ${error.message}`);
@@ -373,6 +402,7 @@ function Watchlist({ rows = [], reload, onChart }) {
           </select>
         </label>
         <label className="reasonInput">Motivo<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Perche vuoi seguirlo..." /></label>
+        <label className="entryInput">Condizione ingresso<input value={entryCondition} onChange={(event) => setEntryCondition(event.target.value)} placeholder="es. chiusura sopra 121 con volumi..." /></label>
         <button disabled={!!busy || !ticker.trim()}>Aggiungi</button>
       </form>
       {message && <p className="small">{message}</p>}
@@ -386,6 +416,7 @@ function Watchlist({ rows = [], reload, onChart }) {
                 <th>Ticker</th>
                 <th>Priorita</th>
                 <th>Motivo</th>
+                <th>Condizione ingresso</th>
                 <th>Aggiunto</th>
                 <th>Azioni</th>
               </tr>
@@ -396,9 +427,19 @@ function Watchlist({ rows = [], reload, onChart }) {
                   <td className="ticker">{row.ticker}</td>
                   <td><span className={`pill ${row.priority === "high" ? "warning" : "neutral"}`}>{row.priority || "normal"}</span></td>
                   <td className="reason">{row.reason || "n/d"}</td>
+                  <td className="entryConditionCell">
+                    <textarea
+                      value={conditionDrafts[row.ticker] ?? row.entry_condition ?? ""}
+                      onChange={(event) => setConditionDrafts((current) => ({ ...current, [row.ticker]: event.target.value }))}
+                      placeholder="Trigger da monitorare..."
+                    />
+                    <button className="miniButton" onClick={() => saveCondition(row)} disabled={busy === `condition-${row.ticker}`}>
+                      Salva
+                    </button>
+                  </td>
                   <td>{dateTime(row.added_at)}</td>
                   <td className="rowActions">
-                    <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, condition: row.reason || "Watchlist manuale" })}><LineChart size={15} /> Grafico</button>
+                    <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, condition: row.entry_condition || row.reason || "Watchlist manuale" })}><LineChart size={15} /> Grafico</button>
                     <button className="miniButton" onClick={() => removeItem(row.ticker)} disabled={busy === row.ticker}><X size={15} /> Rimuovi</button>
                   </td>
                 </tr>
