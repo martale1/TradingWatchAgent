@@ -15,6 +15,7 @@ from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E
 from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
 from finance_tools.portfolio_store import load_portfolio, portfolio_status_summary  # noqa: E402
 from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary  # noqa: E402
+import yfinance as yf  # noqa: E402
 
 
 load_env_file()
@@ -103,6 +104,41 @@ def dashboard():
         "monitored": monitored,
         "recent_actions": closed,
     }
+
+
+@app.get("/api/chart/{ticker}")
+def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
+    symbol = ticker.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Ticker mancante")
+    try:
+        history = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=False)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Errore download dati {symbol}: {exc}") from exc
+    if history.empty:
+        raise HTTPException(status_code=404, detail=f"Nessun dato prezzo disponibile per {symbol}")
+
+    history = history.reset_index()
+    rows = []
+    for _, row in history.iterrows():
+        close = row.get("Close")
+        if close is None or close != close:
+            continue
+        date_value = row.get("Date") if "Date" in row else row.get("Datetime")
+        rows.append(
+            {
+                "date": date_value.strftime("%Y-%m-%d") if hasattr(date_value, "strftime") else str(date_value),
+                "open": round(float(row.get("Open", close)), 4),
+                "high": round(float(row.get("High", close)), 4),
+                "low": round(float(row.get("Low", close)), 4),
+                "close": round(float(close), 4),
+                "volume": int(row.get("Volume", 0) or 0),
+            }
+        )
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Nessun dato close disponibile per {symbol}")
+
+    return {"ticker": symbol, "period": period, "interval": interval, "prices": rows}
 
 
 @app.post("/api/agent/chat")

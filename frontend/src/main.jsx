@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, Bot, MessageSquare, RefreshCw, Send, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { Activity, Bot, LineChart, MessageSquare, RefreshCw, Send, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import "./styles.css";
 
 const API = "http://127.0.0.1:8000";
@@ -59,7 +59,7 @@ function Metric({ label, value, delta, icon }) {
   );
 }
 
-function Positions({ rows = [] }) {
+function Positions({ rows = [], onChart }) {
   return (
     <section className="panel">
       <h2>Portafoglio</h2>
@@ -75,6 +75,7 @@ function Positions({ rows = [] }) {
               <th>Entry</th>
               <th>Prezzo</th>
               <th>Quantita</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -88,6 +89,7 @@ function Positions({ rows = [] }) {
                 <td>{price(row.entry_price)}</td>
                 <td>{price(row.current_price)}</td>
                 <td>{price(row.virtual_quantity)}</td>
+                <td><button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, trigger_level: row.entry_price, support_level: null, condition: "Prezzo di ingresso posizione" })}><LineChart size={15} /> Grafico</button></td>
               </tr>
             ))}
           </tbody>
@@ -97,7 +99,7 @@ function Positions({ rows = [] }) {
   );
 }
 
-function TriggerCard({ item }) {
+function TriggerCard({ item, onChart }) {
   const progress = item.trigger_progress ?? 0;
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
   return (
@@ -122,11 +124,12 @@ function TriggerCard({ item }) {
             : "Distanza dal trigger non disponibile."}
       </p>
       <p className="condition">{item.condition}</p>
+      <button className="chartButton" onClick={() => onChart(item)}><LineChart size={16} /> Apri grafico trigger</button>
     </div>
   );
 }
 
-function Monitoring({ rows = [] }) {
+function Monitoring({ rows = [], onChart }) {
   const near = rows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
   return (
     <section className="panel">
@@ -135,9 +138,123 @@ function Monitoring({ rows = [] }) {
         <span>{near.length} vicini entro +/-3%</span>
       </div>
       <div className="cardsGrid">
-        {rows.map((item) => <TriggerCard key={item.id || item.ticker} item={item} />)}
+        {rows.map((item) => <TriggerCard key={item.id || item.ticker} item={item} onChart={onChart} />)}
       </div>
     </section>
+  );
+}
+
+function PriceChart({ prices = [], triggerLevel, supportLevel }) {
+  const width = 1040;
+  const height = 430;
+  const pad = { top: 28, right: 86, bottom: 44, left: 64 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const closeValues = prices.map((row) => Number(row.close)).filter((value) => !Number.isNaN(value));
+  const levels = [triggerLevel, supportLevel].map(Number).filter((value) => !Number.isNaN(value) && value > 0);
+  const min = Math.min(...closeValues, ...levels);
+  const max = Math.max(...closeValues, ...levels);
+  const span = max - min || 1;
+  const yMin = min - span * 0.08;
+  const yMax = max + span * 0.08;
+  const x = (index) => pad.left + (prices.length <= 1 ? 0 : (index / (prices.length - 1)) * plotW);
+  const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * plotH;
+  const path = prices
+    .map((row, index) => `${index === 0 ? "M" : "L"} ${x(index).toFixed(2)} ${y(Number(row.close)).toFixed(2)}`)
+    .join(" ");
+  const area = `${path} L ${pad.left + plotW} ${pad.top + plotH} L ${pad.left} ${pad.top + plotH} Z`;
+  const ticks = Array.from({ length: 5 }, (_, index) => yMin + ((yMax - yMin) / 4) * index);
+  const last = prices[prices.length - 1];
+  const first = prices[0];
+
+  function LevelLine({ value, label, className }) {
+    const level = Number(value);
+    if (Number.isNaN(level) || level <= 0) return null;
+    const ly = y(level);
+    return (
+      <g className={className}>
+        <line x1={pad.left} x2={pad.left + plotW} y1={ly} y2={ly} />
+        <text x={pad.left + plotW + 10} y={ly + 4}>{label} {price(level)}</text>
+      </g>
+    );
+  }
+
+  if (!prices.length) return <div className="chartEmpty">Nessun dato prezzo disponibile.</div>;
+
+  return (
+    <svg className="priceChart" viewBox={`0 0 ${width} ${height}`} role="img">
+      <defs>
+        <linearGradient id="priceArea" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#2563eb" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <rect x="0" y="0" width={width} height={height} rx="8" />
+      {ticks.map((tick) => (
+        <g key={tick} className="gridLine">
+          <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
+          <text x={pad.left - 10} y={y(tick) + 4}>{price(tick)}</text>
+        </g>
+      ))}
+      <path className="areaPath" d={area} />
+      <path className="pricePath" d={path} />
+      <LevelLine value={triggerLevel} label="TRIGGER" className="triggerLine" />
+      <LevelLine value={supportLevel} label="SUPPORTO" className="supportLine" />
+      {last && (
+        <g className="lastPoint">
+          <circle cx={x(prices.length - 1)} cy={y(Number(last.close))} r="5" />
+          <text x={pad.left + plotW + 10} y={y(Number(last.close)) - 10}>Prezzo {price(last.close)}</text>
+        </g>
+      )}
+      <g className="axisLabels">
+        <text x={pad.left} y={height - 14}>{first?.date}</text>
+        <text x={pad.left + plotW} y={height - 14} textAnchor="end">{last?.date}</text>
+      </g>
+    </svg>
+  );
+}
+
+function ChartModal({ item, onClose }) {
+  const [state, setState] = useState({ loading: true, error: "", prices: [] });
+  const ticker = item?.ticker;
+
+  useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+    setState({ loading: true, error: "", prices: [] });
+    api(`/api/chart/${encodeURIComponent(ticker)}?period=6mo&interval=1d`)
+      .then((result) => {
+        if (!cancelled) setState({ loading: false, error: "", prices: result.prices || [] });
+      })
+      .catch((error) => {
+        if (!cancelled) setState({ loading: false, error: error.message, prices: [] });
+      });
+    return () => { cancelled = true; };
+  }, [ticker]);
+
+  if (!item) return null;
+  const distance = item.trigger_distance_pct;
+  return (
+    <div className="modalBackdrop" onClick={onClose}>
+      <div className="chartModal" onClick={(event) => event.stopPropagation()}>
+        <div className="modalHeader">
+          <div>
+            <h2><LineChart size={22} /> Grafico {ticker}</h2>
+            <p>{item.condition || "Prezzo e livelli operativi"}</p>
+          </div>
+          <button className="iconOnly" onClick={onClose} aria-label="Chiudi"><X size={20} /></button>
+        </div>
+        <div className="chartSummary">
+          <span>Prezzo attuale <b>{price(item.current_price)}</b></span>
+          <span>Trigger <b>{price(item.trigger_level)}</b></span>
+          <span>Supporto/stop <b>{price(item.support_level)}</b></span>
+          <span>Distanza trigger <b className={signedClass(distance)}>{pct(distance)}</b></span>
+        </div>
+        {state.loading && <div className="chartStatus">Caricamento storico prezzi...</div>}
+        {state.error && <div className="error">{state.error}</div>}
+        {!state.loading && !state.error && <PriceChart prices={state.prices} triggerLevel={item.trigger_level} supportLevel={item.support_level} />}
+      </div>
+    </div>
   );
 }
 
@@ -255,6 +372,7 @@ function Controls({ reload }) {
 function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [chartItem, setChartItem] = useState(null);
 
   async function load() {
     try {
@@ -304,8 +422,8 @@ function App() {
 
           {tab === "dashboard" && (
             <>
-              <Positions rows={perf.positions || []} />
-              <Monitoring rows={data.monitored || []} />
+              <Positions rows={perf.positions || []} onChart={setChartItem} />
+              <Monitoring rows={data.monitored || []} onChart={setChartItem} />
             </>
           )}
           {tab === "chat" && <Chat />}
@@ -313,6 +431,7 @@ function App() {
           {tab === "controls" && <Controls reload={load} />}
         </>
       )}
+      <ChartModal item={chartItem} onClose={() => setChartItem(null)} />
     </main>
   );
 }

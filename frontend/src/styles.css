@@ -33,6 +33,16 @@ button {
 button:hover { border-color: #7c8aa5; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .iconButton { display: flex; align-items: center; gap: 8px; }
+.miniButton, .chartButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.miniButton { padding: 6px 9px; font-size: 12px; }
+.chartButton { width: 100%; margin-top: 10px; }
+.iconOnly { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
 
 .metrics {
   display: grid;
@@ -124,9 +134,99 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .log { max-height: 420px; overflow: auto; background: #0f172a; color: #e5e7eb; padding: 14px; border-radius: 8px; }
 .error { background: #fce8e6; color: #b3261e; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
 
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(15, 23, 42, .42);
+}
+.chartModal {
+  width: min(1180px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  background: white;
+  border: 1px solid #dbe1ea;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .26);
+  padding: 18px;
+}
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.modalHeader p { margin: 8px 0 0; }
+.chartSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.chartSummary span {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  color: #64748b;
+  background: #f8fafc;
+}
+.chartSummary b { display: block; margin-top: 4px; color: #111827; font-size: 18px; }
+.chartStatus, .chartEmpty {
+  padding: 28px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  background: #f8fafc;
+}
+.priceChart {
+  width: 100%;
+  height: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+}
+.priceChart rect { fill: #fff; }
+.gridLine line { stroke: #e5e7eb; stroke-width: 1; }
+.gridLine text, .axisLabels text { fill: #64748b; font-size: 12px; }
+.areaPath { fill: url(#priceArea); stroke: none; }
+.pricePath {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.triggerLine line {
+  stroke: #dc2626;
+  stroke-width: 3;
+  stroke-dasharray: 10 7;
+}
+.triggerLine text {
+  fill: #b91c1c;
+  font-size: 13px;
+  font-weight: 800;
+}
+.supportLine line {
+  stroke: #16a34a;
+  stroke-width: 2.5;
+  stroke-dasharray: 6 5;
+}
+.supportLine text {
+  fill: #137333;
+  font-size: 13px;
+  font-weight: 800;
+}
+.lastPoint circle { fill: #2563eb; stroke: white; stroke-width: 2; }
+.lastPoint text { fill: #1d4ed8; font-size: 13px; font-weight: 800; }
+
 @media (max-width: 900px) {
   main { padding: 18px; }
   header { align-items: flex-start; flex-direction: column; }
   .metrics { grid-template-columns: 1fr; }
+  .chartSummary { grid-template-columns: 1fr 1fr; }
   .message { max-width: 100%; }
 }
