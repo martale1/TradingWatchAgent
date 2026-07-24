@@ -502,6 +502,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "La watchlist manuale e diversa dallo scanner: contiene titoli da analizzare piu approfonditamente anche se "
             "non filtrati dall'algoritmo. Quando analizzi opportunita o fai un monitor periodico, considera sempre anche "
             "i titoli della watchlist manuale prima di concludere. "
+            "Se analizzi titoli in watchlist e trovi una condizione gia presente tra le condizioni monitorate, "
+            "non crearne una duplicata: cita quella esistente oppure aggiornala solo se cambia davvero il trigger. "
             "Quando l'utente chiede rendimento, performance o guadagno/perdita, usa get_portfolio_performance. "
             "Durante il monitor periodico valuta la performance del portafoglio e segnala alert di rendimento rilevanti. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
@@ -549,7 +551,7 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
     )
 
 
-def run_agent_once(agent, request, display_request=None):
+def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_summary=False):
     log_step("Prompt operativo inviato all'agente:")
     log_step(display_request or request)
     log_step(f"Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls... max_turns={DEFAULT_MAX_TURNS}")
@@ -569,7 +571,8 @@ def run_agent_once(agent, request, display_request=None):
         print("\n" + final_output + "\n", flush=True)
         result = SimpleNamespace(final_output=final_output)
     after_state = monitoring_state_signature()
-    maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state)
+    if not suppress_auto_telegram_summary:
+        maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state)
     return result
 
 
@@ -1048,6 +1051,11 @@ def main():
         help="Richiesta da inviare all'agente.",
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Modello OpenAI da usare.")
+    parser.add_argument(
+        "--suppress-auto-telegram-summary",
+        action="store_true",
+        help="Non inviare riepiloghi Telegram automatici a fine run; utile per richieste arrivate da Telegram.",
+    )
     parser.add_argument("--interactive", action="store_true", help="Avvia una sessione interattiva con l'agente.")
     parser.add_argument("--stocks", default="", help='Ticker separati da virgola, es. "VOD.L,A2A.MI,AVIO.MI".')
     parser.add_argument("--live-news", action="store_true", help="Permetti al news tool di usare Playwright live.")
@@ -1207,7 +1215,7 @@ def main():
         if not os.getenv("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
         agent = build_agent(model=args.model)
-        run_agent_once(agent, request)
+        run_agent_once(agent, request, suppress_auto_telegram_summary=args.suppress_auto_telegram_summary)
         return
 
     if not os.getenv("OPENAI_API_KEY"):
@@ -1265,7 +1273,7 @@ def main():
         )
 
     agent = build_agent(model=args.model)
-    run_agent_once(agent, request)
+    run_agent_once(agent, request, suppress_auto_telegram_summary=args.suppress_auto_telegram_summary)
 
 
 if __name__ == "__main__":

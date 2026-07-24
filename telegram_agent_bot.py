@@ -192,7 +192,12 @@ def build_agent_context(history, message):
 
 def run_agent(message, history, timeout):
     prompt = build_agent_context(history, message)
-    cmd = [sys.executable, str(PROJECT_ROOT / "agent_portfolio_manager.py"), prompt]
+    cmd = [
+        sys.executable,
+        str(PROJECT_ROOT / "agent_portfolio_manager.py"),
+        "--suppress-auto-telegram-summary",
+        prompt,
+    ]
     log("Invio richiesta all'agente...")
     result = subprocess.run(
         cmd,
@@ -268,7 +273,6 @@ def main():
                 elif is_chart_request(text):
                     answer = handle_chart_request(bot, chat_id, text, state.get("history", []))
                 else:
-                    send_text(bot, chat_id, "⏳ **Richiesta ricevuta**\nInterrogo l'agente e preparo una risposta leggibile.")
                     answer = run_agent(text, state.get("history", []), timeout=args.timeout)
 
                 send_text(bot, chat_id, answer)

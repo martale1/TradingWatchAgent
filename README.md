@@ -246,6 +246,7 @@ Il bridge:
 - salva offset e contesto breve in telegram_agent_state.json
 - passa le richieste all'agente OpenAI SDK
 - risponde su Telegram spezzando i messaggi lunghi e rendendo grassetti/liste in formato leggibile
+- sopprime i riepiloghi Telegram automatici generati dal runner, cosi una domanda Telegram produce una sola risposta mirata
 ```
 
 Esempi da scrivere in Telegram:
