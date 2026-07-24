@@ -14,6 +14,7 @@ from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.news_tool import get_news_report_json
+from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.performance_tool import calculate_portfolio_performance_json
 from finance_tools.agent_run_state import mark_agent_run_completed, mark_agent_run_started
 from finance_tools.portfolio_store import (
@@ -32,7 +33,11 @@ from finance_tools.portfolio_store import (
     update_portfolio_capital,
     update_monitored_condition,
 )
-from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary
+from finance_tools.telegram_tool import (
+    send_monitoring_summary,
+    send_performance_summary,
+    should_send_monitoring_summary,
+)
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
@@ -671,23 +676,39 @@ def run_periodic_monitor_loop(
             max_auto_trade_pct=max_auto_trade_pct,
         )
         try:
+            before_state = monitoring_state_signature()
             run_agent_once(
                 agent,
                 request,
                 display_request=f"monitor periodico ciclo #{cycle}",
                 suppress_auto_telegram_summary=True,
             )
-            log_step("Invio riepilogo Telegram di fine ciclo schedulato")
-            telegram_result = send_monitoring_summary(
-                extra_note=f"Riepilogo fine ciclo schedulato #{cycle}. Prossimo controllo tra {interval_minutes} minuti."
+            after_state = monitoring_state_signature()
+            performance = calculate_portfolio_performance()
+            has_alerts = bool(performance.get("alerts"))
+            should_send, reason, telegram_settings = should_send_monitoring_summary(
+                reason="scheduled",
+                changed=before_state != after_state,
+                has_alerts=has_alerts,
             )
-            if telegram_result.get("status") == "ok":
-                log_step("Riepilogo Telegram fine ciclo inviato")
-            else:
-                log_step(
-                    "Riepilogo Telegram fine ciclo non inviato: "
-                    f"{telegram_result.get('message') or telegram_result.get('reason') or telegram_result.get('status')}"
+            if should_send:
+                log_step(f"Invio riepilogo Telegram fine ciclo | criterio={reason}")
+                telegram_result = send_monitoring_summary(
+                    extra_note=(
+                        f"Fine ciclo schedulato #{cycle}. Criterio Telegram: "
+                        f"{telegram_settings.get('monitoring_mode')} ({reason}). "
+                        f"Prossimo controllo tra {interval_minutes} minuti."
+                    )
                 )
+                if telegram_result.get("status") == "ok":
+                    log_step("Riepilogo Telegram fine ciclo inviato")
+                else:
+                    log_step(
+                        "Riepilogo Telegram fine ciclo non inviato: "
+                        f"{telegram_result.get('message') or telegram_result.get('reason') or telegram_result.get('status')}"
+                    )
+            else:
+                log_step(f"Riepilogo Telegram fine ciclo saltato | criterio={reason}")
             mark_agent_run_completed(interval_minutes=interval_minutes, once=once)
         except Exception as exc:
             mark_agent_run_completed(interval_minutes=interval_minutes, once=once, error=str(exc))

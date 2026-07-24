@@ -8,6 +8,7 @@ portfolio.json
 agent_run_state.json
 telegram_agent_state.json
 telegram_notification_state.json
+telegram_settings.json
 playwright_chatgpt_profile/
 chrome_chatgpt_profile/
 frontend/node_modules/

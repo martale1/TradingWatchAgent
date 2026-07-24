@@ -14,6 +14,8 @@ TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_TOKEN_FALLBACK_ENV = "TELEGRAM_BOT_TOKEN_CH1"
 TELEGRAM_RECEIVER_ENV = "TELEGRAM_RECEIVER_ID"
 TELEGRAM_NOTIFICATION_STATE = PROJECT_ROOT / "telegram_notification_state.json"
+TELEGRAM_SETTINGS_FILE = PROJECT_ROOT / "telegram_settings.json"
+TELEGRAM_MODES = {"always", "changes", "alerts", "disabled"}
 
 
 def now_iso():
@@ -31,6 +33,59 @@ def load_notification_state():
 
 def save_notification_state(state):
     TELEGRAM_NOTIFICATION_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_telegram_settings():
+    default = {
+        "monitoring_mode": "always",
+        "send_performance_alerts": True,
+        "max_monitoring_items": 5,
+    }
+    if not TELEGRAM_SETTINGS_FILE.exists():
+        return default
+    try:
+        data = json.loads(TELEGRAM_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default
+    merged = {**default, **data}
+    if merged.get("monitoring_mode") not in TELEGRAM_MODES:
+        merged["monitoring_mode"] = default["monitoring_mode"]
+    try:
+        merged["max_monitoring_items"] = max(3, min(int(merged.get("max_monitoring_items") or 5), 12))
+    except (TypeError, ValueError):
+        merged["max_monitoring_items"] = default["max_monitoring_items"]
+    merged["send_performance_alerts"] = bool(merged.get("send_performance_alerts"))
+    return merged
+
+
+def save_telegram_settings(settings):
+    current = load_telegram_settings()
+    merged = {**current, **settings}
+    if merged.get("monitoring_mode") not in TELEGRAM_MODES:
+        raise ValueError(f"monitoring_mode non valido. Usa uno tra: {', '.join(sorted(TELEGRAM_MODES))}")
+    try:
+        merged["max_monitoring_items"] = max(3, min(int(merged.get("max_monitoring_items") or 5), 12))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_monitoring_items deve essere un numero tra 3 e 12") from exc
+    merged["send_performance_alerts"] = bool(merged.get("send_performance_alerts"))
+    TELEGRAM_SETTINGS_FILE.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return merged
+
+
+def should_send_monitoring_summary(reason="manual", changed=False, has_alerts=False):
+    settings = load_telegram_settings()
+    mode = settings.get("monitoring_mode", "always")
+    if reason == "manual":
+        return True, "invio manuale", settings
+    if mode == "disabled":
+        return False, "telegram disattivato", settings
+    if mode == "always":
+        return True, "modalita invia sempre", settings
+    if mode == "changes":
+        return bool(changed), "variazioni rilevate" if changed else "nessuna variazione rilevata", settings
+    if mode == "alerts":
+        return bool(has_alerts), "alert rilevante" if has_alerts else "nessun alert rilevante", settings
+    return False, "modalita non gestita", settings
 
 
 def alert_signature(performance):
@@ -138,6 +193,21 @@ def short_condition(text, max_len=96):
     return clean[: max_len - 3].rstrip(" ,.;") + "..."
 
 
+def compact_condition(text):
+    clean = short_condition(text, max_len=72)
+    replacements = [
+        ("chiusura stabile sopra", "close >"),
+        ("chiusura sopra", "close >"),
+        ("con volumi sostenuti", "volumi ok"),
+        ("mantenendo", "stop"),
+        ("oppure tenuta del supporto", "oppure supporto"),
+        ("oppure tenuta di", "oppure tenuta"),
+    ]
+    for old, new in replacements:
+        clean = clean.replace(old, new)
+    return clean
+
+
 def format_proposal_action(item):
     status = item.get("status", "n/d")
     action = item.get("action", "n/d")
@@ -170,6 +240,8 @@ def send_telegram_message(text_message):
 
 
 def build_monitoring_summary(extra_note=""):
+    settings = load_telegram_settings()
+    max_items = int(settings.get("max_monitoring_items") or 5)
     status = portfolio_status_summary()
     performance = calculate_portfolio_performance()
     conditions = list_monitored_conditions(status=None)
@@ -186,69 +258,67 @@ def build_monitoring_summary(extra_note=""):
     total_pnl_pct = float(performance.get("total_pnl_pct") or 0)
 
     lines = [
-        "TWA | Monitor",
-        datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "📊 TradingWatchAgent",
+        f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M')}",
         "",
-        "PORTAFOGLIO",
-        f"Valore: {format_money(performance.get('total_value'))}",
-        f"P/L: {format_signed_money(total_pnl)} ({format_pct(total_pnl_pct)})",
-        f"Cash: {format_money(status.get('cash'))}",
-        f"Posizioni: {len(positions)} | Pending buy: {len(pending_buy)}",
+        "💼 PORTAFOGLIO",
+        f"Valore  {format_money(performance.get('total_value'))}",
+        f"P/L     {format_signed_money(total_pnl)} ({format_pct(total_pnl_pct)})",
+        f"Cash    {format_money(status.get('cash'))}",
+        f"Posiz.  {len(positions)} | Pending {len(pending_buy)}",
         "",
-        "POSIZIONI",
+        "📌 POSIZIONI",
     ]
 
     if positions:
-        for item in positions[:6]:
+        for item in positions[:max_items]:
             ticker = item.get("ticker", "n/d")
-            amount = format_money(item.get("allocated_amount"))
             perf_item = position_perf.get(ticker, {})
             pnl = perf_item.get("pnl")
             pnl_pct = perf_item.get("pnl_pct")
             daily_change_pct = perf_item.get("daily_change_pct")
             close = perf_item.get("current_price")
-            close_text = f" px {format_number(close)}" if close is not None else ""
+            close_text = f"px {format_number(close)}" if close is not None else "px n/d"
             daily_text = f" oggi {format_pct(daily_change_pct)}" if daily_change_pct is not None else ""
             lines.append(
-                f"{trend_marker(pnl)} {ticker}: {amount} | "
-                f"P/L {format_signed_money(pnl)} ({format_pct(pnl_pct)}){daily_text}{close_text}"
+                f"{trend_marker(pnl)} {ticker} | {close_text} | P/L {format_pct(pnl_pct)} |{daily_text}"
             )
-        if len(positions) > 6:
-            lines.append(f"... altre {len(positions) - 6} posizioni")
+        if len(positions) > max_items:
+            lines.append(f"... altre {len(positions) - max_items} posizioni")
     else:
         lines.append("nessuna")
 
     lines.append("")
-    lines.append(f"MONITORING ({len(waiting)} waiting)")
-    for item in waiting[:6]:
-        lines.append(f"- {item.get('ticker')}: {short_condition(item.get('condition'))}")
-    if len(waiting) > 6:
-        lines.append(f"... altri {len(waiting) - 6} trigger in attesa")
+    lines.append(f"🎯 TRIGGER IN ATTESA ({len(waiting)})")
+    for item in waiting[:max_items]:
+        lines.append(f"• {item.get('ticker')}: {compact_condition(item.get('condition'))}")
+    if len(waiting) > max_items:
+        lines.append(f"... altri {len(waiting) - max_items} trigger")
 
     if met:
         lines.append("")
-        lines.append(f"TRIGGER SCATTATI ({len(met)})")
-        for item in met[:6]:
+        lines.append(f"✅ TRIGGER SCATTATI ({len(met)})")
+        for item in met[:max_items]:
             lines.append(f"- {item.get('ticker')}: {item.get('condition')}")
 
     if invalidated:
         lines.append("")
-        lines.append(f"TRIGGER INVALIDATI ({len(invalidated)})")
-        for item in invalidated[:6]:
+        lines.append(f"⚠️ TRIGGER INVALIDATI ({len(invalidated)})")
+        for item in invalidated[:max_items]:
             lines.append(f"- {item.get('ticker')}: {short_condition(item.get('condition'))}")
 
     if pending_buy:
         lines.append("")
-        lines.append("PROPOSTE PENDING")
-        for item in pending_buy[:6]:
+        lines.append("📝 PROPOSTE PENDING")
+        for item in pending_buy[:max_items]:
             amount = item.get("metadata", {}).get("amount")
             amount_text = f" {format_money(amount)}" if amount is not None else ""
             lines.append(f"- {item.get('id')} {item.get('ticker')}{amount_text}")
-        if len(pending_buy) > 6:
-            lines.append(f"... altre {len(pending_buy) - 6} proposte")
+        if len(pending_buy) > max_items:
+            lines.append(f"... altre {len(pending_buy) - max_items} proposte")
 
     lines.append("")
-    lines.append("AZIONI RECENTI")
+    lines.append("🧾 AZIONI RECENTI")
     if recent_actions:
         for item in recent_actions[:3]:
             lines.append(format_proposal_action(item))
@@ -257,7 +327,7 @@ def build_monitoring_summary(extra_note=""):
 
     if extra_note:
         lines.append("")
-        lines.append("NOTA")
+        lines.append("ℹ️ NOTA")
         lines.append(short_condition(extra_note, max_len=180))
 
     return "\n".join(lines)

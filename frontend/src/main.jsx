@@ -1058,6 +1058,11 @@ function Chat() {
 function Controls({ reload }) {
   const [scanLimit, setScanLimit] = useState(5);
   const [maxTradePct, setMaxTradePct] = useState(25);
+  const [telegramSettings, setTelegramSettings] = useState({
+    monitoring_mode: "always",
+    send_performance_alerts: true,
+    max_monitoring_items: 5,
+  });
   const [busy, setBusy] = useState("");
   const [log, setLog] = useState("");
   const [status, setStatus] = useState({
@@ -1074,6 +1079,18 @@ function Controls({ reload }) {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [status.state]);
+
+  useEffect(() => {
+    async function loadTelegramSettings() {
+      try {
+        const result = await api("/api/telegram/settings");
+        setTelegramSettings(result.settings || telegramSettings);
+      } catch (error) {
+        setLog(`Errore caricamento impostazioni Telegram: ${error.message}`);
+      }
+    }
+    loadTelegramSettings();
+  }, []);
 
   function elapsedLabel(startedAt, finishedAt) {
     if (!startedAt) return "";
@@ -1121,6 +1138,45 @@ function Controls({ reload }) {
     }
   }
 
+  async function saveTelegramSettings(nextSettings = telegramSettings) {
+    const startedAt = Date.now();
+    setBusy("telegram-settings");
+    setLog("");
+    setStatus({
+      state: "running",
+      label: "telegram settings",
+      detail: "Salvataggio impostazioni Telegram...",
+      startedAt,
+      finishedAt: null,
+    });
+    try {
+      const result = await api("/api/telegram/settings", {
+        method: "POST",
+        body: JSON.stringify(nextSettings),
+      });
+      setTelegramSettings(result.settings || nextSettings);
+      setLog(JSON.stringify(result.settings || nextSettings, null, 2));
+      setStatus({
+        state: "done",
+        label: "telegram settings",
+        detail: "Impostazioni Telegram salvate.",
+        startedAt,
+        finishedAt: Date.now(),
+      });
+    } catch (error) {
+      setLog(error.message);
+      setStatus({
+        state: "error",
+        label: "telegram settings",
+        detail: `Errore salvataggio Telegram: ${error.message}`,
+        startedAt,
+        finishedAt: Date.now(),
+      });
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <section className="panel">
       <h2>Controlli</h2>
@@ -1132,6 +1188,54 @@ function Controls({ reload }) {
         <button onClick={() => run("/api/agent/run-once", { scan_limit: scanLimit, max_auto_trade_pct: maxTradePct }, "monitor")} disabled={!!busy}>Run monitor once</button>
         <button onClick={() => run("/api/telegram/monitoring", {}, "telegram")} disabled={!!busy}>Telegram monitoraggio</button>
         <button onClick={() => run("/api/telegram/performance", {}, "performance")} disabled={!!busy}>Telegram performance</button>
+      </div>
+      <div className="settingsBox">
+        <div>
+          <h3>Notifiche Telegram</h3>
+          <p>Decidi quando il monitor schedulato deve mandare messaggi automatici.</p>
+        </div>
+        <div className="telegramModes">
+          {[
+            ["always", "Invia sempre", "Riepilogo a ogni run schedulato."],
+            ["changes", "Solo variazioni", "Invia se cambiano condizioni, proposte o portafoglio."],
+            ["alerts", "Solo alert", "Invia solo se ci sono alert di performance o trigger."],
+            ["disabled", "Disattivato", "Nessun riepilogo automatico, manuale ancora disponibile."],
+          ].map(([value, label, description]) => (
+            <button
+              key={value}
+              className={telegramSettings.monitoring_mode === value ? "selectedMode" : ""}
+              onClick={() => {
+                const next = { ...telegramSettings, monitoring_mode: value };
+                setTelegramSettings(next);
+                saveTelegramSettings(next);
+              }}
+              disabled={!!busy}
+            >
+              <strong>{label}</strong>
+              <span>{description}</span>
+            </button>
+          ))}
+        </div>
+        <div className="controlRow compact">
+          <label>Max trigger nel messaggio
+            <input
+              type="number"
+              min="3"
+              max="12"
+              value={telegramSettings.max_monitoring_items}
+              onChange={(event) => setTelegramSettings({ ...telegramSettings, max_monitoring_items: event.target.value })}
+            />
+          </label>
+          <label className="checkboxLabel">
+            <input
+              type="checkbox"
+              checked={telegramSettings.send_performance_alerts}
+              onChange={(event) => setTelegramSettings({ ...telegramSettings, send_performance_alerts: event.target.checked })}
+            />
+            Alert performance abilitati
+          </label>
+          <button onClick={() => saveTelegramSettings()} disabled={!!busy}>Salva Telegram</button>
+        </div>
       </div>
       <div className={`runStatusBar ${status.state}`}>
         <div className="runStatusTop">

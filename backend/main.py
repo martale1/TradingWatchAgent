@@ -22,7 +22,12 @@ from finance_tools.portfolio_store import (  # noqa: E402
     portfolio_status_summary,
     remove_watchlist_item,
 )
-from finance_tools.telegram_tool import send_monitoring_summary, send_performance_summary  # noqa: E402
+from finance_tools.telegram_tool import (  # noqa: E402
+    load_telegram_settings,
+    save_telegram_settings,
+    send_monitoring_summary,
+    send_performance_summary,
+)
 from finance_charts.technical_charts import add_indicators  # noqa: E402
 import yfinance as yf  # noqa: E402
 
@@ -64,6 +69,12 @@ class WatchlistRequest(BaseModel):
     entry_condition: str = ""
     priority: str = "normal"
     tags: list[str] = []
+
+
+class TelegramSettingsRequest(BaseModel):
+    monitoring_mode: str = "always"
+    send_performance_alerts: bool = True
+    max_monitoring_items: int = 5
 
 
 def tail_text(path: Path, max_lines: int = 300):
@@ -301,3 +312,17 @@ def telegram_monitoring():
 @app.post("/api/telegram/performance")
 def telegram_performance():
     return send_performance_summary(extra_note="Invio richiesto da web app React.", force=True)
+
+
+@app.get("/api/telegram/settings")
+def telegram_settings():
+    return {"status": "ok", "settings": load_telegram_settings()}
+
+
+@app.post("/api/telegram/settings")
+def update_telegram_settings(request: TelegramSettingsRequest):
+    try:
+        settings = save_telegram_settings(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "settings": settings}
