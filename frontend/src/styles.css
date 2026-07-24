@@ -123,6 +123,12 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   border-top: 1px solid #fee2e2;
   border-color: #fee2e2 !important;
 }
+.agentStatusWarning {
+  grid-column: 1 / -1;
+  border-top: 1px solid #fed7aa;
+  border-color: #fed7aa !important;
+  background: #fff7ed;
+}
 .manualRunBanner {
   margin: -6px 0 16px;
   border: 1px solid #bbf7d0;

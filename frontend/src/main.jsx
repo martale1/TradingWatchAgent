@@ -245,6 +245,7 @@ function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
       <div><span>Ultima run agente</span><b>{dateTime(state.last_completed_at)}</b></div>
       <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
+      {state.last_warning && !state.last_error && <div className="agentStatusWarning"><span>Nota stato agente</span><b>{state.last_warning}</b></div>}
     </section>
   );
 }
