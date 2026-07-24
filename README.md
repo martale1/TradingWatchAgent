@@ -45,23 +45,23 @@ copy .env.example .env
 
 Compila `.env` con i valori reali. `OPENAI_API_KEY` serve solo per usare l'agente SDK, non per i tool locali.
 
-Il modello dell'agente si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Il default consigliato e:
+Il modello dell'agente SDK si imposta con `OPENAI_AGENT_MODEL` nel file `.env`. Per ridurre rate limit e consumo token, il default consigliato per ora e:
 
 ```env
-OPENAI_AGENT_MODEL=gpt-5.6-luna
-OPENAI_AGENT_MAX_TURNS=60
+OPENAI_AGENT_MODEL=gpt-4.1-mini
+OPENAI_AGENT_MAX_TURNS=35
 MONITOR_INTERVAL_MINUTES=30
 MAX_AUTO_TRADE_PCT=25
 ```
 
-`OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Screening FTSE MIB con news, grafici, condizioni e proposte richiede piu passaggi rispetto a una semplice analisi.
+`OPENAI_AGENT_MAX_TURNS` controlla quanti passaggi tool/LLM puo fare una run. Tienilo basso se usi il monitor SDK; per i cicli pesanti preferisci `playwright_monitor.py` o il pulsante `Run Playwright no API`, che spostano il grosso lavoro su Playwright/ChatGPT nel browser.
 `MONITOR_INTERVAL_MINUTES` e l'intervallo default del monitor periodico.
 `MAX_AUTO_TRADE_PCT` limita quanto cash puo usare una nuova operazione autonoma virtuale.
 
 Da PyCharm o CLI puoi comunque sovrascriverlo con `--model`, ad esempio:
 
 ```bash
-python agent_portfolio_manager.py --interactive --model gpt-5.6-terra
+python agent_portfolio_manager.py --interactive --model gpt-4.1-mini
 ```
 
 ## Test tool senza API key

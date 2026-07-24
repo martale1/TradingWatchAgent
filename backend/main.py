@@ -36,6 +36,7 @@ import yfinance as yf  # noqa: E402
 
 
 load_env_file()
+SDK_MODEL = "gpt-4.1-mini"
 
 app = FastAPI(title="TradingWatchAgent API")
 app.add_middleware(
@@ -354,7 +355,7 @@ def delete_watchlist(ticker: str):
 
 @app.post("/api/agent/chat")
 def chat(request: ChatRequest):
-    output = run_agent_command([build_context(request.history, request.message)])
+    output = run_agent_command(["--model", SDK_MODEL, build_context(request.history, request.message)])
     return {"answer": extract_agent_answer(output), "raw": output}
 
 
@@ -362,6 +363,8 @@ def chat(request: ChatRequest):
 def run_once(request: RunMonitorRequest):
     output = run_agent_command(
         [
+            "--model",
+            SDK_MODEL,
             "--autonomous-monitor",
             "--once",
             "--scan-limit",
@@ -406,7 +409,7 @@ def analyze_watchlist_entry_conditions():
         "Non creare proposte di acquisto in questa azione: imposta solo condizioni ingresso per la watchlist. "
         "Concludi con una tabella compatta ticker, prezzo, condizione ingresso impostata, supporto/stop e motivazione."
     )
-    output = run_agent_command([prompt], timeout=1800)
+    output = run_agent_command(["--model", SDK_MODEL, prompt], timeout=1800)
     return {"output": output, "answer": extract_agent_answer(output)}
 
 

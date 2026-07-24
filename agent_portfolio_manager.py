@@ -43,8 +43,8 @@ from finance_tools.telegram_tool import (
 )
 
 
-DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna")
-DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "60"))
+DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-4.1-mini")
+DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "35"))
 DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30"))
 DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))
 
@@ -1233,8 +1233,11 @@ def run_interactive_loop(model):
 
 
 def main():
+    global DEFAULT_MODEL, DEFAULT_MAX_TURNS
     configure_stdout()
     load_env_file()
+    DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", DEFAULT_MODEL)
+    DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", str(DEFAULT_MAX_TURNS)))
     parser = argparse.ArgumentParser(description="Agente OpenAI SDK per watchlist e analisi titoli.")
     parser.add_argument(
         "request",
