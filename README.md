@@ -161,12 +161,15 @@ http://127.0.0.1:8000/docs
 La web app mostra:
 
 ```text
+- stato agente: ultima analisi avviata/completata e prossimo giro atteso
 - capitale, valore portafoglio, cash e P/L con colori positivi/negativi
 - posizioni aperte con P/L per titolo
 - condizioni monitorate con prezzo attuale, trigger, supporto e distanza dal trigger
 - chat stile ChatGPT per parlare con l'agente
 - azioni recenti e controlli per run autonoma singola e notifiche Telegram
 ```
+
+Lo stato delle run agente viene salvato in `agent_run_state.json`, escluso da Git. Viene aggiornato quando parte `--daemon-monitor`, `--autonomous-monitor` o una run singola dal backend React.
 
 ## Modalita interattiva
 

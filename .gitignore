@@ -5,6 +5,7 @@ __pycache__/
 *.log
 output/
 portfolio.json
+agent_run_state.json
 playwright_chatgpt_profile/
 chrome_chatgpt_profile/
 frontend/node_modules/

@@ -60,6 +60,43 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .metricLabel { display: flex; align-items: center; gap: 8px; color: #667085; font-size: 13px; }
 .metricValue { font-size: 26px; font-weight: 750; margin-top: 10px; }
 .metricDelta { display: inline-block; margin-top: 8px; border-radius: 999px; padding: 3px 8px; font-size: 13px; }
+.agentStatus {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1.1fr repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+}
+.agentStatus > div {
+  min-width: 0;
+  border-right: 1px solid #eef2f7;
+  padding-right: 12px;
+}
+.agentStatus > div:last-child { border-right: 0; }
+.agentStatus span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.agentStatus b {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #111827;
+  font-size: 14px;
+}
+.agentStatusLabel { font-weight: 700; }
+.agentStatusError {
+  grid-column: 1 / -1;
+  border-top: 1px solid #fee2e2;
+  border-right: 0 !important;
+  padding-top: 10px;
+}
 
 nav { display: flex; gap: 8px; margin: 18px 0; border-bottom: 1px solid #dbe1ea; }
 nav button { border: 0; border-radius: 0; background: transparent; padding: 12px 14px; color: #64748b; }
@@ -291,6 +328,8 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   main { padding: 18px; }
   header { align-items: flex-start; flex-direction: column; }
   .metrics { grid-template-columns: 1fr; }
+  .agentStatus { grid-template-columns: 1fr; }
+  .agentStatus > div { border-right: 0; border-bottom: 1px solid #eef2f7; padding-bottom: 10px; }
   .chartSummary { grid-template-columns: 1fr 1fr; }
   .chartToolbar { align-items: flex-start; flex-direction: column; }
   .message { max-width: 100%; }

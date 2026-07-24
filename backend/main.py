@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from finance_tools.common import load_env_file  # noqa: E402
+from finance_tools.agent_run_state import load_agent_run_state  # noqa: E402
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
 from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
@@ -105,6 +106,7 @@ def dashboard():
         "performance": performance,
         "monitored": monitored,
         "exit_conditions": exits,
+        "agent_run_state": load_agent_run_state(),
         "recent_actions": closed,
     }
 

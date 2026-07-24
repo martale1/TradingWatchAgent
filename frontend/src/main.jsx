@@ -21,6 +21,19 @@ function price(value) {
   return Number(value).toLocaleString("it-IT", { maximumFractionDigits: 4 });
 }
 
+function dateTime(value) {
+  if (!value) return "n/d";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function signedClass(value) {
   const n = Number(value);
   if (n > 0) return "positive";
@@ -56,6 +69,25 @@ function Metric({ label, value, delta, icon }) {
       <div className="metricValue">{value}</div>
       {delta !== undefined && <div className={`metricDelta ${signedClass(delta)}`}>{pct(delta)}</div>}
     </div>
+  );
+}
+
+function AgentRunStatus({ state = {} }) {
+  const status = state.status || "never_run";
+  const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
+  return (
+    <section className="agentStatus">
+      <div>
+        <span className="agentStatusLabel">Stato agente</span>
+        <strong className={`pill ${statusClass}`}>{status === "never_run" ? "mai eseguito" : status}</strong>
+      </div>
+      <div><span>Ultima analisi avviata</span><b>{dateTime(state.last_started_at)}</b></div>
+      <div><span>Ultima analisi completata</span><b>{dateTime(state.last_completed_at)}</b></div>
+      <div><span>Prossimo giro atteso</span><b>{dateTime(state.next_expected_at)}</b></div>
+      <div><span>Intervallo</span><b>{state.interval_minutes || 30} min</b></div>
+      <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
+      {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
+    </section>
   );
 }
 
@@ -542,6 +574,7 @@ function App() {
       {!data ? <div className="panel">Caricamento...</div> : (
         <>
           <div className="metrics">
+            <AgentRunStatus state={data.agent_run_state || {}} />
             <Metric label="Capitale" value={eur(portfolio.initial_capital)} icon={<Wallet size={16} />} />
             <Metric label="Valore portafoglio" value={eur(perf.total_value)} delta={perf.total_pnl_pct} icon={<Activity size={16} />} />
             <Metric label="P/L totale" value={eur(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />

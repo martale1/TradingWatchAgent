@@ -15,6 +15,7 @@ from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.news_tool import get_news_report_json
 from finance_tools.performance_tool import calculate_portfolio_performance_json
+from finance_tools.agent_run_state import mark_agent_run_completed, mark_agent_run_started
 from finance_tools.portfolio_store import (
     add_buy_proposal,
     add_monitored_condition,
@@ -583,6 +584,15 @@ def run_periodic_monitor_loop(
             f"#{cycle} | interval_minutes={interval_minutes} scan_limit={scan_limit} "
             f"universe_limit={universe_limit} live_news={live_news} auto_apply_virtual={auto_apply_virtual}"
         )
+        mark_agent_run_started(
+            mode="autonomous_virtual" if auto_apply_virtual else "periodic_monitor",
+            interval_minutes=interval_minutes,
+            scan_limit=scan_limit,
+            universe_limit=universe_limit,
+            live_news=live_news,
+            auto_apply_virtual=auto_apply_virtual,
+            cycle=cycle,
+        )
         request = build_periodic_monitor_request(
             scan_limit=scan_limit,
             universe_limit=universe_limit,
@@ -591,7 +601,12 @@ def run_periodic_monitor_loop(
             auto_apply_virtual=auto_apply_virtual,
             max_auto_trade_pct=max_auto_trade_pct,
         )
-        run_agent_once(agent, request, display_request=f"monitor periodico ciclo #{cycle}")
+        try:
+            run_agent_once(agent, request, display_request=f"monitor periodico ciclo #{cycle}")
+            mark_agent_run_completed(interval_minutes=interval_minutes, once=once)
+        except Exception as exc:
+            mark_agent_run_completed(interval_minutes=interval_minutes, once=once, error=str(exc))
+            raise
         if once:
             log_step("Monitor periodico completato in modalita --once")
             return
