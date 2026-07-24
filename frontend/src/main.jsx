@@ -99,6 +99,59 @@ function Positions({ rows = [], onChart }) {
   );
 }
 
+function ExitConditions({ rows = [], onChart }) {
+  if (!rows.length) {
+    return (
+      <section className="panel">
+        <h2>Condizioni di uscita</h2>
+        <div className="emptyState">Nessuna posizione aperta da gestire.</div>
+      </section>
+    );
+  }
+  return (
+    <section className="panel">
+      <div className="sectionHeader">
+        <h2>Condizioni di uscita</h2>
+        <span>Basate su supporti/resistenze e analisi Playwright quando disponibile</span>
+      </div>
+      <div className="exitGrid">
+        {rows.map((row) => (
+          <div className="exitCard" key={row.ticker}>
+            <div className="triggerHeader">
+              <strong>{row.ticker}</strong>
+              <span className={`status ${row.status_kind}`}>{row.status}</span>
+            </div>
+            <div className="triggerGrid">
+              <div><span>Prezzo</span><b>{price(row.current_price)}</b></div>
+              <div><span>P/L</span><b className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</b></div>
+              <div><span>Stop uscita</span><b>{price(row.stop_level)}</b></div>
+              <div><span>Take profit</span><b>{price(row.take_profit_level)}</b></div>
+              <div><span>Distanza stop</span><b className={signedClass(row.distance_to_stop_pct)}>{pct(row.distance_to_stop_pct)}</b></div>
+              <div><span>Distanza target</span><b className={signedClass(row.distance_to_take_profit_pct)}>{pct(row.distance_to_take_profit_pct)}</b></div>
+            </div>
+            <p className="exitAction">{row.primary_action}</p>
+            <p className="condition">{row.explanation}</p>
+            <div className="sourceLine">Fonte: {row.source}</div>
+            <button
+              className="chartButton"
+              onClick={() => onChart({
+                ticker: row.ticker,
+                current_price: row.current_price,
+                trigger_level: row.take_profit_level,
+                support_level: row.stop_level,
+                trigger_distance_pct: row.distance_to_take_profit_pct,
+                condition: `Uscita: stop ${price(row.stop_level)} / take profit ${price(row.take_profit_level)}. ${row.primary_action}`,
+              })}
+            >
+              <LineChart size={16} /> Grafico uscita
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TriggerCard({ item, onChart }) {
   const progress = item.trigger_progress ?? 0;
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
@@ -500,6 +553,7 @@ function App() {
           {tab === "dashboard" && (
             <>
               <Positions rows={perf.positions || []} onChart={setChartItem} />
+              <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
               <Monitoring rows={data.monitored || []} onChart={setChartItem} />
             </>
           )}

@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from finance_tools.common import load_env_file  # noqa: E402
+from finance_tools.exit_view import build_exit_conditions  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
 from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
 from finance_tools.portfolio_store import load_portfolio, portfolio_status_summary  # noqa: E402
@@ -97,11 +98,13 @@ def dashboard():
     status = portfolio_status_summary()
     performance = calculate_portfolio_performance()
     monitored = enrich_monitored_conditions(status.get("monitored_conditions", []))
+    exits = build_exit_conditions(performance, portfolio)
     closed = list(reversed((portfolio or {}).get("closed_proposals", [])))[:20]
     return {
         "portfolio": status,
         "performance": performance,
         "monitored": monitored,
+        "exit_conditions": exits,
         "recent_actions": closed,
     }
 

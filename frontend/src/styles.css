@@ -112,6 +112,35 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .progress div { height: 100%; background: #2563eb; border-radius: 999px; }
 .small { font-size: 13px; color: #64748b; }
 .condition { font-size: 13px; color: #374151; min-height: 38px; }
+.emptyState {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 18px;
+  color: #64748b;
+  background: #f8fafc;
+}
+.exitGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+}
+.exitCard {
+  border: 1px solid #dbe1ea;
+  border-left: 4px solid #111827;
+  border-radius: 8px;
+  padding: 15px;
+  background: white;
+}
+.exitAction {
+  margin: 12px 0 8px;
+  color: #111827;
+  font-weight: 750;
+}
+.sourceLine {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
 
 .chatPanel { min-height: 650px; }
 .quickActions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
