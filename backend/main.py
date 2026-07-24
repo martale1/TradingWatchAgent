@@ -135,8 +135,15 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
     symbol = ticker.strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="Ticker mancante")
+    warmup_periods = {
+        "1mo": ("1y", 23),
+        "3mo": ("1y", 66),
+        "6mo": ("1y", 132),
+        "1y": ("2y", 252),
+    }
+    download_period, visible_rows = warmup_periods.get(period, (period, None))
     try:
-        history = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=False)
+        history = yf.Ticker(symbol).history(period=download_period, interval=interval, auto_adjust=False)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Errore download dati {symbol}: {exc}") from exc
     if history.empty:
@@ -146,6 +153,9 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
         history = add_indicators(history)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Errore calcolo indicatori {symbol}: {exc}") from exc
+
+    if visible_rows:
+        history = history.tail(visible_rows)
 
     def clean_number(value, digits=4):
         if value is None or value != value:
@@ -187,7 +197,7 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
     if not rows:
         raise HTTPException(status_code=404, detail=f"Nessun dato close disponibile per {symbol}")
 
-    return {"ticker": symbol, "period": period, "interval": interval, "prices": rows}
+    return {"ticker": symbol, "period": period, "data_period": download_period, "interval": interval, "prices": rows}
 
 
 @app.get("/api/watchlist")

@@ -21,6 +21,12 @@ function price(value) {
   return Number(value).toLocaleString("it-IT", { maximumFractionDigits: 4 });
 }
 
+function numeric(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function cleanText(value) {
   return String(value || "")
     .replaceAll("â‚¬", "€")
@@ -660,8 +666,8 @@ function TechnicalChart({ prices = [], type }) {
   };
   const config = configs[type] || configs.volume;
   const values = prices
-    .flatMap((row) => config.series.map((serie) => Number(row[serie.key])))
-    .filter((value) => !Number.isNaN(value));
+    .flatMap((row) => config.series.map((serie) => numeric(row[serie.key])))
+    .filter((value) => value !== null);
   if (!prices.length || !values.length) return <div className="chartEmpty">Nessun dato tecnico disponibile.</div>;
 
   const guideValues = (config.guides || []).map((guide) => guide.value);
@@ -686,8 +692,8 @@ function TechnicalChart({ prices = [], type }) {
 
   function linePath(serie) {
     return prices
-      .map((row, index) => ({ value: Number(row[serie.key]), index }))
-      .filter((point) => !Number.isNaN(point.value))
+      .map((row, index) => ({ value: numeric(row[serie.key]), index }))
+      .filter((point) => point.value !== null)
       .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.index).toFixed(2)} ${y(point.value).toFixed(2)}`)
       .join(" ");
   }
@@ -720,8 +726,8 @@ function TechnicalChart({ prices = [], type }) {
           return (
             <g key={serie.key} className="indicatorBars">
               {prices.map((row, index) => {
-                const value = Number(row[serie.key]);
-                if (Number.isNaN(value)) return null;
+                const value = numeric(row[serie.key]);
+                if (value === null) return null;
                 const up = serie.signedBy ? Number(row.close) >= Number(row.open) : value >= 0;
                 const top = Math.min(y(value), zeroY);
                 const heightValue = Math.max(1, Math.abs(zeroY - y(value)));
