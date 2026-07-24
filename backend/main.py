@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -96,20 +97,45 @@ def tail_text(path: Path, max_lines: int = 300):
     return "\n".join(lines[-max_lines:])
 
 
+def timestamped(line: str):
+    return f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {line}"
+
+
+def append_web_agent_log(line: str):
+    log_dir = ROOT / "logs"
+    log_dir.mkdir(exist_ok=True)
+    with (log_dir / "web-agent.log").open("a", encoding="utf-8") as handle:
+        handle.write(timestamped(line.rstrip()) + "\n")
+
+
 def run_agent_command(args, timeout=900):
     cmd = [sys.executable, str(ROOT / "agent_portfolio_manager.py"), *args]
-    result = subprocess.run(
+    append_web_agent_log(f"===== START {' '.join(cmd)} =====")
+    process = subprocess.Popen(
         cmd,
         cwd=str(ROOT),
         text=True,
         encoding="utf-8",
         errors="replace",
-        capture_output=True,
-        timeout=timeout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
-    output = result.stdout.strip() if result.stdout else result.stderr.strip()
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail={"exit_code": result.returncode, "output": output})
+    output_lines = []
+    try:
+        assert process.stdout is not None
+        for line in process.stdout:
+            clean = line.rstrip()
+            output_lines.append(clean)
+            append_web_agent_log(clean)
+        return_code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        append_web_agent_log(f"===== TIMEOUT dopo {timeout}s =====")
+        raise HTTPException(status_code=504, detail=f"Timeout agente dopo {timeout}s") from exc
+    output = "\n".join(output_lines).strip()
+    append_web_agent_log(f"===== END exit={return_code} =====")
+    if return_code != 0:
+        raise HTTPException(status_code=500, detail={"exit_code": return_code, "output": output})
     return output
 
 
@@ -202,6 +228,7 @@ def run_logs(lines: int = 300):
     log_dir = ROOT / "logs"
     scheduled_log = log_dir / "scheduled-monitor.log"
     scheduled_err = log_dir / "scheduled-monitor.err.log"
+    web_agent_log = log_dir / "web-agent.log"
     agent_state = agent_schedule_status()
     return {
         "status": "ok",
@@ -209,8 +236,10 @@ def run_logs(lines: int = 300):
         "agent_run_state": agent_state,
         "scheduled_log": tail_text(scheduled_log, max_lines),
         "scheduled_err": tail_text(scheduled_err, max_lines),
+        "web_agent_log": tail_text(web_agent_log, max_lines),
         "scheduled_log_updated_at": scheduled_log.stat().st_mtime if scheduled_log.exists() else None,
         "scheduled_err_updated_at": scheduled_err.stat().st_mtime if scheduled_err.exists() else None,
+        "web_agent_log_updated_at": web_agent_log.stat().st_mtime if web_agent_log.exists() else None,
     }
 
 

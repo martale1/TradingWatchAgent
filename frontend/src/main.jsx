@@ -1563,6 +1563,10 @@ function RunLogs() {
             </div>
           )}
           <div>
+            <h3>web-agent.log</h3>
+            <pre className="log runLog">{state.data.web_agent_log || "Nessuna richiesta web agente registrata."}</pre>
+          </div>
+          <div>
             <h3>scheduled-monitor.log</h3>
             <pre className="log runLog">{state.data.scheduled_log || "Nessun output disponibile."}</pre>
           </div>

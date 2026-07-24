@@ -714,6 +714,7 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
         log_step(final_output)
         print("\n" + final_output + "\n", flush=True)
         result = SimpleNamespace(final_output=final_output)
+        result.interrupted_error = final_output
     after_state = monitoring_state_signature()
     if not suppress_auto_telegram_summary:
         maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state)
@@ -820,7 +821,7 @@ def run_periodic_monitor_loop(
         )
         try:
             before_state = monitoring_state_signature()
-            run_agent_once(
+            result = run_agent_once(
                 agent,
                 request,
                 display_request=f"monitor periodico ciclo #{cycle}",
@@ -852,7 +853,11 @@ def run_periodic_monitor_loop(
                     )
             else:
                 log_step(f"Riepilogo Telegram fine ciclo saltato | criterio={reason}")
-            mark_agent_run_completed(interval_minutes=interval_minutes, once=once)
+            mark_agent_run_completed(
+                interval_minutes=interval_minutes,
+                once=once,
+                error=getattr(result, "interrupted_error", ""),
+            )
         except Exception as exc:
             mark_agent_run_completed(interval_minutes=interval_minutes, once=once, error=str(exc))
             raise
