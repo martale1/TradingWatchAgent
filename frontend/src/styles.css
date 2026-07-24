@@ -15,6 +15,13 @@ header {
   align-items: center;
   margin-bottom: 24px;
 }
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 h1, h2 { margin: 0; color: #1f2937; }
 h1 { display: flex; gap: 12px; align-items: center; font-size: 34px; }
@@ -33,6 +40,14 @@ button {
 button:hover { border-color: #7c8aa5; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .iconButton { display: flex; align-items: center; gap: 8px; }
+.primaryHeaderAction {
+  background: #111827;
+  color: white;
+  border-color: #111827;
+}
+.primaryHeaderAction:hover {
+  border-color: #334155;
+}
 .miniButton, .chartButton {
   display: inline-flex;
   align-items: center;
@@ -89,17 +104,6 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   overflow-wrap: anywhere;
   color: #111827;
   font-size: 14px;
-}
-.agentRunNowButton {
-  margin-top: 10px;
-  padding: 7px 10px;
-  font-size: 12px;
-  background: #111827;
-  color: white;
-  border-color: #111827;
-}
-.agentRunNowButton:hover {
-  border-color: #334155;
 }
 .agentScheduleBadge {
   display: inline-block;

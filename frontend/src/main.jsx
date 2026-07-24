@@ -197,7 +197,7 @@ function Metric({ label, value, delta, icon }) {
   );
 }
 
-function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
+function AgentRunStatus({ state = {} }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
   const schedulerDisabled = state.scheduler_state === "Disabled" || state.scheduler_enabled === false;
@@ -222,9 +222,6 @@ function AgentRunStatus({ state = {}, onRunNow, runNowBusy = false }) {
       <div>
         <span className="agentStatusLabel">Stato agente</span>
         <strong className={`pill ${statusClass}`}>{status === "never_run" ? "mai eseguito" : status}</strong>
-        <button className="agentRunNowButton" onClick={onRunNow} disabled={runNowBusy}>
-          {runNowBusy ? "Avvio..." : "Esegui ora"}
-        </button>
       </div>
       <div><span>Ultimo grafico/analisi file</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
       <div><span>Ultimo ticker con file analisi</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
@@ -1364,9 +1361,14 @@ function App() {
           <h1><Bot size={34} /> TradingWatchAgent</h1>
           <p>Portafoglio virtuale, agent autonomia e monitoraggio trigger.</p>
         </div>
-        <button className="iconButton" onClick={load} disabled={dashboardLoading}>
-          <RefreshCw size={18} /> {dashboardLoading ? "Aggiorno..." : "Aggiorna"}
-        </button>
+        <div className="headerActions">
+          <button className="iconButton primaryHeaderAction" onClick={runNow} disabled={runNowBusy}>
+            <Activity size={18} /> {runNowBusy ? "Avvio..." : "Esegui ora"}
+          </button>
+          <button className="iconButton" onClick={load} disabled={dashboardLoading}>
+            <RefreshCw size={18} /> {dashboardLoading ? "Aggiorno..." : "Aggiorna"}
+          </button>
+        </div>
       </header>
 
       {error && <div className="error">{error}</div>}
@@ -1386,7 +1388,7 @@ function App() {
       {data && (
         <>
           <div className="metrics">
-            <AgentRunStatus state={data.agent_run_state || {}} onRunNow={runNow} runNowBusy={runNowBusy} />
+            <AgentRunStatus state={data.agent_run_state || {}} />
             <Metric label="Capitale" value={eur(portfolio.initial_capital)} icon={<Wallet size={16} />} />
             <Metric label="Valore portafoglio" value={eur(perf.total_value)} delta={perf.total_pnl_pct} icon={<Activity size={16} />} />
             <Metric label="P/L totale" value={eur(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />
