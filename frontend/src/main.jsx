@@ -699,11 +699,10 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
         <g className="hoverLayer">
           <line x1={hoverX} x2={hoverX} y1={pad.top} y2={pad.top + plotH} />
           <circle cx={hoverX} cy={y(Number(hover.close))} r="4" />
-          <g transform={`translate(${Math.min(hoverX + 12, width - 230)} ${pad.top + 12})`}>
-            <rect width="210" height="86" rx="8" />
+          <g transform={`translate(${Math.min(hoverX + 12, width - 172)} ${pad.top + 12})`}>
+            <rect width="152" height="56" rx="8" />
             <text x="10" y="22">{hover.date}</text>
             <text x="10" y="44">Close {price(hover.close)}</text>
-            <text x="10" y="66">O/H/L {price(hover.open)} / {price(hover.high)} / {price(hover.low)}</text>
           </g>
         </g>
       )}
