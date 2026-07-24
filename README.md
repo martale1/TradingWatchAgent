@@ -25,6 +25,13 @@ validTickers/                   # universo titoli MIB30
 portfolio.example.json          # esempio watchlist
 ```
 
+Universi ticker:
+
+```text
+validTickers/validtickers_IT_MIB30_with_sector.xlsx  # azioni monitorate dallo scanner MIB
+validTickers/validtickers_CRYPTO.xlsx                # crypto separate: BTC/ETH/SOL/ADA
+```
+
 ## Setup
 
 ```bash
