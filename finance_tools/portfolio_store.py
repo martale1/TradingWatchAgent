@@ -166,6 +166,41 @@ def add_buy_proposal(ticker, reason, amount=None, entry_price=None, metadata=Non
     return proposal
 
 
+def add_position_action_proposal(
+    ticker,
+    action_type,
+    reason,
+    percent=100,
+    reference_price=None,
+    metadata=None,
+    path=PORTFOLIO_FILE,
+):
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
+    action_type = action_type.strip().lower()
+    if action_type not in {"sell", "reduce"}:
+        raise ValueError("action_type deve essere sell oppure reduce.")
+    percent = max(0.0, min(100.0, float(percent)))
+    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    proposal = {
+        "id": proposal_id,
+        "created_at": now_iso(),
+        "status": "pending",
+        "action": "sell_virtual_position" if action_type == "sell" else "reduce_virtual_position",
+        "ticker": ticker.strip().upper(),
+        "reason": reason,
+        "metadata": {
+            "percent": percent,
+            "reference_price": reference_price,
+            **(metadata or {}),
+        },
+    }
+    portfolio.setdefault("pending_proposals", []).append(proposal)
+    save_portfolio(portfolio, path)
+    return proposal
+
+
 def list_pending_proposals(path=PORTFOLIO_FILE):
     portfolio = load_portfolio(path)
     if portfolio is None:
@@ -413,6 +448,54 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
                 "reason": match.get("reason", ""),
             }
         )
+    elif match["action"] in {"sell_virtual_position", "reduce_virtual_position"}:
+        metadata = match.get("metadata", {})
+        ticker = match["ticker"]
+        positions = portfolio.setdefault("positions", [])
+        position = next((item for item in positions if item.get("ticker") == ticker and item.get("status") == "open"), None)
+        if position is None:
+            match["status"] = "failed"
+            match["failed_at"] = now_iso()
+            match["failure_reason"] = "Posizione aperta non trovata."
+            save_portfolio(portfolio, path)
+            return {"status": "failed", "proposal": match, "portfolio": portfolio}
+
+        percent = float(metadata.get("percent", 100) or 100)
+        if match["action"] == "sell_virtual_position":
+            percent = 100.0
+        percent = max(0.0, min(100.0, percent))
+        quantity = float(position.get("virtual_quantity") or 0)
+        allocated = float(position.get("allocated_amount") or 0)
+        reference_price = metadata.get("reference_price") or position.get("current_price") or position.get("entry_price")
+        reference_price = float(reference_price or 0)
+        sold_quantity = round(quantity * percent / 100.0, 4) if quantity else None
+        sold_value = round((sold_quantity or 0) * reference_price, 2) if sold_quantity is not None else round(allocated * percent / 100.0, 2)
+
+        portfolio["cash"] = round(float(portfolio.get("cash", 0) or 0) + sold_value, 2)
+        position.setdefault("position_actions", []).append(
+            {
+                "created_at": now_iso(),
+                "proposal_id": match["id"],
+                "action": match["action"],
+                "percent": percent,
+                "reference_price": reference_price,
+                "sold_quantity": sold_quantity,
+                "sold_value": sold_value,
+                "reason": match.get("reason", ""),
+            }
+        )
+        if percent >= 99.999:
+            position["status"] = "closed"
+            position["closed_at"] = now_iso()
+            position["exit_price"] = reference_price
+            position["exit_value"] = sold_value
+            position["exit_reason"] = match.get("reason", "")
+        else:
+            if quantity:
+                position["virtual_quantity"] = round(quantity - (sold_quantity or 0), 4)
+            position["allocated_amount"] = round(allocated * (100.0 - percent) / 100.0, 2)
+            position["updated_at"] = now_iso()
+            position["last_reduce_price"] = reference_price
 
     save_portfolio(portfolio, path)
     return {"status": "ok", "proposal": match, "portfolio": portfolio}

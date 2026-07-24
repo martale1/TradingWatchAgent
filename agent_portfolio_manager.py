@@ -21,6 +21,7 @@ from finance_tools.agent_run_state import mark_agent_run_completed, mark_agent_r
 from finance_tools.portfolio_store import (
     add_buy_proposal,
     add_monitored_condition,
+    add_position_action_proposal,
     add_watchlist_item,
     confirm_proposal as confirm_portfolio_proposal,
     init_portfolio,
@@ -373,6 +374,37 @@ def create_buy_proposal(
 
 
 @function_tool
+def create_position_action_proposal(
+    ticker: str,
+    action_type: str,
+    percent: float,
+    reason: str,
+    reference_price: float | None = None,
+) -> str:
+    """Create a pending proposal to sell or reduce an existing virtual position.
+
+    Args:
+        ticker: Stock ticker symbol already present in the virtual portfolio.
+        action_type: sell to close the position, reduce to sell only a percentage.
+        percent: Percentage of the position to sell. sell closes the whole position.
+        reason: Why the position action is proposed.
+        reference_price: Current/reference price used to simulate cash impact.
+    """
+    log_step(
+        "Tool create_position_action_proposal chiamato | "
+        f"ticker={ticker} action_type={action_type} percent={percent} reference_price={reference_price}"
+    )
+    proposal = add_position_action_proposal(
+        ticker=ticker,
+        action_type=action_type,
+        percent=percent,
+        reason=reason,
+        reference_price=reference_price,
+    )
+    return json.dumps({"status": "ok", "proposal": proposal}, ensure_ascii=False, indent=2)
+
+
+@function_tool
 def send_monitoring_telegram_summary(extra_note: str = "") -> str:
     """Send a Telegram summary of monitored conditions, pending proposals and portfolio state.
 
@@ -429,19 +461,20 @@ def auto_apply_virtual_proposal_tool(proposal_id: str, max_trade_pct: float = DE
     if not proposal:
         return json.dumps({"status": "missing", "proposal_id": proposal_id}, ensure_ascii=False)
 
-    if proposal.get("action") != "buy_virtual_position":
+    allowed_actions = {"buy_virtual_position", "sell_virtual_position", "reduce_virtual_position"}
+    if proposal.get("action") not in allowed_actions:
         return json.dumps(
             {
                 "status": "blocked",
                 "proposal_id": proposal_id,
-                "message": "La modalita autonoma puo applicare solo buy_virtual_position.",
+                "message": "La modalita autonoma puo applicare solo buy/reduce/sell virtuali.",
             },
             ensure_ascii=False,
             indent=2,
         )
 
     amount = proposal.get("metadata", {}).get("amount")
-    if amount is None:
+    if proposal.get("action") == "buy_virtual_position" and amount is None:
         return json.dumps(
             {
                 "status": "blocked",
@@ -454,7 +487,7 @@ def auto_apply_virtual_proposal_tool(proposal_id: str, max_trade_pct: float = DE
 
     cash = float(portfolio.get("cash", 0) or 0)
     max_amount = round(cash * float(max_trade_pct) / 100.0, 2)
-    if float(amount) > max_amount:
+    if proposal.get("action") == "buy_virtual_position" and float(amount) > max_amount:
         return json.dumps(
             {
                 "status": "blocked",
@@ -498,6 +531,10 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "al momento della decisione. "
             "Prima di applicare un acquisto autonomo devi avere analisi tecnica aggiornata, news disponibili, e motivazione sintetica. "
             "Se il segnale e debole o contraddittorio, salva/aggiorna una condizione monitorata invece di applicare. "
+            "Quando una condizione monitorata o un trigger di watchlist e verificato e il contesto resta valido, devi creare una proposta "
+            "di acquisto e applicarla autonomamente con auto_apply_virtual_proposal_tool. "
+            "Puoi anche modificare asset gia in portafoglio creando proposte di reduce/sell con create_position_action_proposal "
+            "e applicandole con auto_apply_virtual_proposal_tool se i segnali di uscita o protezione sono chiari. "
             "Non chiedere conferma all'utente in questa modalita: applica se le regole sono rispettate e notifica l'utente via Telegram. "
             "Dopo ogni operazione autonoma devi chiamare send_monitoring_telegram_summary e dichiarare proposal_id, ticker, importo e motivo. "
         )
@@ -524,6 +561,7 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         list_conditions_to_monitor,
         update_condition_status,
         create_buy_proposal,
+        create_position_action_proposal,
         send_monitoring_telegram_summary,
         get_portfolio_performance,
         send_portfolio_performance_telegram,
@@ -559,7 +597,7 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Quando l'utente chiede rendimento, performance o guadagno/perdita, usa get_portfolio_performance. "
             "Durante il monitor periodico valuta la performance del portafoglio e segnala alert di rendimento rilevanti. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
-            "devi creare una proposta pending e motivarla; applicala solo se la policy operativa corrente lo consente. "
+            "devi creare una proposta pending con create_position_action_proposal e motivarla; applicala solo se la policy operativa corrente lo consente. "
             "Se l'utente chiede una proposta o chiede se ci sono titoli da comprare, devi rispondere in modo operativo: "
             "BUY CANDIDATE, WAIT/MONITOR oppure SCARTATO. "
             "Prima di rifare analisi live, consulta load_virtual_portfolio, list_portfolio_proposals e list_conditions_to_monitor "
@@ -576,7 +614,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "a valle di screening, rivalutazione o proposta; non inviare duplicati se non richiesto esplicitamente. "
             "Quando rivaluti condizioni monitorate, per ogni condizione devi scegliere: mantenerla waiting, marcarla met, "
             "marcarla invalidated oppure archiviarla. Se la condizione e met e il titolo resta valido dopo grafico/news, "
-            "crea una proposta pending con create_buy_proposal. Se il contesto tecnico/news e peggiorato, usa update_condition_status "
+            "crea una proposta pending con create_buy_proposal e, se sei in modalita autonoma virtuale, applicala con auto_apply_virtual_proposal_tool. "
+            "Se il contesto tecnico/news e peggiorato, usa update_condition_status "
             "con status invalidated o archived e spiega il motivo. "
             "Quando analizzi un titolo, combina news, momentum, trend, supporti, resistenze, volumi e rischio. "
             "Quando cerchi candidati MIB30, spiega i criteri usati e distingui ragioni tecniche e rischi. "
@@ -656,10 +695,11 @@ def build_periodic_monitor_request(
         "Prima chiama get_portfolio_operating_status e get_portfolio_performance. "
         "Se get_portfolio_performance mostra alert rilevanti su P/L posizione o portafoglio, chiama send_portfolio_performance_telegram. "
         "Se ci sono posizioni aperte, analizzale una alla volta con analyze_stock_chart e analyze_stock_news; "
-        f"{live_news_hint}. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea solo una proposta pending. "
+        f"{live_news_hint}. Se emergono segnali di uscita, riduzione, protezione o presa profitto, crea una proposta pending "
+        "con create_position_action_proposal e applicala se la modalita autonoma virtuale e abilitata. "
         "Poi rivaluta tutte le condizioni waiting una alla volta: per ogni ticker usa analyze_stock_chart e news disponibili, "
         "poi aggiorna la condizione come waiting, met, invalidated o archived. "
-        "Se una condizione e met e il quadro resta valido, crea una proposta pending motivata. "
+        "Se una condizione e met e il quadro resta valido, crea una proposta pending motivata e applicala se la modalita autonoma virtuale e abilitata. "
         "Poi controlla i titoli della watchlist manuale una alla volta con list_manual_watchlist; "
         "per i ticker prioritari o non analizzati di recente usa analyze_stock_chart e news disponibili. "
         "Se un titolo in watchlist ha entry_condition, verifica quella; se non ce l'ha, definisci una condizione di ingresso concreta. "
