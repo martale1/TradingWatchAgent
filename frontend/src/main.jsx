@@ -1191,19 +1191,23 @@ function RunLogs() {
 function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [dashboardLoading, setDashboardLoading] = useState(false);
   const [chartItem, setChartItem] = useState(null);
   const [runNowBusy, setRunNowBusy] = useState(false);
   const [runNowMessage, setRunNowMessage] = useState("");
 
   async function load() {
+    setDashboardLoading(true);
     try {
       setError("");
-      setData(await api("/api/dashboard"));
+      setData(await api("/api/dashboard", { timeoutMs: 120000 }));
     } catch (err) {
       const message = err.name === "AbortError"
         ? "Timeout nel caricamento dei dati. Il backend sta impiegando troppo tempo a rispondere."
         : err.message;
       setError(message);
+    } finally {
+      setDashboardLoading(false);
     }
   }
 
@@ -1246,11 +1250,26 @@ function App() {
           <h1><Bot size={34} /> TradingWatchAgent</h1>
           <p>Portafoglio virtuale, agent autonomia e monitoraggio trigger.</p>
         </div>
-        <button className="iconButton" onClick={load}><RefreshCw size={18} /> Aggiorna</button>
+        <button className="iconButton" onClick={load} disabled={dashboardLoading}>
+          <RefreshCw size={18} /> {dashboardLoading ? "Aggiorno..." : "Aggiorna"}
+        </button>
       </header>
 
       {error && <div className="error">{error}</div>}
-      {!data ? <div className="panel">Caricamento...</div> : (
+
+      <nav>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</nav>
+
+      {!data && tab === "logs" && <RunLogs />}
+      {!data && tab === "controls" && <Controls reload={load} />}
+      {!data && !["logs", "controls"].includes(tab) && (
+        <section className="panel dashboardLoading">
+          <strong>Caricamento dashboard in corso...</strong>
+          <p>Sto aggiornando prezzi, performance e condizioni monitorate. Se il backend sta interrogando Yahoo Finance puo impiegare anche 20-60 secondi.</p>
+          <p>Puoi aprire subito <b>Run log</b> o <b>Controlli</b> dal menu sopra mentre la dashboard termina il caricamento.</p>
+        </section>
+      )}
+
+      {data && (
         <>
           <div className="metrics">
             <AgentRunStatus state={data.agent_run_state || {}} onRunNow={runNow} runNowBusy={runNowBusy} />
@@ -1260,8 +1279,6 @@ function App() {
             <Metric label="Cash" value={eur(portfolio.cash)} icon={<Wallet size={16} />} />
           </div>
           {runNowMessage && <div className={`manualRunBanner ${runNowBusy ? "running" : ""}`}>{runNowMessage}</div>}
-
-          <nav>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</nav>
 
           {tab === "dashboard" && (
             <>
