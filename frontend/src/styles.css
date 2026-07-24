@@ -348,7 +348,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   border-radius: 8px;
   background: white;
 }
-.priceChart rect { fill: #fff; }
+.priceChart > rect { fill: #fff; }
 .gridLine line { stroke: #e5e7eb; stroke-width: 1; }
 .gridLine text, .axisLabels text { fill: #64748b; font-size: 12px; }
 .dateTick line { stroke: #94a3b8; stroke-width: 1; }
@@ -412,7 +412,10 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   stroke-linejoin: round;
   stroke-linecap: round;
 }
-.indicatorBars rect { opacity: .72; }
+.indicatorBars rect {
+  opacity: .86;
+  stroke: none;
+}
 .guideLine line {
   stroke-width: 1.5;
   stroke-dasharray: 4 5;
