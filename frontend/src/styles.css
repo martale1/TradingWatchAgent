@@ -90,6 +90,15 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: #111827;
   font-size: 14px;
 }
+.agentScheduleBadge {
+  display: inline-block;
+  margin-top: 7px;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
 .agentStatusLabel { font-weight: 700; }
 .agentStatusError {
   grid-column: 1 / -1;

@@ -51,6 +51,10 @@ def load_agent_run_state(path=STATE_FILE):
         completed = parse_iso(state.get("last_completed_at"))
         if completed:
             state["next_expected_at"] = (completed + timedelta(minutes=interval)).isoformat()
+    if not state.get("next_expected_at") and state.get("last_started_at"):
+        started = parse_iso(state.get("last_started_at"))
+        if started:
+            state["next_expected_at"] = (started + timedelta(minutes=interval)).isoformat()
     return state
 
 
@@ -81,10 +85,21 @@ def latest_stock_analysis_state():
 def agent_schedule_status():
     state = load_agent_run_state()
     stock = latest_stock_analysis_state()
+    next_expected = parse_iso(state.get("next_expected_at"))
+    now = datetime.now()
+    is_overdue = bool(next_expected and next_expected < now)
+    is_stale_running = bool(
+        state.get("status") == "running"
+        and state.get("last_started_at")
+        and parse_iso(state.get("last_started_at"))
+        and (now - parse_iso(state.get("last_started_at"))) > timedelta(minutes=int(state.get("interval_minutes") or default_interval_minutes()) * 2)
+    )
     return {
         **state,
         **stock,
         "next_scheduled_expected_at": state.get("next_expected_at"),
+        "next_scheduled_is_overdue": is_overdue,
+        "running_state_is_stale": is_stale_running,
     }
 
 

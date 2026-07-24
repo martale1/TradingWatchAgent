@@ -200,6 +200,7 @@ function Metric({ label, value, delta, icon }) {
 function AgentRunStatus({ state = {} }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
+  const scheduleClass = state.running_state_is_stale ? "negative" : state.next_scheduled_is_overdue ? "warning" : "neutral";
   return (
     <section className="agentStatus">
       <div>
@@ -208,7 +209,15 @@ function AgentRunStatus({ state = {} }) {
       </div>
       <div><span>Ultima analisi titoli</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
       <div><span>Ultimo ticker analizzato</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
-      <div><span>Prossimo scheduled expected</span><b>{state.next_scheduled_expected_at ? dateTime(state.next_scheduled_expected_at) : "Non schedulato"}</b></div>
+      <div>
+        <span>Prossimo scheduled expected</span>
+        <b>{state.next_scheduled_expected_at ? dateTime(state.next_scheduled_expected_at) : "Non schedulato"}</b>
+        {(state.next_scheduled_is_overdue || state.running_state_is_stale) && (
+          <em className={`agentScheduleBadge ${scheduleClass}`}>
+            {state.running_state_is_stale ? "running stale" : "in ritardo"}
+          </em>
+        )}
+      </div>
       <div><span>Intervallo</span><b>{state.interval_minutes || 30} min</b></div>
       <div><span>Analisi disponibili</span><b>{state.analyzed_tickers_count || 0} titoli</b></div>
       <div><span>Ultima run agente</span><b>{dateTime(state.last_completed_at)}</b></div>
