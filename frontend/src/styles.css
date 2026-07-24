@@ -404,6 +404,16 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #f8fafc;
 }
 .chartSummary b { display: block; margin-top: 4px; color: #111827; font-size: 18px; }
+.chartLevelNote {
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-weight: 700;
+  margin: -4px 0 14px;
+}
 .chartToolbar {
   display: flex;
   justify-content: space-between;

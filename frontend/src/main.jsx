@@ -27,6 +27,42 @@ function numeric(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseLevel(value) {
+  if (!value) return null;
+  const cleaned = String(value).replace(",", ".").replace(/[^\d.-]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function levelsFromCondition(condition = "") {
+  const text = cleanText(condition).toLowerCase();
+  const number = "([0-9]+(?:[,.][0-9]+)?)";
+  const unit = "\\s*(?:eur|euro|gbp|p|€)?";
+  const triggerPatterns = [
+    new RegExp(`(?:chiusura\\s+)?(?:sopra|oltre|superamento|breakout)\\s*(?:a|di)?${unit}${number}`, "i"),
+    new RegExp(`(?:ingresso|trigger)\\s*(?:solo\\s+)?(?:su|a|sopra|oltre)?\\s*(?:chiusura\\s+)?(?:sopra|oltre)?${unit}${number}`, "i"),
+  ];
+  const supportPatterns = [
+    new RegExp(`(?:supporto|stop|invalidazione)\\s*(?:a|di|del|sotto)?${unit}${number}`, "i"),
+    new RegExp(`(?:mantenendo|tenuta\\s+(?:del\\s+)?supporto|tenuta)\\s*(?:a|di)?${unit}${number}`, "i"),
+    new RegExp(`(?:sotto|perdita\\s+di)${unit}${number}`, "i"),
+  ];
+
+  function firstMatch(patterns) {
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      const level = parseLevel(match?.[1]);
+      if (level) return level;
+    }
+    return null;
+  }
+
+  return {
+    trigger: firstMatch(triggerPatterns),
+    support: firstMatch(supportPatterns),
+  };
+}
+
 function cleanText(value) {
   return String(value || "")
     .replaceAll("â‚¬", "€")
@@ -816,7 +852,14 @@ function ChartModal({ item, onClose }) {
   }, [ticker, period]);
 
   if (!item) return null;
-  const distance = item.trigger_distance_pct;
+  const parsedLevels = levelsFromCondition(item.condition || "");
+  const triggerLevel = numeric(item.trigger_level) || parsedLevels.trigger;
+  const supportLevel = numeric(item.support_level) || parsedLevels.support;
+  const lastPrice = state.prices.length ? numeric(state.prices[state.prices.length - 1]?.close) : null;
+  const currentPrice = numeric(item.current_price) || lastPrice;
+  const distance = numeric(item.trigger_distance_pct)
+    ?? (currentPrice && triggerLevel ? ((triggerLevel - currentPrice) / currentPrice) * 100 : null);
+  const parsedNote = (!numeric(item.trigger_level) && parsedLevels.trigger) || (!numeric(item.support_level) && parsedLevels.support);
   return (
     <div className="modalBackdrop" onClick={onClose}>
       <div className="chartModal" onClick={(event) => event.stopPropagation()}>
@@ -828,11 +871,16 @@ function ChartModal({ item, onClose }) {
           <button className="iconOnly" onClick={onClose} aria-label="Chiudi"><X size={20} /></button>
         </div>
         <div className="chartSummary">
-          <span>Prezzo attuale <b>{price(item.current_price)}</b></span>
-          <span>Trigger <b>{price(item.trigger_level)}</b></span>
-          <span>Supporto/stop <b>{price(item.support_level)}</b></span>
+          <span>Prezzo attuale <b>{price(currentPrice)}</b></span>
+          <span>Trigger <b>{price(triggerLevel)}</b></span>
+          <span>Supporto/stop <b>{price(supportLevel)}</b></span>
           <span>Distanza trigger <b className={signedClass(distance)}>{pct(distance)}</b></span>
         </div>
+        {parsedNote && (
+          <div className="chartLevelNote">
+            Livelli letti dalla condizione ingresso e disegnati sul grafico prezzo.
+          </div>
+        )}
         <div className="chartToolbar">
           <div className="segmented">
             {["1mo", "3mo", "6mo", "1y"].map((value) => (
@@ -859,7 +907,7 @@ function ChartModal({ item, onClose }) {
         {state.error && <div className="error">{state.error}</div>}
         {!state.loading && !state.error && (
           view === "price"
-            ? <PriceChart prices={state.prices} triggerLevel={item.trigger_level} supportLevel={item.support_level} mode={mode} />
+            ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} mode={mode} />
             : <TechnicalChart prices={state.prices} type={view} />
         )}
       </div>
