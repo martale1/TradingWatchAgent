@@ -87,6 +87,17 @@ def format_money(value):
         return str(value)
 
 
+def format_signed_money(value):
+    if value is None:
+        return "n/d"
+    try:
+        number = float(value)
+        sign = "+" if number > 0 else "-" if number < 0 else ""
+        return f"{sign} EUR {abs(number):.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def format_number(value):
     if value is None:
         return "n/d"
@@ -94,6 +105,37 @@ def format_number(value):
         return f"{float(value):.4f}".rstrip("0").rstrip(".")
     except (TypeError, ValueError):
         return str(value)
+
+
+def format_pct(value):
+    if value is None:
+        return "n/d"
+    try:
+        number = float(value)
+        sign = "+" if number > 0 else ""
+        return f"{sign}{number:.2f}%"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def trend_marker(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "="
+    if number > 0:
+        return "+"
+    if number < 0:
+        return "-"
+    return "="
+
+
+def short_condition(text, max_len=96):
+    clean = " ".join(str(text or "").split())
+    clean = clean.replace(" | azione:", ". Azione:")
+    if len(clean) <= max_len:
+        return clean
+    return clean[: max_len - 3].rstrip(" ,.;") + "..."
 
 
 def format_proposal_action(item):
@@ -139,73 +181,82 @@ def build_monitoring_summary(extra_note=""):
     portfolio = load_portfolio() or {}
     recent_actions = list(reversed(portfolio.get("closed_proposals", [])))[:5]
 
+    position_perf = {item.get("ticker"): item for item in performance.get("positions", [])}
+    total_pnl = float(performance.get("total_pnl") or 0)
+    total_pnl_pct = float(performance.get("total_pnl_pct") or 0)
+
     lines = [
-        "TradingWatchAgent - riepilogo monitoraggio",
+        "TWA | Monitor",
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
         "",
-        f"Capitale: EUR {float(status.get('initial_capital') or 0):.2f}",
-        f"Cash: EUR {float(status.get('cash') or 0):.2f}",
-        f"Valore portafoglio: EUR {float(performance.get('total_value') or 0):.2f}",
-        f"P/L totale: EUR {float(performance.get('total_pnl') or 0):.2f} ({float(performance.get('total_pnl_pct') or 0):.2f}%)",
-        f"Posizioni aperte: {len(positions)}",
-        f"Proposte buy pending: {len(pending_buy)}",
+        "PORTAFOGLIO",
+        f"Valore: {format_money(performance.get('total_value'))}",
+        f"P/L: {format_signed_money(total_pnl)} ({format_pct(total_pnl_pct)})",
+        f"Cash: {format_money(status.get('cash'))}",
+        f"Posizioni: {len(positions)} | Pending buy: {len(pending_buy)}",
         "",
+        "POSIZIONI",
     ]
 
-    lines.append("Posizioni aperte:")
     if positions:
-        for item in positions[:10]:
+        for item in positions[:6]:
             ticker = item.get("ticker", "n/d")
             amount = format_money(item.get("allocated_amount"))
-            entry = format_number(item.get("entry_price"))
-            qty = format_number(item.get("virtual_quantity"))
-            lines.append(f"- {ticker}: {amount}, entry {entry}, qty {qty}")
-        if len(positions) > 10:
-            lines.append(f"- ... altre {len(positions) - 10} posizioni")
+            perf_item = position_perf.get(ticker, {})
+            pnl = perf_item.get("pnl")
+            pnl_pct = perf_item.get("pnl_pct")
+            close = perf_item.get("current_price")
+            close_text = f" px {format_number(close)}" if close is not None else ""
+            lines.append(
+                f"{trend_marker(pnl)} {ticker}: {amount} | "
+                f"P/L {format_signed_money(pnl)} ({format_pct(pnl_pct)}){close_text}"
+            )
+        if len(positions) > 6:
+            lines.append(f"... altre {len(positions) - 6} posizioni")
     else:
-        lines.append("- nessuna")
+        lines.append("nessuna")
 
     lines.append("")
-    lines.append(f"Titoli monitorati / condizioni waiting: {len(waiting)}")
-    for item in waiting[:10]:
-        action = item.get("action_if_met")
-        action_text = f" | azione: {action}" if action else ""
-        lines.append(f"- {item.get('ticker')}: {item.get('condition')}{action_text}")
-    if len(waiting) > 10:
-        lines.append(f"- ... altri {len(waiting) - 10} titoli monitorati")
+    lines.append(f"MONITORING ({len(waiting)} waiting)")
+    for item in waiting[:6]:
+        lines.append(f"- {item.get('ticker')}: {short_condition(item.get('condition'))}")
+    if len(waiting) > 6:
+        lines.append(f"... altri {len(waiting) - 6} trigger in attesa")
 
     if met:
         lines.append("")
-        lines.append(f"Condizioni scattate: {len(met)}")
-        for item in met[:10]:
+        lines.append(f"TRIGGER SCATTATI ({len(met)})")
+        for item in met[:6]:
             lines.append(f"- {item.get('ticker')}: {item.get('condition')}")
 
     if invalidated:
         lines.append("")
-        lines.append(f"Condizioni invalidate: {len(invalidated)}")
-        for item in invalidated[:10]:
-            lines.append(f"- {item.get('ticker')}: {item.get('condition')}")
+        lines.append(f"TRIGGER INVALIDATI ({len(invalidated)})")
+        for item in invalidated[:6]:
+            lines.append(f"- {item.get('ticker')}: {short_condition(item.get('condition'))}")
 
     if pending_buy:
         lines.append("")
-        lines.append("Proposte pending:")
-        for item in pending_buy[:10]:
+        lines.append("PROPOSTE PENDING")
+        for item in pending_buy[:6]:
             amount = item.get("metadata", {}).get("amount")
             amount_text = f" {format_money(amount)}" if amount is not None else ""
             lines.append(f"- {item.get('id')} {item.get('ticker')}{amount_text}")
-        if len(pending_buy) > 10:
-            lines.append(f"- ... altre {len(pending_buy) - 10} proposte")
+        if len(pending_buy) > 6:
+            lines.append(f"... altre {len(pending_buy) - 6} proposte")
 
     lines.append("")
-    lines.append("Azioni agente recenti:")
+    lines.append("AZIONI RECENTI")
     if recent_actions:
-        for item in recent_actions:
+        for item in recent_actions[:3]:
             lines.append(format_proposal_action(item))
     else:
-        lines.append("- nessuna modifica applicata/rifiutata")
+        lines.append("nessuna modifica applicata/rifiutata")
 
     if extra_note:
         lines.append("")
-        lines.append(str(extra_note).strip())
+        lines.append("NOTA")
+        lines.append(short_condition(extra_note, max_len=180))
 
     return "\n".join(lines)
 
