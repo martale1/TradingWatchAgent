@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -82,9 +83,55 @@ def latest_stock_analysis_state():
     }
 
 
+def windows_scheduler_state(task_name=None):
+    if os.name != "nt":
+        return {}
+    task = task_name or os.getenv("WINDOWS_MONITOR_TASK_NAME", "TradingWatchAgentMonitor")
+    script = (
+        f"$task=Get-ScheduledTask -TaskName '{task}' -ErrorAction SilentlyContinue; "
+        "if (-not $task) { return }; "
+        f"$info=Get-ScheduledTaskInfo -TaskName '{task}' -ErrorAction SilentlyContinue; "
+        "[pscustomobject]@{"
+        "TaskName=$task.TaskName;"
+        "State=$task.State.ToString();"
+        "LastRunTime=if($info.LastRunTime){$info.LastRunTime.ToString('s')}else{$null};"
+        "NextRunTime=if($info.NextRunTime){$info.NextRunTime.ToString('s')}else{$null};"
+        "LastTaskResult=$info.LastTaskResult;"
+        "NumberOfMissedRuns=$info.NumberOfMissedRuns"
+        "} | ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {"scheduler_error": str(exc)}
+    if result.returncode != 0 or not result.stdout.strip():
+        return {"scheduler_error": result.stderr.strip() or "Task scheduler non disponibile."}
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return {"scheduler_error": f"Risposta scheduler non valida: {exc}"}
+    return {
+        "scheduler_task_name": data.get("TaskName"),
+        "scheduler_state": data.get("State"),
+        "scheduler_last_run_at": data.get("LastRunTime"),
+        "scheduler_next_run_at": data.get("NextRunTime"),
+        "scheduler_last_task_result": data.get("LastTaskResult"),
+        "scheduler_missed_runs": data.get("NumberOfMissedRuns"),
+        "scheduler_enabled": data.get("State") not in ("Disabled", None),
+    }
+
+
 def agent_schedule_status():
     state = load_agent_run_state()
     stock = latest_stock_analysis_state()
+    scheduler = windows_scheduler_state()
     next_expected = parse_iso(state.get("next_expected_at"))
     now = datetime.now()
     is_overdue = bool(next_expected and next_expected < now)
@@ -97,6 +144,7 @@ def agent_schedule_status():
     return {
         **state,
         **stock,
+        **scheduler,
         "next_scheduled_expected_at": state.get("next_expected_at"),
         "next_scheduled_is_overdue": is_overdue,
         "running_state_is_stale": is_stale_running,

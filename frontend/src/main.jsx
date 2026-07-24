@@ -200,7 +200,20 @@ function Metric({ label, value, delta, icon }) {
 function AgentRunStatus({ state = {} }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
-  const scheduleClass = state.running_state_is_stale ? "negative" : state.next_scheduled_is_overdue ? "warning" : "neutral";
+  const schedulerDisabled = state.scheduler_state === "Disabled" || state.scheduler_enabled === false;
+  const scheduleClass = schedulerDisabled || state.running_state_is_stale ? "negative" : state.next_scheduled_is_overdue ? "warning" : "neutral";
+  const scheduleText = schedulerDisabled
+    ? "Scheduler disabilitato"
+    : state.next_scheduled_expected_at
+      ? dateTime(state.next_scheduled_expected_at)
+      : "Non schedulato";
+  const scheduleBadge = schedulerDisabled
+    ? "task disabled"
+    : state.running_state_is_stale
+      ? "running stale"
+      : state.next_scheduled_is_overdue
+        ? "in ritardo"
+        : "";
   return (
     <section className="agentStatus">
       <div>
@@ -211,10 +224,13 @@ function AgentRunStatus({ state = {} }) {
       <div><span>Ultimo ticker analizzato</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
       <div>
         <span>Prossimo scheduled expected</span>
-        <b>{state.next_scheduled_expected_at ? dateTime(state.next_scheduled_expected_at) : "Non schedulato"}</b>
-        {(state.next_scheduled_is_overdue || state.running_state_is_stale) && (
+        <b>{scheduleText}</b>
+        {state.scheduler_next_run_at && (
+          <small className="agentScheduleDetail">Task Windows: {dateTime(state.scheduler_next_run_at)}</small>
+        )}
+        {scheduleBadge && (
           <em className={`agentScheduleBadge ${scheduleClass}`}>
-            {state.running_state_is_stale ? "running stale" : "in ritardo"}
+            {scheduleBadge}
           </em>
         )}
       </div>

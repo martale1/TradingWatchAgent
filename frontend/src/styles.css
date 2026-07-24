@@ -99,6 +99,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   font-style: normal;
   font-weight: 800;
 }
+.agentScheduleDetail {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
 .agentStatusLabel { font-weight: 700; }
 .agentStatusError {
   grid-column: 1 / -1;
