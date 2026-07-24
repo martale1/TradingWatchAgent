@@ -248,4 +248,4 @@ def telegram_monitoring():
 
 @app.post("/api/telegram/performance")
 def telegram_performance():
-    return send_performance_summary(extra_note="Invio richiesto da web app React.")
+    return send_performance_summary(extra_note="Invio richiesto da web app React.", force=True)

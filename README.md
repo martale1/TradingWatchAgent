@@ -220,6 +220,8 @@ Lo script usa anche un lock locale (`logs/monitor.lock`) per evitare run sovrapp
 
 La dashboard React mostra `Ultima analisi titoli`, `Ultima run agente` e `Prossimo scheduled expected` leggendo `agent_run_state.json`.
 
+Le notifiche performance automatiche sono deduplicate: lo stesso alert non viene reinviato a ogni ciclo. Per default un alert identico puo essere rimandato solo dopo 180 minuti; l'invio manuale dalla dashboard resta sempre disponibile.
+
 ## Chat Telegram con agente
 
 Oltre alle notifiche Telegram, puoi usare lo stesso bot come chat remota per interrogare l'agente.

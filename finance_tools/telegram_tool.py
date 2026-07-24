@@ -1,7 +1,11 @@
 import os
+import json
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import telepot
 
+from finance_tools.common import PROJECT_ROOT
 from finance_tools.portfolio_store import list_monitored_conditions, load_portfolio, portfolio_status_summary
 from finance_tools.performance_tool import build_performance_summary, calculate_portfolio_performance
 
@@ -9,6 +13,69 @@ from finance_tools.performance_tool import build_performance_summary, calculate_
 TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_TOKEN_FALLBACK_ENV = "TELEGRAM_BOT_TOKEN_CH1"
 TELEGRAM_RECEIVER_ENV = "TELEGRAM_RECEIVER_ID"
+TELEGRAM_NOTIFICATION_STATE = PROJECT_ROOT / "telegram_notification_state.json"
+
+
+def now_iso():
+    return datetime.now().replace(microsecond=0).isoformat()
+
+
+def load_notification_state():
+    if not TELEGRAM_NOTIFICATION_STATE.exists():
+        return {}
+    try:
+        return json.loads(TELEGRAM_NOTIFICATION_STATE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def save_notification_state(state):
+    TELEGRAM_NOTIFICATION_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def alert_signature(performance):
+    alerts = performance.get("alerts") or []
+    if not alerts:
+        return ""
+    return "|".join(
+        sorted(
+            ":".join(
+                [
+                    str(item.get("ticker", "")),
+                    str(item.get("type", "")),
+                    str(item.get("level", "")),
+                ]
+            )
+            for item in alerts
+        )
+    )
+
+
+def should_send_performance_alert(performance, min_interval_minutes=180):
+    signature = alert_signature(performance)
+    if not signature:
+        return False, "nessun alert performance"
+
+    state = load_notification_state()
+    perf_state = state.get("performance_alert", {})
+    last_signature = perf_state.get("signature", "")
+    last_sent_at = perf_state.get("sent_at")
+    if signature != last_signature:
+        state["performance_alert"] = {"signature": signature, "sent_at": now_iso()}
+        save_notification_state(state)
+        return True, "alert cambiato"
+
+    if last_sent_at:
+        try:
+            elapsed = datetime.now() - datetime.fromisoformat(last_sent_at)
+            if elapsed < timedelta(minutes=min_interval_minutes):
+                return False, f"alert gia inviato da meno di {min_interval_minutes} minuti"
+        except ValueError:
+            pass
+
+    state["performance_alert"] = {"signature": signature, "sent_at": now_iso()}
+    save_notification_state(state)
+    return True, "promemoria alert dopo intervallo"
 
 
 def format_money(value):
@@ -149,8 +216,14 @@ def send_monitoring_summary(extra_note=""):
     return {**result, "message": message}
 
 
-def send_performance_summary(extra_note=""):
-    message = build_performance_summary()
+def send_performance_summary(extra_note="", force=False, min_interval_minutes=180):
+    performance = calculate_portfolio_performance()
+    if not force:
+        allowed, reason = should_send_performance_alert(performance, min_interval_minutes=min_interval_minutes)
+        if not allowed:
+            return {"status": "skipped", "reason": reason, "message": ""}
+
+    message = build_performance_summary(performance)
     if extra_note:
         message = f"{message}\n\n{str(extra_note).strip()}"
     result = send_telegram_message(message)
