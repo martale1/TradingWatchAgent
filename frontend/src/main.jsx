@@ -290,6 +290,82 @@ function Positions({ rows = [], onChart }) {
   );
 }
 
+function PortfolioPerformanceChart({ data = {} }) {
+  const rows = data.history || [];
+  const latest = data.latest || rows[rows.length - 1];
+  const width = 1040;
+  const height = 280;
+  const pad = { top: 24, right: 40, bottom: 48, left: 86 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const values = rows.map((row) => Number(row.total_value)).filter((value) => Number.isFinite(value));
+  const chartValues = values.length ? values : [0, 1];
+  const pnlValues = rows.map((row) => Number(row.total_pnl_pct)).filter((value) => Number.isFinite(value));
+  const min = Math.min(...chartValues);
+  const max = Math.max(...chartValues);
+  const span = max - min || 1;
+  const yMin = min - span * 0.08;
+  const yMax = max + span * 0.08;
+  const x = (index) => pad.left + (rows.length <= 1 ? 0 : (index / (rows.length - 1)) * plotW);
+  const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * plotH;
+  const path = rows
+    .map((row, index) => `${index === 0 ? "M" : "L"} ${x(index).toFixed(2)} ${y(Number(row.total_value)).toFixed(2)}`)
+    .join(" ");
+  const ticks = Array.from({ length: 4 }, (_, index) => yMin + ((yMax - yMin) / 3) * index);
+  const dateTicks = rows
+    .map((row, index) => ({ ...row, index }))
+    .filter((row, index) => index === 0 || index === rows.length - 1 || index % Math.max(1, Math.round(rows.length / 5)) === 0);
+  const lastDaily = latest?.daily_return_pct;
+  const best = data.best_daily_snapshot;
+  const worst = data.worst_daily_snapshot;
+
+  return (
+    <section className="panel">
+      <div className="sectionHeader">
+        <h2>Rendimento portafoglio</h2>
+        <span>{rows.length ? `${rows.length} snapshot salvati` : "storico non ancora disponibile"}</span>
+      </div>
+      <div className="performanceHistoryStats">
+        <div><span>Valore ultimo snapshot</span><b>{eur(latest?.total_value)}</b></div>
+        <div><span>P/L ultimo snapshot</span><b className={signedClass(latest?.total_pnl)}>{eur(latest?.total_pnl)} ({pct(latest?.total_pnl_pct)})</b></div>
+        <div><span>Rendimento giornaliero</span><b className={signedClass(lastDaily)}>{pct(lastDaily)}</b></div>
+        <div><span>Range giornaliero storico</span><b>{pct(worst?.daily_return_pct)} / {pct(best?.daily_return_pct)}</b></div>
+      </div>
+      {!rows.length ? (
+        <div className="emptyState">Lo storico verra creato dai prossimi calcoli performance o run periodici.</div>
+      ) : (
+        <svg className="portfolioHistoryChart" viewBox={`0 0 ${width} ${height}`} role="img">
+          <rect x="0" y="0" width={width} height={height} rx="8" />
+          {ticks.map((tick) => (
+            <g key={tick} className="gridLine">
+              <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
+              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace("EUR ", "")}</text>
+            </g>
+          ))}
+          {dateTicks.map((tick) => (
+            <g key={`${tick.timestamp}-${tick.index}`} className="dateTick">
+              <line x1={x(tick.index)} x2={x(tick.index)} y1={pad.top + plotH} y2={pad.top + plotH + 7} />
+              <text x={x(tick.index)} y={height - 18}>{dateTime(tick.timestamp).slice(0, 10)}</text>
+            </g>
+          ))}
+          <path className={pnlValues[pnlValues.length - 1] >= 0 ? "portfolioLine positiveLine" : "portfolioLine negativeLine"} d={path} />
+          {rows.map((row, index) => (
+            <circle
+              key={`${row.timestamp}-${index}`}
+              cx={x(index)}
+              cy={y(Number(row.total_value))}
+              r={index === rows.length - 1 ? 5 : 3}
+              className={Number(row.total_pnl_pct) >= 0 ? "historyDotPositive" : "historyDotNegative"}
+            >
+              <title>{dateTime(row.timestamp)} - {eur(row.total_value)} - P/L {pct(row.total_pnl_pct)} - giorno {pct(row.daily_return_pct)}</title>
+            </circle>
+          ))}
+        </svg>
+      )}
+    </section>
+  );
+}
+
 function ExitConditions({ rows = [], onChart }) {
   if (!rows.length) {
     return (
@@ -1601,6 +1677,7 @@ function App() {
 
           {tab === "dashboard" && (
             <>
+              <PortfolioPerformanceChart data={data.performance_history || {}} />
               <Positions rows={perf.positions || []} onChart={setChartItem} />
               <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
               <Monitoring rows={data.monitored || []} onChart={setChartItem} />

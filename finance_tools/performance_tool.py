@@ -1,9 +1,14 @@
 import json
 from datetime import datetime
+from pathlib import Path
 
 import yfinance as yf
 
+from finance_tools.common import PROJECT_ROOT
 from finance_tools.portfolio_store import load_portfolio
+
+PERFORMANCE_HISTORY_FILE = PROJECT_ROOT / "output" / "portfolio_performance_history.json"
+HISTORY_MIN_INTERVAL_SECONDS = 10 * 60
 
 
 def now_iso():
@@ -17,6 +22,101 @@ def safe_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def load_performance_history(path=PERFORMANCE_HISTORY_FILE):
+    file_path = Path(path)
+    if not file_path.exists():
+        return []
+    try:
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def save_performance_history(history, path=PERFORMANCE_HISTORY_FILE):
+    file_path = Path(path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_performance_snapshot(performance, path=PERFORMANCE_HISTORY_FILE):
+    if performance.get("status") != "ok":
+        return load_performance_history(path)
+
+    history = load_performance_history(path)
+    snapshot = {
+        "timestamp": performance.get("updated_at") or now_iso(),
+        "date": (performance.get("updated_at") or now_iso())[:10],
+        "total_value": performance.get("total_value"),
+        "total_pnl": performance.get("total_pnl"),
+        "total_pnl_pct": performance.get("total_pnl_pct"),
+        "cash": performance.get("cash"),
+        "invested_amount": performance.get("invested_amount"),
+        "positions_value": performance.get("positions_value"),
+        "positions_count": performance.get("positions_count"),
+    }
+
+    if history:
+        try:
+            last_ts = datetime.fromisoformat(str(history[-1].get("timestamp")))
+            current_ts = datetime.fromisoformat(str(snapshot["timestamp"]))
+            if abs((current_ts - last_ts).total_seconds()) < HISTORY_MIN_INTERVAL_SECONDS:
+                history[-1] = snapshot
+            else:
+                history.append(snapshot)
+        except (TypeError, ValueError):
+            history.append(snapshot)
+    else:
+        history.append(snapshot)
+
+    save_performance_history(history[-1000:], path)
+    return history[-1000:]
+
+
+def build_performance_history_view(history=None):
+    rows = history if history is not None else load_performance_history()
+    cleaned = []
+    day_first_values = {}
+    previous_value = None
+
+    for item in rows:
+        total_value = safe_float(item.get("total_value"), None)
+        if total_value is None:
+            continue
+        timestamp = item.get("timestamp")
+        day = str(item.get("date") or timestamp or "")[:10]
+        if day and day not in day_first_values:
+            day_first_values[day] = total_value
+        day_start = day_first_values.get(day)
+        daily_return_pct = ((total_value - day_start) / day_start * 100.0) if day_start else 0.0
+        interval_return_pct = (
+            ((total_value - previous_value) / previous_value * 100.0)
+            if previous_value
+            else 0.0
+        )
+        previous_value = total_value
+        cleaned.append(
+            {
+                **item,
+                "total_value": round(total_value, 2),
+                "daily_return_pct": round(daily_return_pct, 2),
+                "interval_return_pct": round(interval_return_pct, 2),
+            }
+        )
+
+    best = max(cleaned, key=lambda item: item.get("daily_return_pct", 0), default=None)
+    worst = min(cleaned, key=lambda item: item.get("daily_return_pct", 0), default=None)
+    latest = cleaned[-1] if cleaned else None
+    return {
+        "status": "ok",
+        "count": len(cleaned),
+        "latest": latest,
+        "best_daily_snapshot": best,
+        "worst_daily_snapshot": worst,
+        "history": cleaned,
+    }
 
 
 def latest_quote(ticker):
@@ -43,7 +143,7 @@ def latest_price(ticker):
     return latest_quote(ticker)["current_price"]
 
 
-def calculate_portfolio_performance(path=None):
+def calculate_portfolio_performance(path=None, record_history=True):
     portfolio = load_portfolio(path) if path else load_portfolio()
     if portfolio is None:
         return {
@@ -167,7 +267,7 @@ def calculate_portfolio_performance(path=None):
     best = max(rows, key=lambda item: item["pnl_pct"], default=None)
     worst = min(rows, key=lambda item: item["pnl_pct"], default=None)
 
-    return {
+    performance = {
         "status": "ok",
         "updated_at": now_iso(),
         "initial_capital": round(initial_capital, 2),
@@ -185,6 +285,9 @@ def calculate_portfolio_performance(path=None):
         "positions": rows,
         "alerts": alerts,
     }
+    if record_history:
+        performance["history_count"] = len(append_performance_snapshot(performance))
+    return performance
 
 
 def build_performance_summary(performance=None):

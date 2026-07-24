@@ -16,7 +16,7 @@ from finance_tools.commodity_scanner import load_commodity_tickers, scan_commodi
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
 from finance_tools.mib30_scanner import load_mib30_tickers, scan_mib30_candidates  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
-from finance_tools.performance_tool import calculate_portfolio_performance  # noqa: E402
+from finance_tools.performance_tool import build_performance_history_view, calculate_portfolio_performance  # noqa: E402
 from finance_tools.portfolio_store import (  # noqa: E402
     add_watchlist_item,
     list_watchlist,
@@ -147,12 +147,14 @@ def dashboard():
     portfolio = load_portfolio()
     status = portfolio_status_summary()
     performance = calculate_portfolio_performance()
+    performance_history = build_performance_history_view()
     monitored = enrich_monitored_conditions(status.get("monitored_conditions", []))
     exits = build_exit_conditions(performance, portfolio)
     closed = list(reversed((portfolio or {}).get("closed_proposals", [])))[:20]
     return {
         "portfolio": status,
         "performance": performance,
+        "performance_history": performance_history,
         "monitored": monitored,
         "exit_conditions": exits,
         "agent_run_state": agent_schedule_status(),

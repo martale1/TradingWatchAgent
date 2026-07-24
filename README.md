@@ -129,6 +129,14 @@ Il sistema calcola rendimento corrente delle posizioni virtuali usando prezzi Ya
 
 Nel ciclo periodico l'agente usa `get_portfolio_performance`; se trova alert rilevanti puo inviare un Telegram performance. Anche il riepilogo monitoraggio Telegram include ora valore portafoglio e P/L totale.
 
+Ogni calcolo performance salva anche uno snapshot nello storico locale:
+
+```text
+output/portfolio_performance_history.json
+```
+
+La dashboard React usa questo file per mostrare il grafico del valore portafoglio nel tempo, il rendimento giornaliero, il P/L ultimo snapshot e il range storico giornaliero. Se il refresh viene eseguito piu volte ravvicinate, lo snapshot degli ultimi 10 minuti viene aggiornato invece di creare punti duplicati.
+
 Soglie alert iniziali:
 
 ```text

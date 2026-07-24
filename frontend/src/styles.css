@@ -830,6 +830,54 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   color: #1f2937;
   font-size: 16px;
 }
+.performanceHistoryStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.performanceHistoryStats div {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+.performanceHistoryStats span {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 12px;
+}
+.performanceHistoryStats b {
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+.portfolioHistoryChart {
+  width: 100%;
+  height: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+}
+.portfolioHistoryChart > rect { fill: #fff; }
+.portfolioLine {
+  fill: none;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.positiveLine { stroke: #16a34a; }
+.negativeLine { stroke: #dc2626; }
+.historyDotPositive {
+  fill: #16a34a;
+  stroke: white;
+  stroke-width: 1.5;
+}
+.historyDotNegative {
+  fill: #dc2626;
+  stroke: white;
+  stroke-width: 1.5;
+}
 
 @media (max-width: 900px) {
   main { padding: 18px; }
@@ -837,6 +885,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   .metrics { grid-template-columns: 1fr; }
   .agentStatus { grid-template-columns: 1fr; }
   .agentStatus > div { border-right: 0; border-bottom: 1px solid #eef2f7; padding-bottom: 10px; }
+  .performanceHistoryStats { grid-template-columns: 1fr; }
   .watchlistForm { grid-template-columns: 1fr; }
   .chartSummary { grid-template-columns: 1fr 1fr; }
   .chartToolbar { align-items: flex-start; flex-direction: column; }
