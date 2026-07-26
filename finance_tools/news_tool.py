@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -50,17 +51,26 @@ def _extract_response(stdout):
     return stdout.split(marker, 1)[1].strip()
 
 
-def get_news_report(ticker, live=False):
+def _is_recent(path, minutes):
+    if not path.exists() or not minutes:
+        return False
+    modified_at = datetime.fromtimestamp(path.stat().st_mtime)
+    return datetime.now() - modified_at <= timedelta(minutes=minutes)
+
+
+def get_news_report(ticker, live=False, cache_minutes=30, force=False):
     info = ticker_info(ticker)
     output_path = PROJECT_ROOT / "output" / "stock_ai" / info["ticker"].replace("/", "_") / f"{info['ticker']}_news.txt"
     print(f"[news-tool] {info['ticker']} - richiesta news | live={live}", flush=True)
 
-    if not live and output_path.exists():
-        print(f"[news-tool] {info['ticker']} - leggo news da cache: {output_path}", flush=True)
+    if output_path.exists() and (not live or (not force and _is_recent(output_path, cache_minutes))):
+        source = "cached_file" if not live else "cached_live_file"
+        detail = f"cache recente <={cache_minutes} min" if live else "cache locale"
+        print(f"[news-tool] {info['ticker']} - leggo news da {detail}: {output_path}", flush=True)
         return {
             "ticker": info["ticker"],
             "status": "ok",
-            "source": "cached_file",
+            "source": source,
             "report": output_path.read_text(encoding="utf-8", errors="replace"),
             "file": str(output_path),
         }
@@ -87,8 +97,17 @@ def get_news_report(ticker, live=False):
         info["market"],
     ]
     def runner():
-        print(f"[news-tool] {info['ticker']} - attendo risposta dallo script Playwright...", flush=True)
-        return run_python_script(args, timeout_seconds=300)
+        print(
+            f"[news-tool] {info['ticker']} - attendo risposta dallo script Playwright/ChatGPT "
+            "(news live)",
+            flush=True,
+        )
+        return run_python_script(
+            args,
+            timeout_seconds=300,
+            progress_label=f"news-live {info['ticker']}",
+            heartbeat_seconds=15,
+        )
 
     result = run_serialized_playwright(f"news {info['ticker']}", runner)
     report = _extract_response(result["stdout"])

@@ -8,9 +8,10 @@ Il progetto e pensato per simulazione, studio e monitoraggio operativo. Non invi
 
 - Gestisce un portafoglio virtuale salvato in `portfolio.json`.
 - Monitora posizioni aperte, P/L, cash, esposizione e performance storica.
-- Scannerizza due mercati:
+- Scannerizza tre mercati:
   - FTSE MIB da `validTickers/validtickers_IT_MIB30_with_sector.xlsx`
   - Materie prime / ETC da `validTickers/MateriePrime.xlsx`
+  - ETF configurati manualmente, per ora `ROBO.MI` - Robotics and Automation
 - Filtra i candidati con indicatori tecnici locali e controlli di liquidita.
 - Approfondisce solo i candidati interessanti con Playwright/ChatGPT.
 - Usa le news live via Playwright per supportare le decisioni operative.
@@ -66,18 +67,20 @@ flowchart TD
     A["Start ciclo"] --> B["load_operating_state"]
     B --> C["scan_ftse_mib"]
     C --> D["scan_commodities"]
-    D --> E["build_shortlist"]
-    E --> F["plan_deep_analysis"]
-    F --> G["run_deep_analysis"]
-    G --> H["apply_virtual_decisions"]
-    H --> I["finalize"]
+    D --> E["scan_etfs"]
+    E --> F["build_shortlist"]
+    F --> G["plan_deep_analysis"]
+    G --> H["run_deep_analysis"]
+    H --> I["apply_virtual_decisions"]
+    I --> J["finalize"]
 
     B -. legge .-> B1["portfolio.json"]
     C -. scrive .-> C1["output/stock_ai/mib30_scan.json"]
     D -. scrive .-> D1["output/stock_ai/commodity_scan.json"]
-    F -. pianifica solo se serve .-> F1["policy Playwright"]
-    G -. esegue solo sui selezionati .-> G1["Playwright / ChatGPT"]
-    H -. applica se abilitato .-> H1["portfolio.json"]
+    E -. scrive .-> E1["output/stock_ai/etf_scan.json"]
+    G -. pianifica solo se serve .-> G1["policy Playwright"]
+    H -. esegue solo sui selezionati .-> H1["Playwright / ChatGPT"]
+    I -. applica se abilitato .-> I1["portfolio.json"]
 ```
 
 ### Sequenza prevedibile
@@ -87,15 +90,16 @@ flowchart TD
 | 1 | `load_operating_state` | Legge portafoglio, posizioni, cash, trigger, performance. | No | No |
 | 2 | `scan_ftse_mib` | Calcola indicatori locali sui titoli FTSE MIB. | No | No |
 | 3 | `scan_commodities` | Calcola indicatori locali su Materie prime/ETC. | No | No |
-| 4 | `build_shortlist` | Unisce i candidati liquidi e ordina per score. | No | No |
-| 5 | `plan_deep_analysis` | Decide quali ticker meritano approfondimento. | No | Non lo esegue, lo pianifica |
-| 6 | `run_deep_analysis` | Esegue Playwright/ChatGPT solo sui ticker pianificati. | No | Si, solo se serve |
-| 7 | `apply_virtual_decisions` | Applica operazioni virtuali con guardrail: buy, reduce, sell. | No | No |
-| 8 | `finalize` | Crea riepilogo finale e stato leggibile. | No | No |
+| 4 | `scan_etfs` | Calcola indicatori locali sugli ETF configurati, per ora `ROBO.MI`. | No | No |
+| 5 | `build_shortlist` | Unisce i candidati liquidi e ordina per score. | No | No |
+| 6 | `plan_deep_analysis` | Decide quali ticker meritano approfondimento. | No | Non lo esegue, lo pianifica |
+| 7 | `run_deep_analysis` | Esegue Playwright/ChatGPT solo sui ticker pianificati. | No | Si, solo se serve |
+| 8 | `apply_virtual_decisions` | Applica operazioni virtuali con guardrail: buy, reduce, sell. | No | No |
+| 9 | `finalize` | Crea riepilogo finale e stato leggibile. | No | No |
 
 ### Regole di prevedibilita
 
-- FTSE MIB e Materie prime vengono analizzati come mercati separati.
+- FTSE MIB, Materie prime ed ETF vengono analizzati come mercati separati.
 - Lo scan iniziale e sempre locale: Yahoo Finance, indicatori tecnici, liquidita, supporti/resistenze.
 - Gli strumenti con liquidita bassa restano visibili nei risultati, ma non entrano nei candidati operativi.
 - Lo score serve solo a creare una short-list, non equivale a comprare.
@@ -172,13 +176,13 @@ La direzione consigliata e:
 Il log ideale deve spiegare il ciclo senza dover leggere il codice:
 
 ```text
-2026-07-25 09:00:00 [run 20260725-090000] START scheduled
-2026-07-25 09:00:02 [run 20260725-090000] node=scan_ftse_mib universe=40
-2026-07-25 09:00:08 [run 20260725-090000] ticker=AMP.MI score=8 liquidity=ok candidate=yes reason="MACD sopra signal; DI+ sopra DI-"
-2026-07-25 09:00:11 [run 20260725-090000] ticker=GBS.MI score=4 liquidity=low candidate=no reason="volume medio sotto soglia"
-2026-07-25 09:00:30 [run 20260725-090000] playwright_plan ticker=HER.MI reason="posizione aperta; controllo uscita"
-2026-07-25 09:01:20 [run 20260725-090000] action=buy_virtual_position ticker=HER.MI amount=2000 reason="trigger pullback support confirmed"
-2026-07-25 09:01:25 [run 20260725-090000] END ok duration=85s
+2026-07-25 10:00:00 [run 20260725-100000] START scheduled
+2026-07-25 10:00:02 [run 20260725-100000] node=scan_ftse_mib universe=40
+2026-07-25 10:00:08 [run 20260725-100000] ticker=AMP.MI score=8 liquidity=ok candidate=yes reason="MACD sopra signal; DI+ sopra DI-"
+2026-07-25 10:00:11 [run 20260725-100000] ticker=GBS.MI score=4 liquidity=low candidate=no reason="volume medio sotto soglia"
+2026-07-25 10:00:30 [run 20260725-100000] playwright_plan ticker=HER.MI reason="posizione aperta; controllo uscita"
+2026-07-25 10:01:20 [run 20260725-100000] action=buy_virtual_position ticker=HER.MI amount=2000 reason="trigger pullback support confirmed"
+2026-07-25 10:01:25 [run 20260725-100000] END ok duration=85s
 ```
 
 ### Test del prototipo LangGraph
@@ -237,7 +241,74 @@ Gli strumenti commodity vengono trattati come universo separato. Sono spesso ETC
 - news non negative;
 - trigger tecnico confermato.
 
-In dashboard i trigger sono divisi tra **FTSE MIB**, **Materie prime / ETC** e **Altri strumenti e watchlist**.
+### ETF
+
+Il mercato ETF e separato da FTSE MIB e Materie prime. Al momento contiene un solo strumento configurato nel codice:
+
+```text
+ROBO.MI - Robotics and Automation
+```
+
+La configurazione si trova in:
+
+```text
+finance_tools/etf_scanner.py
+```
+
+Lo scanner ETF usa lo stesso processo degli altri mercati:
+
+- scarico dati da Yahoo Finance;
+- calcolo indicatori tecnici, score, supporti/resistenze e liquidita;
+- salvataggio dello scan in `output/stock_ai/etf_scan.json`;
+- creazione o aggiornamento di condizioni monitorate se il titolo diventa interessante;
+- approfondimento Playwright/ChatGPT solo se il titolo diventa candidato operativo, trigger scattato, posizione aperta o richiesta esplicita dell'utente.
+
+In dashboard sono disponibili tab separati per **FTSE MIB**, **Materie prime**, **ETF**, **Chat**, **Watchlist**, **Azioni**, **Run log** e **Controlli**. I trigger in monitoraggio sono raggruppati per mercato, cosi e piu chiaro quali strumenti appartengono a ciascun universo.
+
+## Gestione liste mercati
+
+Ogni mercato ha una lista strumenti configurabile. Questo vale per:
+
+- **FTSE MIB**
+- **Materie prime / ETC**
+- **ETF**
+
+Le liste possono essere aggiornate in due modi:
+
+1. **Manuale da GUI**
+   Nel tab del mercato puoi aggiungere un ticker, nome/descrizione e decidere se tenerlo attivo nello scope operativo.
+
+2. **Import Excel**
+   Puoi indicare un file `.xlsx`, importare gli strumenti e poi selezionare quali devono restare attivi. L'import riconosce colonne comuni come `Ticker`, `Symbol`, `Name`, `Description`, `Sector`, `Industry` e `Latest_Quotation`.
+
+La selezione attiva e salvata in:
+
+```text
+data/market_universes/ftse_mib.json
+data/market_universes/commodities.json
+data/market_universes/etfs.json
+```
+
+Gli scanner usano solo gli strumenti **attivi**. Questo permette di:
+
+- mantenere un universo ampio importato da Excel;
+- escludere strumenti illiquidi o non interessanti senza cancellarli dal file originale;
+- aggiungere strumenti a mano senza modificare il sorgente Python;
+- applicare lo stesso flusso operativo a tutti i mercati.
+
+Il processo operativo resta identico per ogni mercato:
+
+```mermaid
+flowchart LR
+    A["Lista mercato"] --> B["Selezione attivi"]
+    B --> C["Scan tecnico locale"]
+    C --> D["Filtro score/liquidita"]
+    D --> E["Short-list candidati"]
+    E --> F["Approfondimento Playwright solo se serve"]
+    F --> G["Trigger / proposta / operazione virtuale"]
+```
+
+Nota: Playwright non viene lanciato su tutti gli strumenti importati. Viene usato solo su candidati operativi, posizioni in portafoglio, trigger scattati o richieste esplicite.
 
 ## Scoring e filtri
 
@@ -302,6 +373,22 @@ INVALIDATED       # contesto non piu valido
 ```
 
 ## Modalita operative
+
+La policy scelta nella pagina **Controlli** vale per tutte le operazioni
+virtuali, non soltanto per le posizioni gia aperte: nuovi ingressi, incrementi
+di posizioni esistenti, riduzioni, vendite totali e ribilanciamenti.
+
+| Modalita | Nuovi acquisti / incrementi | Riduzioni / vendite | Comportamento |
+|---|---|---|---|
+| **Conferma sempre** (`confirmation`) | Pending | Pending | Il portafoglio cambia solo dopo conferma esplicita dell'utente |
+| **Protezione automatica** (`protective`) | Pending | Automatiche se il rischio e confermato | Protegge le posizioni, ma non aumenta l'esposizione senza conferma |
+| **Autonomia completa** (`full_auto`) | Automatici se confermati dai controlli | Automatiche se confermate | L'agente gestisce autonomamente tutto il portafoglio virtuale |
+
+Ogni decisione genera comunque una proposta tracciabile. In modalita
+automatica la proposta viene confermata dal sistema subito dopo i controlli;
+nelle altre modalita resta visibile come `pending`. Le operazioni applicate e
+quelle in attesa sono registrate nei log e possono essere notificate via
+Telegram.
 
 ### Interattiva
 
@@ -372,7 +459,7 @@ OPENAI_AGENT_MAX_TURNS=35
 OPENAI_PERIODIC_MAX_TURNS=80
 
 MONITOR_INTERVAL_MINUTES=30
-MARKET_MONITOR_START_HOUR=9
+MARKET_MONITOR_START_HOUR=10
 MARKET_MONITOR_END_HOUR=21
 
 MAX_AUTO_TRADE_PCT=25
@@ -549,7 +636,7 @@ La finestra operativa e:
 
 ```text
 lunedi-venerdi
-09:00-20:59
+10:00-20:59
 ```
 
 Fuori finestra o nel weekend il batch scrive `SKIP` nei log e non avvia il ciclo.
@@ -692,4 +779,4 @@ Questi file operativi non devono contenere segreti nel repository. Le credenzial
 - La liquidita e obbligatoria.
 - Le news devono essere considerate prima di buy/sell/reduce.
 - Playwright va usato solo per candidati o posizioni rilevanti, non per ogni ticker dell'universo.
-- I mercati vengono monitorati solo lun-ven e nella finestra 09:00-20:59.
+- I mercati vengono monitorati solo lun-ven e nella finestra 10:00-20:59.

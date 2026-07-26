@@ -8,7 +8,7 @@ if (-not (Test-Path $ScriptPath)) {
 
 $Action = New-ScheduledTaskAction -Execute $ScriptPath -WorkingDirectory $ProjectDir
 $Triggers = @()
-foreach ($Hour in 9..20) {
+foreach ($Hour in 10..20) {
     foreach ($Minute in @(0, 30)) {
         $At = (Get-Date).Date.AddHours($Hour).AddMinutes($Minute)
         $Triggers += New-ScheduledTaskTrigger `
@@ -28,7 +28,7 @@ Register-ScheduledTask `
     -Action $Action `
     -Trigger $Triggers `
     -Settings $Settings `
-    -Description "TradingWatchAgent autonomous virtual portfolio monitor every 30 minutes, Monday-Friday 09:00-20:30." `
+    -Description "Autonomous Trading Agent virtual portfolio monitor every 30 minutes, Monday-Friday 10:00-20:30." `
     -Force | Out-Null
 
 Write-Host "Task installato: $TaskName"

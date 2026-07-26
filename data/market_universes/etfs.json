@@ -1,0 +1,19 @@
+{
+  "market": "etfs",
+  "label": "ETF",
+  "updated_at": "2026-07-26T00:00:00",
+  "items": [
+    {
+      "ticker": "ROBO.MI",
+      "name": "Robotics and Automation",
+      "description": "Robotics and Automation",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-26T00:00:00"
+    }
+  ]
+}

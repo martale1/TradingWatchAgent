@@ -40,6 +40,15 @@ button {
 button:hover { border-color: #7c8aa5; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .iconButton { display: flex; align-items: center; gap: 8px; }
+.dangerButton {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b91c1c;
+}
+.dangerButton:hover:not(:disabled) {
+  border-color: #f87171;
+  background: #fee2e2;
+}
 .primaryHeaderAction {
   background: #111827;
   color: white;
@@ -74,6 +83,9 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .metric { padding: 18px; }
 .metricLabel { display: flex; align-items: center; gap: 8px; color: #667085; font-size: 13px; }
 .metricValue { font-size: 26px; font-weight: 750; margin-top: 10px; }
+.metricValuePositive { color: #087f3f; }
+.metricValueNegative { color: #b42318; }
+.metricValueNeutral { color: #475467; }
 .metricDelta { display: inline-block; margin-top: 8px; border-radius: 999px; padding: 3px 8px; font-size: 13px; }
 .agentStatus {
   grid-column: 1 / -1;
@@ -120,6 +132,18 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: #64748b;
   font-size: 11px;
   overflow-wrap: anywhere;
+  line-height: 1.3;
+  max-height: 32px;
+  overflow: auto;
+}
+.analyzedTickersList {
+  display: block;
+  margin-top: 7px;
+  color: #475569;
+  font-size: 11px;
+  line-height: 1.35;
+  max-height: 44px;
+  overflow: auto;
 }
 .agentStatusLabel { font-weight: 700; }
 .agentStatusError {
@@ -182,6 +206,32 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
+}
+.autonomyModes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.autonomyModes button {
+  min-height: 94px;
+  text-align: left;
+  display: grid;
+  gap: 7px;
+  align-content: start;
+}
+.autonomyModes button strong {
+  color: #111827;
+}
+.autonomyModes button span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.autonomyModes button.selectedMode {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px #2563eb;
 }
 .telegramModes button {
   min-height: 78px;
@@ -252,6 +302,101 @@ nav button.active { color: #ef4444; border-bottom: 2px solid #ef4444; }
   color: #64748b;
   max-width: 880px;
 }
+.marketOverview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 20px;
+}
+.marketKpi {
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #111827;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 14px 15px;
+  min-height: 104px;
+}
+.marketKpi.highlight {
+  border-left-color: #2563eb;
+  background: #f8fbff;
+}
+.marketKpi span,
+.marketKpi small {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+.marketKpi span {
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  font-weight: 800;
+}
+.marketKpi strong {
+  display: block;
+  margin: 8px 0 6px;
+  color: #0f172a;
+  font-size: 25px;
+  line-height: 1.05;
+}
+.marketKpi small {
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+.marketToolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 22px 0 14px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+.marketToolbar h3 {
+  margin: 0;
+}
+.marketToolbar p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.marketFilters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.segmentedControl {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.segmentedControl button {
+  border: 0;
+  border-right: 1px solid #d7dce5;
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 13px;
+  color: #475569;
+  min-height: 38px;
+}
+.segmentedControl button:last-child {
+  border-right: 0;
+}
+.segmentedControl button.active {
+  background: #111827;
+  color: #ffffff;
+}
+.marketSearch {
+  width: min(320px, 100%);
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #111827;
+  background: #ffffff;
+}
 
 .tableWrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -260,6 +405,41 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .ticker { font-weight: 800; color: #0f172a; }
 .reason { max-width: 560px; color: #4b5563; }
 .rowActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.statusStack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.scoreCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scoreCell b {
+  font-size: 18px;
+}
+.scoreCell span {
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-weight: 800;
+  font-size: 12px;
+}
+.operationalCell {
+  min-width: 230px;
+}
+.operationalCell b,
+.operationalCell span {
+  display: block;
+}
+.operationalCell b {
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+.operationalCell span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
 .watchlistForm {
   display: grid;
   grid-template-columns: 170px 140px minmax(220px, 1fr) minmax(280px, 1fr) auto;
@@ -342,6 +522,114 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #eff6ff;
   color: #1d4ed8;
 }
+.marketListManager {
+  margin: 14px 0 18px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fbfdff;
+  padding: 14px;
+}
+.listManagerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.listManagerHeader h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.listManagerHeader p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.listManagerHeader span {
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-weight: 800;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.listManagerForms {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+}
+.listManagerForm {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) minmax(140px, 1fr) minmax(180px, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.listManagerForm.importForm {
+  grid-template-columns: minmax(160px, 1fr) auto auto auto;
+}
+.listManagerForm b {
+  color: #0f172a;
+}
+.listManagerForm input[type="text"],
+.listManagerForm input:not([type]) {
+  border: 1px solid #d7dce5;
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+.listManagerForm label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.universeMessage {
+  margin-top: 10px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+.universeSelection {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+  max-height: 210px;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+.universeSelectionRow {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: white;
+}
+.universeSelectionRow.disabled {
+  opacity: .58;
+  background: #f8fafc;
+}
+.universeSelectionRow label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+}
+.universeSelectionRow em {
+  color: #64748b;
+  font-size: 12px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .commoditiesGrid {
   margin: 10px 0 22px;
 }
@@ -421,11 +709,57 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .negative { color: #b3261e; background: #fce8e6; }
 .warning { color: #b06000; background: #fff4e5; }
 .neutral { color: #5f6368; background: #f1f3f4; }
+.portfolio { color: #155e75; background: #e0f2fe; }
 .pill, .status {
   display: inline-block;
   border-radius: 999px;
   padding: 4px 8px;
   font-weight: 700;
+  font-size: 12px;
+}
+
+.heldScannerPanel {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(320px, 2fr);
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 14px;
+  margin: 14px 0 18px;
+}
+.heldScannerPanel h3 {
+  margin: 0 0 5px;
+  font-size: 16px;
+}
+.heldScannerPanel p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.heldScannerList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.heldScannerItem {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 9px 11px;
+  min-width: 150px;
+  text-align: left;
+}
+.heldScannerItem strong,
+.heldScannerItem span {
+  display: block;
+}
+.heldScannerItem span {
+  margin-top: 3px;
+  color: #475569;
   font-size: 12px;
 }
 
@@ -471,6 +805,16 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   padding: 15px;
   background: #fbfdff;
 }
+.positionContext {
+  margin: -2px 0 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 8px 10px;
+}
 .triggerHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .scenarioLine {
   display: flex;
@@ -495,6 +839,46 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .rangeLabels { display: flex; justify-content: space-between; font-size: 12px; color: #64748b; margin-top: 14px; }
 .progress { height: 9px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
 .progress div { height: 100%; background: #2563eb; border-radius: 999px; }
+.runProgress span {
+  display: block;
+  height: 100%;
+  background: #2563eb;
+  border-radius: inherit;
+  transition: width 300ms ease;
+}
+.runCurrentStep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  color: #334155;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+.runCurrentStep strong {
+  color: #1d4ed8;
+}
+.runEventLog {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font: 12px/1.45 Consolas, "Courier New", monospace;
+}
+.runEventLog > div {
+  display: grid;
+  grid-template-columns: 64px 80px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #1e293b;
+}
+.runEventLog > div:last-child { border-bottom: 0; }
+.runEventLog time { color: #94a3b8; }
+.runEventLog strong { color: #93c5fd; }
+.runEventLog .eventError { color: #fecaca; }
 .small { font-size: 13px; color: #64748b; }
 .condition { font-size: 13px; color: #374151; min-height: 38px; }
 .scenarioReason {
@@ -519,6 +903,15 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   border-radius: 8px;
   padding: 15px;
   background: white;
+}
+.exitSummary {
+  margin: 8px 0 12px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.exitLevelGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .exitAction {
   margin: 12px 0 8px;
@@ -639,29 +1032,184 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .runProgress span {
   display: block;
   height: 100%;
-  width: 100%;
-  transform: translateX(-100%);
+  width: 0;
   background: linear-gradient(90deg, #2563eb, #22c55e);
+  transition: width 300ms ease;
 }
 .runStatusBar.running .runProgress span {
-  animation: runProgress 1.4s infinite ease-in-out;
+  transform: none;
 }
 .runStatusBar.done .runProgress span {
-  transform: translateX(0);
+  width: 100%;
   background: #22c55e;
 }
 .runStatusBar.error .runProgress span {
-  transform: translateX(0);
+  width: 100%;
   background: #ef4444;
 }
 .runStatusBar p {
   margin: 0;
   color: #64748b;
 }
-@keyframes runProgress {
-  0% { transform: translateX(-100%); }
-  55% { transform: translateX(-12%); }
-  100% { transform: translateX(100%); }
+.deepReport {
+  margin: 16px 0;
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 14px;
+}
+.deepReportHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.deepReportHeader h3 {
+  margin: 0 0 4px;
+}
+.deepReportHeader p {
+  margin: 0;
+  color: #64748b;
+}
+.deepReportTimestamp {
+  margin-bottom: 4px !important;
+  color: #334155 !important;
+}
+.deepReportTimestamp strong {
+  color: #0f172a;
+}
+.deepReportTotals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.deepReportTotals span {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  color: #475569;
+  white-space: nowrap;
+}
+.deepReportGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.deepReportCard {
+  border: 1px solid #dbe1ea;
+  border-left: 4px solid #64748b;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fff;
+}
+.deepReportCard.positive { border-left-color: #16a34a; }
+.deepReportCard.negative { border-left-color: #dc2626; }
+.deepReportCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.deepReportCardTop h4 {
+  margin: 0;
+  font-size: 18px;
+}
+.actionBadge {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.actionBadge.reduce,
+.actionBadge.riduci,
+.actionBadge.protect,
+.actionBadge.proteggi {
+  background: #fef3c7;
+  color: #92400e;
+}
+.actionBadge.sell,
+.actionBadge.vendi {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.deepReportMetrics,
+.deepReportLevels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.deepReportMetrics span,
+.deepReportLevels span {
+  display: grid;
+  gap: 3px;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px;
+}
+.deepReportMetrics small {
+  color: #64748b;
+}
+.deepReportMetrics strong,
+.deepReportLevels strong {
+  color: #0f172a;
+}
+.deepReportMetrics .positive strong,
+.deepReportTotals .positive strong {
+  color: #047857;
+}
+.deepReportMetrics .negative strong,
+.deepReportTotals .negative strong {
+  color: #b91c1c;
+}
+.deepReportLevels {
+  margin-top: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.deepReportReason {
+  margin: 12px 0 0;
+  color: #1f2937;
+  font-weight: 700;
+}
+.deepReportProposal,
+.deepReportApplied {
+  margin: 10px 0 0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.deepReportApplied {
+  background: #dcfce7;
+  color: #15803d;
+}
+.deepReport details {
+  margin-top: 12px;
+  color: #475569;
+}
+.deepReportFiles {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.deepReport pre {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  padding: 10px;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-size: 12px;
 }
 .log { max-height: 420px; overflow: auto; background: #0f172a; color: #e5e7eb; padding: 14px; border-radius: 8px; }
 .runLogsGrid {
@@ -678,6 +1226,52 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   white-space: pre-wrap;
   font-size: 12px;
   line-height: 1.45;
+}
+.logFileSummary {
+  padding: 14px;
+  border: 1px solid #dbe1ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.logFileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+.logFileCard {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #dbe1ea;
+  border-left: 4px solid #94a3b8;
+  border-radius: 8px;
+  background: white;
+}
+.logFileCard.hasContent {
+  border-left-color: #2563eb;
+}
+.logFileCard.emptyLogFile {
+  color: #64748b;
+  background: #f1f5f9;
+}
+.logFileCard span,
+.logFileCard small {
+  color: #64748b;
+  font-size: 12px;
+}
+.runLogsGrid details {
+  border: 1px solid #dbe1ea;
+  border-radius: 8px;
+  background: white;
+}
+.runLogsGrid summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 800;
+  color: #334155;
+}
+.runLogsGrid details .log {
+  margin: 0 12px 12px;
 }
 .errorLog {
   background: #2a1111;
@@ -845,6 +1439,8 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .hoverLayer circle { fill: #111827; stroke: white; stroke-width: 2; }
 .hoverLayer rect { fill: #111827; opacity: .92; }
 .hoverLayer text { fill: white; font-size: 12px; font-weight: 700; }
+.hoverLayer text.tooltipPositive { fill: #86efac; }
+.hoverLayer text.tooltipNegative { fill: #fca5a5; }
 .technicalChart .chartTitle {
   fill: #111827;
   font-size: 14px;
@@ -912,6 +1508,24 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   color: #111827;
   overflow-wrap: anywhere;
 }
+.performanceHistoryStats b.positive {
+  color: #137333;
+  background: #e6f4ea;
+  border-radius: 6px;
+  padding: 2px 5px;
+}
+.performanceHistoryStats b.negative {
+  color: #b3261e;
+  background: #fce8e6;
+  border-radius: 6px;
+  padding: 2px 5px;
+}
+.performanceHistoryStats b.neutral {
+  color: #5f6368;
+  background: #f1f3f4;
+  border-radius: 6px;
+  padding: 2px 5px;
+}
 .portfolioHistoryChart {
   width: 100%;
   height: auto;
@@ -946,6 +1560,10 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   .agentStatus { grid-template-columns: 1fr; }
   .agentStatus > div { border-right: 0; border-bottom: 1px solid #eef2f7; padding-bottom: 10px; }
   .performanceHistoryStats { grid-template-columns: 1fr; }
+  .marketOverview { grid-template-columns: 1fr; }
+  .marketToolbar { align-items: stretch; flex-direction: column; }
+  .marketFilters { justify-content: flex-start; }
+  .segmentedControl { overflow-x: auto; }
   .watchlistForm { grid-template-columns: 1fr; }
   .chartSummary { grid-template-columns: 1fr 1fr; }
   .chartToolbar { align-items: flex-start; flex-direction: column; }

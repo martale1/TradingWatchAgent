@@ -1,6 +1,7 @@
 import re
 
 from finance_tools.commodity_scanner import load_commodity_tickers
+from finance_tools.etf_scanner import load_etf_tickers
 from finance_tools.mib30_scanner import load_mib30_tickers
 from finance_tools.performance_tool import latest_quote
 
@@ -15,6 +16,7 @@ def _ticker_set(loader):
 
 
 COMMODITY_TICKERS = _ticker_set(load_commodity_tickers)
+ETF_TICKERS = _ticker_set(load_etf_tickers)
 FTSE_MIB_TICKERS = _ticker_set(load_mib30_tickers)
 
 
@@ -24,7 +26,11 @@ def classify_market(item, ticker):
     asset_class = metadata.get("asset_class", "")
     source = metadata.get("source", "")
     if not market:
-        if ticker in COMMODITY_TICKERS:
+        if ticker in ETF_TICKERS:
+            market = "ETF"
+            asset_class = asset_class or "etf"
+            source = source or "finance_tools/etf_scanner.py"
+        elif ticker in COMMODITY_TICKERS:
             market = "Materie prime"
             asset_class = asset_class or "commodity"
             source = source or "validTickers/MateriePrime.xlsx"

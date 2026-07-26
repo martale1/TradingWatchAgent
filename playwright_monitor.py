@@ -7,6 +7,7 @@ from pathlib import Path
 from finance_tools.commodity_scanner import scan_commodity_candidates
 from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
+from finance_tools.etf_scanner import scan_etf_candidates
 from finance_tools.mib30_scanner import scan_mib30_candidates
 from finance_tools.monitoring_rules import ensure_candidate_conditions, invalidate_illiquid_monitored_conditions
 from finance_tools.performance_tool import calculate_portfolio_performance
@@ -47,12 +48,14 @@ def compact_candidate(item, market):
     }
 
 
-def select_candidates(mib_scan, commodity_scan, limit):
+def select_candidates(mib_scan, commodity_scan, etf_scan, limit):
     rows = []
     for item in mib_scan.get("candidates", []):
         rows.append(compact_candidate(item, "FTSE MIB"))
     for item in commodity_scan.get("candidates", []):
         rows.append(compact_candidate(item, "Materie prime"))
+    for item in etf_scan.get("candidates", []):
+        rows.append(compact_candidate(item, "ETF"))
     rows.sort(key=lambda item: (item.get("score") or 0), reverse=True)
     return rows[:limit]
 
@@ -113,17 +116,19 @@ def run(limit=5, deep_limit=2, universe_limit=0, send_telegram=False):
 
     mib_scan = scan_mib30_candidates(limit=limit, universe_limit=universe_limit or None, verbose=True)
     commodity_scan = scan_commodity_candidates(limit=limit, universe_limit=universe_limit or None, verbose=True)
+    etf_scan = scan_etf_candidates(limit=limit, universe_limit=universe_limit or None, verbose=True)
     mib_created = ensure_candidate_conditions(mib_scan.get("candidates", []), market="FTSE MIB", max_items=limit)
     commodity_created = ensure_candidate_conditions(
         commodity_scan.get("candidates", []),
         market="Materie prime",
         max_items=limit,
     )
+    etf_created = ensure_candidate_conditions(etf_scan.get("candidates", []), market="ETF", max_items=limit)
     log(
         "Condizioni monitorate create da scanner: "
-        f"FTSE MIB={len(mib_created)} Materie prime={len(commodity_created)}"
+        f"FTSE MIB={len(mib_created)} Materie prime={len(commodity_created)} ETF={len(etf_created)}"
     )
-    candidates = select_candidates(mib_scan, commodity_scan, limit=limit)
+    candidates = select_candidates(mib_scan, commodity_scan, etf_scan, limit=limit)
     log(f"Shortlist unica pronta: {len(candidates)} candidati")
 
     confirmations = []
@@ -150,7 +155,9 @@ def run(limit=5, deep_limit=2, universe_limit=0, send_telegram=False):
                 "monitored_conditions_created": {
                     "ftse_mib": mib_created,
                     "commodities": commodity_created,
+                    "etfs": etf_created,
                 },
+                "etf_scan": etf_scan,
             },
             ensure_ascii=False,
             indent=2,
@@ -173,7 +180,7 @@ def main():
     parser = argparse.ArgumentParser(description="Monitor Playwright-first senza OpenAI SDK/API key.")
     parser.add_argument("--limit", type=int, default=5, help="Numero candidati in shortlist.")
     parser.add_argument("--deep-limit", type=int, default=2, help="Numero candidati da approfondire via Playwright.")
-    parser.add_argument("--universe-limit", type=int, default=0, help="Solo test: limita universo FTSE MIB e materie prime.")
+    parser.add_argument("--universe-limit", type=int, default=0, help="Solo test: limita universo FTSE MIB, materie prime ed ETF.")
     parser.add_argument("--telegram", action="store_true", help="Invia report via Telegram.")
     args = parser.parse_args()
     run(limit=args.limit, deep_limit=args.deep_limit, universe_limit=args.universe_limit, send_telegram=args.telegram)

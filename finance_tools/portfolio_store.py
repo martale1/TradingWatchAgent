@@ -6,6 +6,20 @@ from finance_tools.common import PROJECT_ROOT
 
 
 PORTFOLIO_FILE = PROJECT_ROOT / "portfolio.json"
+ACTIVE_CONDITION_STATUSES = {"waiting", "met"}
+SCENARIO_RANK = {
+    "BUY_CANDIDATE": 50,
+    "TRIGGER_MET": 45,
+    "CONFIRMED": 40,
+    "CONFIRMING": 35,
+    "NEAR_TRIGGER": 25,
+    "WAIT": 10,
+}
+STATUS_RANK = {
+    "met": 30,
+    "waiting": 20,
+    "invalidated": 5,
+}
 
 
 def now_iso():
@@ -40,6 +54,17 @@ def save_portfolio(portfolio, path=PORTFOLIO_FILE):
     file_path = Path(path)
     file_path.write_text(json.dumps(portfolio, ensure_ascii=False, indent=2), encoding="utf-8")
     return portfolio
+
+
+def _condition_rank(item):
+    metadata = item.get("metadata") or {}
+    scenario = str(metadata.get("scenario_state") or "").upper()
+    status = str(item.get("status") or "").lower()
+    return (
+        SCENARIO_RANK.get(scenario, 0),
+        STATUS_RANK.get(status, 0),
+        str(item.get("updated_at") or item.get("created_at") or ""),
+    )
 
 
 def init_portfolio(initial_capital, overwrite=False, path=PORTFOLIO_FILE):
@@ -316,20 +341,98 @@ def add_monitored_condition(
     portfolio = load_portfolio(path)
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
-    item = {
+    symbol = ticker.strip().upper()
+    incoming = {
         "id": datetime.now().strftime("%Y%m%d-%H%M%S-%f"),
         "created_at": now_iso(),
         "updated_at": now_iso(),
-        "ticker": ticker.strip().upper(),
+        "ticker": symbol,
         "status": status,
         "condition": condition,
         "reason": reason,
         "action_if_met": action_if_met,
         "metadata": metadata or {},
     }
-    portfolio.setdefault("monitored_conditions", []).append(item)
+    items = portfolio.setdefault("monitored_conditions", [])
+    active_matches = [
+        item
+        for item in items
+        if str(item.get("ticker", "")).strip().upper() == symbol
+        and item.get("status") in ACTIVE_CONDITION_STATUSES
+    ]
+    if active_matches:
+        best = max(active_matches, key=_condition_rank)
+        best_is_waiting = best.get("status") == "waiting"
+        incoming_is_stronger = _condition_rank(incoming) >= _condition_rank(best)
+        if best_is_waiting or incoming_is_stronger:
+            original_id = best.get("id")
+            original_created_at = best.get("created_at")
+            best.update(incoming)
+            best["id"] = original_id
+            best["created_at"] = original_created_at
+            best.setdefault("notes", []).append(
+                {
+                    "created_at": now_iso(),
+                    "note": "Condizione attiva aggiornata invece di creare un duplicato per lo stesso ticker.",
+                }
+            )
+            save_portfolio(portfolio, path)
+            return best
+        best.setdefault("notes", []).append(
+            {
+                "created_at": now_iso(),
+                "note": "Nuova condizione duplicata ignorata per mantenere il trigger attivo piu forte.",
+            }
+        )
+        save_portfolio(portfolio, path)
+        return best
+    item = {
+        **incoming,
+    }
+    items.append(item)
     save_portfolio(portfolio, path)
     return item
+
+
+def dedupe_active_monitored_conditions(path=PORTFOLIO_FILE):
+    """Mark weaker duplicate active trigger conditions as superseded.
+
+    This keeps the audit trail in portfolio.json while ensuring the agent and UI
+    have a single active operating condition per ticker.
+    """
+    portfolio = load_portfolio(path)
+    if portfolio is None:
+        return {"status": "missing_portfolio", "updated": 0, "superseded": []}
+    items = portfolio.setdefault("monitored_conditions", [])
+    active_by_ticker = {}
+    for item in items:
+        if item.get("status") not in ACTIVE_CONDITION_STATUSES:
+            continue
+        ticker = str(item.get("ticker", "")).strip().upper()
+        if not ticker:
+            continue
+        active_by_ticker.setdefault(ticker, []).append(item)
+
+    superseded = []
+    for ticker, rows in active_by_ticker.items():
+        if len(rows) <= 1:
+            continue
+        best = max(rows, key=_condition_rank)
+        for item in rows:
+            if item is best:
+                continue
+            item["status"] = "superseded"
+            item["updated_at"] = now_iso()
+            item.setdefault("notes", []).append(
+                {
+                    "created_at": now_iso(),
+                    "note": f"Condizione duplicata disattivata; resta attiva {best.get('id')}.",
+                }
+            )
+            superseded.append({"ticker": ticker, "id": item.get("id"), "kept": best.get("id")})
+    if superseded:
+        save_portfolio(portfolio, path)
+    return {"status": "ok", "updated": len(superseded), "superseded": superseded}
 
 
 def list_monitored_conditions(status=None, path=PORTFOLIO_FILE):
@@ -427,27 +530,62 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
         portfolio["cash"] = round(capital - invested, 2)
     elif match["action"] == "buy_virtual_position":
         metadata = match.get("metadata", {})
-        amount = metadata.get("amount")
-        entry_price = metadata.get("entry_price")
+        amount = float(metadata.get("amount") or 0)
+        entry_price = float(metadata.get("entry_price") or 0)
         quantity = None
-        if amount is not None and entry_price:
-            quantity = round(float(amount) / float(entry_price), 4)
-            portfolio["cash"] = round(float(portfolio.get("cash", 0)) - float(amount), 2)
-        portfolio.setdefault("positions", []).append(
-            {
-                "ticker": match["ticker"],
-                "name": metadata.get("name", match["ticker"]),
-                "market": metadata.get("market", ""),
-                "sector": metadata.get("sector", ""),
-                "entry_price": entry_price,
-                "virtual_quantity": quantity,
-                "allocated_amount": amount,
-                "opened_at": now_iso(),
-                "status": "open",
-                "source": "confirmed_agent_buy_proposal",
-                "reason": match.get("reason", ""),
-            }
+        if amount > 0 and entry_price > 0:
+            quantity = round(amount / entry_price, 4)
+            portfolio["cash"] = round(float(portfolio.get("cash", 0)) - amount, 2)
+
+        positions = portfolio.setdefault("positions", [])
+        ticker = str(match["ticker"]).strip().upper()
+        existing = next(
+            (
+                item
+                for item in positions
+                if str(item.get("ticker", "")).strip().upper() == ticker
+                and item.get("status") == "open"
+            ),
+            None,
         )
+        if existing is not None:
+            old_quantity = float(existing.get("virtual_quantity") or 0)
+            old_amount = float(existing.get("allocated_amount") or 0)
+            total_quantity = old_quantity + float(quantity or 0)
+            total_amount = old_amount + amount
+            existing["virtual_quantity"] = round(total_quantity, 4)
+            existing["allocated_amount"] = round(total_amount, 2)
+            if total_quantity > 0:
+                existing["entry_price"] = round(total_amount / total_quantity, 6)
+            existing["updated_at"] = now_iso()
+            existing["last_increase_price"] = entry_price
+            existing.setdefault("position_actions", []).append(
+                {
+                    "created_at": now_iso(),
+                    "proposal_id": match["id"],
+                    "action": "increase_virtual_position",
+                    "amount": amount,
+                    "added_quantity": quantity,
+                    "reference_price": entry_price,
+                    "reason": match.get("reason", ""),
+                }
+            )
+        else:
+            positions.append(
+                {
+                    "ticker": ticker,
+                    "name": metadata.get("name", ticker),
+                    "market": metadata.get("market", ""),
+                    "sector": metadata.get("sector", ""),
+                    "entry_price": entry_price,
+                    "virtual_quantity": quantity,
+                    "allocated_amount": amount,
+                    "opened_at": now_iso(),
+                    "status": "open",
+                    "source": "confirmed_agent_buy_proposal",
+                    "reason": match.get("reason", ""),
+                }
+            )
     elif match["action"] in {"sell_virtual_position", "reduce_virtual_position"}:
         metadata = match.get("metadata", {})
         ticker = match["ticker"]

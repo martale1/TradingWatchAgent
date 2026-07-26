@@ -6,13 +6,14 @@ import pandas as pd
 from finance_tools.chart_tool import generate_snapshot_context
 from finance_tools.common import PROJECT_ROOT
 from finance_tools.liquidity import apply_liquidity_to_score
+from finance_tools.market_universe_store import load_market_universe
 from finance_tools.portfolio_store import add_allocation_proposal, add_proposal
 
 
 MIB30_XLSX = PROJECT_ROOT / "validTickers" / "validtickers_IT_MIB30_with_sector.xlsx"
 
 
-def load_mib30_tickers(path=MIB30_XLSX):
+def _load_mib30_tickers_from_excel(path=MIB30_XLSX):
     df = pd.read_excel(path)
     records = []
     for row in df.fillna("").to_dict(orient="records"):
@@ -27,6 +28,13 @@ def load_mib30_tickers(path=MIB30_XLSX):
                 }
             )
     return records
+
+
+def load_mib30_tickers(path=MIB30_XLSX):
+    fallback = _load_mib30_tickers_from_excel(path) if Path(path).exists() else []
+    if Path(path) == MIB30_XLSX:
+        return load_market_universe("ftse_mib", fallback_rows=fallback)
+    return fallback
 
 
 def score_snapshot(snapshot):
@@ -132,12 +140,27 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
             errors.append({"ticker": ticker, "error": str(exc)})
 
     rows.sort(key=lambda item: item["score"], reverse=True)
-    candidates = rows[: int(limit)]
+    liquid_rows = [item for item in rows if item.get("liquidity_ok") is not False]
+    low_liquidity_rows = [item for item in rows if item.get("liquidity_ok") is False]
+    candidates = liquid_rows[: int(limit)]
     if verbose:
         print(f"[scanner] Scan completato: {len(rows)} ok, {len(errors)} errori", flush=True)
-        print("[scanner] Migliori candidati:", flush=True)
-        for item in candidates:
-            print(f"[scanner] - {item['ticker']} score {item['score']} close {item['close']}", flush=True)
+        print(
+            "[scanner] Selezione candidati FTSE MIB: ordino per score tecnico e applico filtro hard liquidita. "
+            "Entrano in short-list solo strumenti liquidi.",
+            flush=True,
+        )
+        print("[scanner] Migliori candidati FTSE MIB e motivo:", flush=True)
+        for rank, item in enumerate(candidates, start=1):
+            reason_preview = "; ".join(item.get("reasons", [])[:4]) or "nessun segnale positivo forte"
+            risk_preview = "; ".join(item.get("risks", [])[:3]) or "nessun rischio tecnico principale"
+            liquidity_status = "liquidita ok" if item.get("liquidity_ok") else "liquidita bassa/da evitare"
+            print(
+                f"[scanner] #{rank} {item['ticker']} scelto per short-list | "
+                f"score={item['score']} close={item['close']} oggi={item.get('change_1d_pct')}% | "
+                f"motivi={reason_preview} | rischi={risk_preview} | {liquidity_status}",
+                flush=True,
+            )
 
     proposals = []
     if create_proposals:
@@ -165,7 +188,9 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
         "universe": "IT_MIB30",
         "count": len(rows),
         "limit": int(limit),
+        "scanned_rows": rows,
         "candidates": candidates,
+        "excluded_low_liquidity": low_liquidity_rows,
         "errors": errors,
         "proposals_created": proposals,
     }

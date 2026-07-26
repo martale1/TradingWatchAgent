@@ -16,6 +16,7 @@ class TradingGraphState(TypedDict, total=False):
     performance: dict[str, Any]
     ftse_mib_scan: dict[str, Any]
     commodity_scan: dict[str, Any]
+    etf_scan: dict[str, Any]
     shortlist: list[dict[str, Any]]
     deep_analysis_plan: list[dict[str, Any]]
     deep_analysis_results: list[dict[str, Any]]

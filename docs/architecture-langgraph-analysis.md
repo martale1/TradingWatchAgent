@@ -216,13 +216,13 @@ Ogni ciclo dovrebbe avere un `run_id`.
 Esempio:
 
 ```text
-2026-07-25 09:00:00 [run 20260725-090000] START scheduled
-2026-07-25 09:00:02 [run 20260725-090000] market=FTSE_MIB scan start universe=40
-2026-07-25 09:00:10 [run 20260725-090000] ticker=AMP.MI score=8 liquidity=ok candidate=yes reason="MACD sopra signal; DI+ sopra DI-"
-2026-07-25 09:00:11 [run 20260725-090000] ticker=GBS.MI score=4 liquidity=low candidate=no reason="volume medio sotto soglia"
-2026-07-25 09:00:30 [run 20260725-090000] playwright plan ticker=HER.MI reason="position open; exit review"
-2026-07-25 09:01:20 [run 20260725-090000] action applied ticker=HER.MI action=buy_virtual_position amount=2000 reason="trigger pullback support confirmed"
-2026-07-25 09:01:25 [run 20260725-090000] END ok duration=85s
+2026-07-25 10:00:00 [run 20260725-100000] START scheduled
+2026-07-25 10:00:02 [run 20260725-100000] market=FTSE_MIB scan start universe=40
+2026-07-25 10:00:10 [run 20260725-100000] ticker=AMP.MI score=8 liquidity=ok candidate=yes reason="MACD sopra signal; DI+ sopra DI-"
+2026-07-25 10:00:11 [run 20260725-100000] ticker=GBS.MI score=4 liquidity=low candidate=no reason="volume medio sotto soglia"
+2026-07-25 10:00:30 [run 20260725-100000] playwright plan ticker=HER.MI reason="position open; exit review"
+2026-07-25 10:01:20 [run 20260725-100000] action applied ticker=HER.MI action=buy_virtual_position amount=2000 reason="trigger pullback support confirmed"
+2026-07-25 10:01:25 [run 20260725-100000] END ok duration=85s
 ```
 
 La GUI dovrebbe leggere questi eventi e mostrarli come timeline, non solo come testo grezzo.
@@ -345,4 +345,3 @@ Tool locali = dati, indicatori, liquidita, portafoglio, logging
 ```
 
 Questo dovrebbe ridurre confusione, token, blocchi, duplicazioni e comportamenti inattesi.
-

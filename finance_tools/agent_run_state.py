@@ -33,9 +33,9 @@ def default_interval_minutes():
 
 def trading_start_hour():
     try:
-        return int(os.getenv("MARKET_MONITOR_START_HOUR", "9"))
+        return int(os.getenv("MARKET_MONITOR_START_HOUR", "10"))
     except ValueError:
-        return 9
+        return 10
 
 
 def trading_end_hour():
@@ -123,6 +123,7 @@ def latest_stock_analysis_state():
             "last_stock_analysis_source": "agent_run_state" if state.get("last_completed_at") else "none",
             "last_stock_analysis_ticker": None,
             "analyzed_tickers_count": 0,
+            "stock_analysis_root": str(ANALYSIS_ROOT),
         }
 
     latest = max(files, key=lambda item: item.stat().st_mtime)
@@ -131,6 +132,8 @@ def latest_stock_analysis_state():
         "last_stock_analysis_at": datetime.fromtimestamp(latest.stat().st_mtime).replace(microsecond=0).isoformat(),
         "last_stock_analysis_source": "Playwright/ChatGPT chart analysis",
         "last_stock_analysis_ticker": latest.parent.name.upper(),
+        "last_stock_analysis_file": str(latest),
+        "stock_analysis_root": str(ANALYSIS_ROOT),
         "analyzed_tickers_count": len(tickers),
         "analyzed_tickers": tickers,
     }
@@ -194,6 +197,19 @@ def agent_schedule_status():
         and parse_iso(state.get("last_started_at"))
         and (now - parse_iso(state.get("last_started_at"))) > timedelta(minutes=int(state.get("interval_minutes") or default_interval_minutes()) * 2)
     )
+    if is_stale_running:
+        state = {
+            **state,
+            "status": "stale",
+            "message": (
+                "Run precedente rimasta appesa: non risulta piu una run attiva. "
+                "Puoi avviare un nuovo ciclo o verificare i log."
+            ),
+            "last_warning": (
+                state.get("last_warning")
+                or "Run precedente rimasta appesa; stato mostrato come stale invece che running."
+            ),
+        }
     return {
         **state,
         **stock,

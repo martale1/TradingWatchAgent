@@ -11,9 +11,11 @@ from types import SimpleNamespace
 from agents import Agent, ModelSettings, Runner, function_tool
 
 from finance_tools.chart_tool import generate_chart_context_json
+from finance_tools.autonomy_settings import autonomous_action_allowed, load_autonomy_settings
 from finance_tools.commodity_scanner import load_commodity_tickers_json, scan_commodity_candidates_json
 from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
+from finance_tools.etf_scanner import load_etf_tickers_json, scan_etf_candidates_json
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.monitoring_rules import (
     ensure_candidate_conditions,
@@ -23,6 +25,7 @@ from finance_tools.monitoring_rules import (
 from finance_tools.news_tool import get_news_report
 from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.performance_tool import calculate_portfolio_performance_json
+from finance_tools.portfolio_deep_analysis import run_deep_portfolio_analysis_json
 from finance_tools.agent_run_state import mark_agent_run_completed, mark_agent_run_started
 from finance_tools.portfolio_store import (
     add_buy_proposal,
@@ -41,6 +44,7 @@ from finance_tools.portfolio_store import (
     update_portfolio_capital,
     update_monitored_condition,
 )
+from finance_tools.ticker_resolver import resolve_ticker, resolve_ticker_context
 from finance_tools.telegram_tool import (
     send_monitoring_summary,
     send_performance_summary,
@@ -119,6 +123,120 @@ def log_step(message):
     print(f"[agent] {message}", flush=True)
 
 
+def short_text(value, limit=110):
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def fmt_eur(value):
+    try:
+        return f"{float(value):,.2f} EUR"
+    except (TypeError, ValueError):
+        return "n/d"
+
+
+def log_operational_snapshot(label):
+    """Write a compact but readable snapshot of the portfolio state into logs."""
+    try:
+        status = portfolio_status_summary()
+        performance = calculate_portfolio_performance(record_history=False)
+    except Exception as exc:
+        log_step(f"Snapshot operativo {label}: non disponibile ({exc.__class__.__name__}: {exc})")
+        return
+
+    positions = status.get("positions", []) or []
+    pending_buy = status.get("pending_buy_proposals", []) or []
+    pending_other = status.get("pending_other_proposals", []) or []
+    waiting_conditions = [
+        item for item in (status.get("monitored_conditions", []) or []) if item.get("status") == "waiting"
+    ]
+    watchlist = status.get("watchlist", []) or []
+
+    log_step(
+        f"Snapshot operativo {label}: "
+        f"cash={fmt_eur(status.get('cash'))}; "
+        f"valore_portafoglio={fmt_eur(performance.get('total_value'))}; "
+        f"pnl={fmt_eur(performance.get('total_pnl'))} ({performance.get('total_pnl_pct', 0):.2f}%); "
+        f"posizioni={len(positions)}; trigger_waiting={len(waiting_conditions)}; "
+        f"pending_buy={len(pending_buy)}; pending_other={len(pending_other)}; watchlist={len(watchlist)}"
+    )
+
+    if positions:
+        log_step("Posizioni aperte da controllare:")
+        for item in positions[:10]:
+            log_step(
+                "  - "
+                f"{item.get('ticker')}: allocato={fmt_eur(item.get('allocated_amount'))}; "
+                f"entry={item.get('entry_price', 'n/d')}; qty={item.get('virtual_quantity', 'n/d')}"
+            )
+        if len(positions) > 10:
+            log_step(f"  - ... altre {len(positions) - 10} posizioni")
+    else:
+        log_step("Posizioni aperte da controllare: nessuna")
+
+    if waiting_conditions:
+        log_step("Trigger/condizioni in monitoraggio:")
+        for item in waiting_conditions[:14]:
+            log_step(
+                "  - "
+                f"{item.get('ticker')}: {short_text(item.get('condition'))} | "
+                f"azione={short_text(item.get('action_if_met'), 80)}"
+            )
+        if len(waiting_conditions) > 14:
+            log_step(f"  - ... altri {len(waiting_conditions) - 14} trigger waiting")
+    else:
+        log_step("Trigger/condizioni in monitoraggio: nessuno")
+
+    if watchlist:
+        log_step("Watchlist manuale da considerare nel ciclo:")
+        for item in watchlist[:10]:
+            entry = item.get("entry_condition") or "nessuna condizione ingresso salvata"
+            log_step(
+                "  - "
+                f"{item.get('ticker')}: priorita={item.get('priority', 'normal')}; "
+                f"motivo={short_text(item.get('reason'), 70)}; entry={short_text(entry, 90)}"
+            )
+        if len(watchlist) > 10:
+            log_step(f"  - ... altri {len(watchlist) - 10} titoli in watchlist")
+    else:
+        log_step("Watchlist manuale da considerare nel ciclo: vuota")
+
+
+def log_monitor_plan(
+    scan_limit,
+    universe_limit,
+    live_news,
+    deep_confirm_limit,
+    auto_apply_virtual,
+    max_auto_trade_pct,
+):
+    universe_label = f"primi {universe_limit} strumenti" if universe_limit else "universo completo"
+    mode_label = "applica operazioni virtuali autonome" if auto_apply_virtual else "solo proposte pending"
+    log_step("Piano ciclo monitor:")
+    log_step("  1) Leggo portafoglio, cash, performance, posizioni aperte e alert.")
+    log_step("  2) Rivaluto trigger salvati e watchlist; prima filtri numerici, poi eventuale conferma.")
+    log_step(
+        "  3) Scanner locale FTSE MIB e Materie prime: "
+        f"top={scan_limit}, universo={universe_label}. Questo step usa dati Yahoo/indicatori, non Playwright."
+    )
+    if live_news:
+        log_step(
+            "  4) Playwright/ChatGPT viene usato solo dopo filtro numerico: "
+            f"trigger in CONFIRMING/BUY_CANDIDATE o posizioni con segnale concreto di uscita; massimo {deep_confirm_limit} approfondimenti."
+        )
+    else:
+        log_step(
+            "  4) Playwright/ChatGPT disabilitato in questo ciclo: uso solo indicatori locali e news in cache."
+        )
+    log_step(
+        "  5) Decisione finale: "
+        f"{mode_label}; limite singola operazione autonoma={max_auto_trade_pct:.1f}% del cash; "
+        f"news_live={'abilitate' if live_news else 'disabilitate'}."
+    )
+
+
 def compact_report_payload(payload, report_key="report", limit=1800):
     compact = dict(payload)
     report = str(compact.get(report_key) or "")
@@ -138,7 +256,10 @@ def analyze_stock_chart(ticker: str, days: int = 70, period: str = "1y") -> str:
         days: Number of recent trading bars to include in charts.
         period: Yahoo Finance download period, for example 6mo, 1y, or 2y.
     """
-    log_step(f"Tool analyze_stock_chart chiamato per {ticker} | days={days} period={period}")
+    log_step(
+        f"FASE ANALISI TECNICA: {ticker} | scarico dati Yahoo Finance, calcolo indicatori e preparo grafici "
+        f"(days={days}, period={period})"
+    )
     return generate_chart_context_json(ticker=ticker, days=days, period=period)
 
 
@@ -151,7 +272,7 @@ def analyze_stock_news(ticker: str, live: bool = True) -> str:
         live: If true, run the Playwright ChatGPT news workflow; if false, read cached news if available.
     """
     mode = "Playwright live" if live else "cache locale"
-    log_step(f"Tool analyze_stock_news chiamato per {ticker} | modalita={mode}")
+    log_step(f"FASE NEWS: {ticker} | modalita={mode}")
     return json.dumps(
         compact_report_payload(get_news_report(ticker=ticker, live=live), limit=1800),
         ensure_ascii=False,
@@ -192,16 +313,29 @@ def evaluate_entry_scenarios(
 
 
 @function_tool
-def confirm_candidate_chart_with_playwright(ticker: str, no_telegram: bool = True) -> str:
+def confirm_candidate_chart_with_playwright(
+    ticker: str,
+    no_telegram: bool = True,
+    reason: str = "",
+) -> str:
     """Run a deep visual chart confirmation with Playwright/ChatGPT for one candidate.
+
+    Use this only for operational cases: a ticker already in portfolio that
+    needs portfolio monitoring, a monitored trigger that has fired or is in
+    CONFIRMING/BUY_CANDIDATE state, or an open position with an active
+    exit/reduce/protection signal. Do not use this just because a ticker appears
+    in a scanner top list.
 
     Args:
         ticker: Stock ticker symbol to confirm visually, for example AMP.MI.
         no_telegram: If true, do not send Telegram during confirmation.
+        reason: The exact numeric trigger/state that makes this ticker worth
+            confirming now, not a generic "top candidate" reason.
     """
     log_step(
-        "Tool confirm_candidate_chart_with_playwright chiamato | "
-        f"ticker={ticker} no_telegram={no_telegram}"
+        "FASE PLAYWRIGHT GRAFICO: conferma visuale AI del candidato | "
+        f"ticker={ticker} no_telegram={no_telegram} | "
+        f"motivo_approfondimento={reason or 'non dichiarato dal modello; usare solo se trigger numerico gia in conferma'}"
     )
     return json.dumps(
         compact_report_payload(confirm_candidate_with_chart_ai(ticker=ticker, no_telegram=no_telegram), limit=2200),
@@ -294,8 +428,8 @@ def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False, un
         universe_limit: Optional number of tickers to analyze for quick tests. Use 0 for full universe.
     """
     log_step(
-        "Tool scan_mib30_for_candidates chiamato | "
-        f"limit={limit} create_proposals={create_proposals} universe_limit={universe_limit}"
+        "FASE SCANNER FTSE MIB: analisi tecnica locale dei titoli | "
+        f"top={limit} create_proposals={create_proposals} universe_limit={universe_limit or 'tutti'}"
     )
     payload = json.loads(scan_mib30_candidates_json(
         limit=limit,
@@ -325,8 +459,8 @@ def scan_commodities_for_candidates(limit: int = 8, universe_limit: int = 0) -> 
         universe_limit: Optional number of instruments to analyze for quick tests. Use 0 for full universe.
     """
     log_step(
-        "Tool scan_commodities_for_candidates chiamato | "
-        f"limit={limit} universe_limit={universe_limit}"
+        "FASE SCANNER MATERIE PRIME: analisi tecnica locale degli ETC/ETN | "
+        f"top={limit} universe_limit={universe_limit or 'tutti'}"
     )
     payload = json.loads(scan_commodity_candidates_json(
         limit=limit,
@@ -336,6 +470,36 @@ def scan_commodities_for_candidates(limit: int = 8, universe_limit: int = 0) -> 
     payload["monitored_conditions_created"] = created
     if created:
         log_step(f"Scanner materie prime: create {len(created)} condizioni monitorate automatiche")
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+@function_tool
+def list_etf_universe() -> str:
+    """List configured ETF instruments."""
+    log_step("Tool list_etf_universe chiamato")
+    return load_etf_tickers_json()
+
+
+@function_tool
+def scan_etf_for_candidates(limit: int = 8, universe_limit: int = 0) -> str:
+    """Scan configured ETF tickers and find interesting technical candidates.
+
+    Args:
+        limit: Maximum number of candidates to return.
+        universe_limit: Optional number of instruments to analyze for quick tests. Use 0 for full universe.
+    """
+    log_step(
+        "FASE SCANNER ETF: analisi tecnica locale degli ETF configurati | "
+        f"top={limit} universe_limit={universe_limit or 'tutti'}"
+    )
+    payload = json.loads(scan_etf_candidates_json(
+        limit=limit,
+        universe_limit=universe_limit or None,
+    ))
+    created = ensure_candidate_conditions(payload.get("candidates", []), market="ETF", max_items=limit)
+    payload["monitored_conditions_created"] = created
+    if created:
+        log_step(f"Scanner ETF: create {len(created)} condizioni monitorate automatiche")
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
@@ -546,6 +710,44 @@ def send_portfolio_performance_telegram(extra_note: str = "") -> str:
 
 
 @function_tool
+def analyze_portfolio_positions_deep(
+    create_proposals: bool = False,
+    auto_apply: bool = False,
+    send_telegram: bool = False,
+    max_positions: int = 10,
+) -> str:
+    """Run an on-demand deep analysis only on currently open portfolio positions.
+
+    This uses chart analysis and live news via Playwright/ChatGPT for each open
+    position, then returns operational indications: hold, protect, reduce or sell.
+    It never scans FTSE MIB, commodities or watchlist tickers.
+
+    Args:
+        create_proposals: If true, create pending reduce/sell proposals when the
+            analysis finds an operational signal.
+        auto_apply: If true, immediately apply created virtual reduce/sell
+            proposals. Use only in autonomous virtual mode or when explicitly
+            requested by the user.
+        send_telegram: If true, send a compact Telegram summary.
+        max_positions: Safety limit for the number of open positions to analyze.
+    """
+    log_step(
+        "Tool analyze_portfolio_positions_deep chiamato | "
+        "scope=solo posizioni aperte in portafoglio | "
+        f"create_proposals={create_proposals} auto_apply={auto_apply} "
+        f"send_telegram={send_telegram} max_positions={max_positions}"
+    )
+    return run_deep_portfolio_analysis_json(
+        max_positions=max_positions,
+        create_proposals=create_proposals,
+        auto_apply=auto_apply,
+        send_telegram=send_telegram,
+        use_playwright=True,
+        live_news=True,
+    )
+
+
+@function_tool
 def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
     """Confirm and apply a pending portfolio proposal.
 
@@ -584,6 +786,23 @@ def auto_apply_virtual_proposal_tool(proposal_id: str, max_trade_pct: float = DE
                 "status": "blocked",
                 "proposal_id": proposal_id,
                 "message": "La modalita autonoma puo applicare solo buy/reduce/sell virtuali.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    action_allowed, autonomy_mode = autonomous_action_allowed(proposal.get("action"))
+    if not action_allowed:
+        return json.dumps(
+            {
+                "status": "blocked",
+                "proposal_id": proposal_id,
+                "action": proposal.get("action"),
+                "portfolio_action_mode": autonomy_mode,
+                "message": (
+                    "Operazione autonoma bloccata dalla configurazione Controlli. "
+                    "La proposta resta pending e non modifica il portafoglio."
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -633,15 +852,22 @@ def reject_portfolio_proposal_tool(proposal_id: str) -> str:
 
 
 def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT):
-    mode = "AUTO-VIRTUAL" if auto_apply_virtual else "CONFIRMATION"
+    autonomy_mode = load_autonomy_settings()["portfolio_action_mode"]
+    mode = "AUTO-VIRTUAL" if auto_apply_virtual and autonomy_mode != "confirmation" else "CONFIRMATION"
     log_step(
         "Creo agente Portfolio Monitor Agent | "
         f"model={model} | parallel_tool_calls=False | mode={mode}"
     )
-    if auto_apply_virtual:
+    if auto_apply_virtual and autonomy_mode != "confirmation":
+        autonomy_scope = (
+            "acquisti, riduzioni, vendite e ribilanciamenti"
+            if autonomy_mode == "full_auto"
+            else "sole riduzioni e vendite protettive; gli acquisti autonomi sono bloccati"
+        )
         operation_policy = (
             "Modalita AUTONOMA VIRTUALE attiva: puoi applicare da solo operazioni simulate sul solo portafoglio virtuale "
             "con auto_apply_virtual_proposal_tool dopo avere creato una proposta pending motivata. "
+            f"La configurazione Controlli e '{autonomy_mode}' e autorizza {autonomy_scope}. "
             "Non puoi operare su broker reali o sistemi esterni. "
             f"Ogni nuova operazione autonoma deve rispettare il limite massimo del {max_auto_trade_pct:.1f}% del cash disponibile "
             "al momento della decisione. "
@@ -661,12 +887,16 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "e applicandole con auto_apply_virtual_proposal_tool se i segnali di uscita o protezione sono chiari. "
             "Quando una nuova opportunita e migliore di una posizione aperta debole, puoi ribilanciare: prima riduci o vendi parzialmente "
             "la posizione piu fragile, poi usa il cash per il nuovo ingresso, sempre rispettando max trade e motivando il confronto. "
-            "Non chiedere conferma all'utente in questa modalita: applica se le regole sono rispettate e notifica l'utente via Telegram. "
+            "Applica automaticamente soltanto le azioni autorizzate dalla configurazione Controlli. "
+            "In modalita protective, acquisti e incrementi devono restare proposte pending da confermare, "
+            "mentre riduzioni e vendite protettive possono essere applicate automaticamente. "
+            "In modalita full_auto non chiedere conferma: applica se tutte le regole sono rispettate e notifica l'utente via Telegram. "
             "Dopo ogni operazione autonoma devi chiamare send_monitoring_telegram_summary e dichiarare proposal_id, ticker, importo e motivo. "
         )
     else:
         operation_policy = (
-            "Non modificare mai il portafoglio autonomamente: puoi solo creare proposte pending, "
+            "Modalita CONFERMA SEMPRE: non modificare mai il portafoglio autonomamente. "
+            "Per acquisti, incrementi, riduzioni, vendite e ribilanciamenti puoi solo creare proposte pending, "
             "e applicarle esclusivamente quando l'utente conferma esplicitamente un proposal_id. "
         )
     tools = [
@@ -683,6 +913,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         scan_mib30_for_candidates,
         list_commodity_universe,
         scan_commodities_for_candidates,
+        list_etf_universe,
+        scan_etf_for_candidates,
         evaluate_entry_scenarios,
         propose_virtual_portfolio_from_mib30,
         list_portfolio_proposals,
@@ -694,9 +926,10 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         send_monitoring_telegram_summary,
         get_portfolio_performance,
         send_portfolio_performance_telegram,
+        analyze_portfolio_positions_deep,
         reject_portfolio_proposal_tool,
     ]
-    if auto_apply_virtual:
+    if auto_apply_virtual and autonomy_mode != "confirmation":
         tools.append(auto_apply_virtual_proposal_tool)
     else:
         tools.append(confirm_portfolio_proposal_tool)
@@ -733,6 +966,13 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Se analizzi titoli in watchlist e trovi una condizione gia presente tra le condizioni monitorate, "
             "non crearne una duplicata: cita quella esistente oppure aggiornala solo se cambia davvero il trigger. "
             "Quando l'utente chiede rendimento, performance o guadagno/perdita, usa get_portfolio_performance. "
+            "Quando l'utente chiede una analisi approfondita on demand del portafoglio o delle posizioni aperte, "
+            "usa analyze_portfolio_positions_deep: deve analizzare solo i titoli gia in portafoglio, con grafici e news via Playwright, "
+            "e deve indicare chiaramente cosa fare per ogni posizione. Non usare questo flusso per scannerizzare nuovi titoli "
+            "FTSE MIB, Materie prime o watchlist. Se l'utente chiede solo indicazioni, non applicare operazioni; "
+            "se chiede anche proposte, crea proposte pending; se la modalita autonoma virtuale e attiva o l'utente chiede "
+            "esplicitamente applicazione, puoi applicare le proposte virtuali. Se l'utente chiede di mandare l'analisi su Telegram, "
+            "abilita send_telegram. "
             "Durante il monitor periodico valuta la performance del portafoglio e segnala alert di rendimento rilevanti. "
             "Valuta sempre anche le posizioni gia in portafoglio: se emergono segnali di uscita, riduzione o protezione, "
             "devi creare una proposta pending con create_position_action_proposal e motivarla; applicala solo se la policy operativa corrente lo consente. "
@@ -740,7 +980,8 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "BUY CANDIDATE, WAIT/MONITOR oppure SCARTATO. "
             "Prima di rifare analisi live, consulta load_virtual_portfolio, list_portfolio_proposals e list_conditions_to_monitor "
             "per usare lo stato gia salvato. "
-            "Puoi dire BUY CANDIDATE solo dopo avere usato analisi dettagliata del grafico via Playwright e news live via Playwright, "
+            "Puoi dire BUY CANDIDATE solo dopo che evaluate_entry_scenarios ha portato una condizione numerica in conferma "
+            "e, quando disponibile, dopo analisi dettagliata del grafico via Playwright e news live via Playwright, "
             "oppure dopo avere dichiarato che Playwright/news non sono disponibili e spiegato perche il segnale tecnico resta sufficiente; "
             "in quel caso crea una proposta pending se ci sono capitale e condizioni sufficienti, altrimenti chiedi il dato mancante. "
             "Se invece l'utente chiede esplicitamente di procedere con un acquisto anche se il segnale non e confermato, "
@@ -762,17 +1003,23 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Quando l'utente parla di materie prime, commodity, oro, petrolio, gas, metalli o agricoli, "
             "usa list_commodity_universe e scan_commodities_for_candidates: e un universo separato caricato da validTickers/MateriePrime.xlsx. "
             "Per le materie prime chiarisci che molti strumenti sono ETC/ETN quotati a Milano e valuta anche volatilita, volumi e rischio specifico dello strumento. "
+            "Quando l'utente parla di ETF, fondi tematici, robotics, automation o ROBO.MI, "
+            "usa list_etf_universe e scan_etf_for_candidates: e un universo separato di ETF configurati. "
+            "Gli ETF seguono lo stesso processo operativo: scan tecnico locale, filtro liquidita, condizione monitorata, "
+            "poi Playwright solo se scatta un trigger o serve una decisione su posizione. "
             f"In modalita autonoma puoi comprare Materie prime / ETC esattamente come le azioni, ma usa prudenza: limite indicativo esposizione commodity "
             f"{DEFAULT_MAX_COMMODITY_ALLOCATION_PCT:.1f}% del valore portafoglio, importo singola operazione entro il limite cash configurato, "
             "liquidita adeguata, news non negative e trigger tecnico verificato o setup pullback con rimbalzo confermato. "
             "Quando devi proporre strumenti da mettere in portafoglio, usa prima lo scanner numerico sui mercati rilevanti: "
-            "FTSE MIB e, se richiesto o in monitor autonomo, anche MateriePrime.xlsx. "
+            "FTSE MIB e, se richiesto o in monitor autonomo, anche MateriePrime.xlsx e il mercato ETF configurato. "
             "Dopo gli scan confronta i candidati in una short-list unica, mantenendo chiaro il mercato di provenienza. "
-            "Poi decidi autonomamente se approfondire i migliori candidati con confirm_candidate_chart_with_playwright: "
-            "approfondisci solo i candidati realmente interessanti, per esempio score alto, trigger vicino, titolo gia in portafoglio/watchlist, "
-            "o possibilita concreta di proposta; non approfondire strumenti deboli o lontani solo perche sono presenti nell'universo. "
-            "Fallo sempre se stai per creare una proposta di acquisto o allocazione, se ci sono segnali tecnici contrastanti, "
-            "se i candidati hanno score simili, o se il rischio non e chiaro. "
+            "Non chiamare confirm_candidate_chart_with_playwright direttamente sui migliori candidati dello scanner. "
+            "Lo scanner serve solo a creare short-list e condizioni monitorate. "
+            "Usa Playwright solo quando evaluate_entry_scenarios segnala uno scenario numerico scattato o in CONFIRMING/BUY_CANDIDATE, "
+            "oppure su un titolo gia in portafoglio quando serve monitoraggio operativo, uscita, riduzione o protezione. "
+            "Ogni volta che chiami confirm_candidate_chart_with_playwright devi compilare il parametro reason con la condizione precisa: "
+            "ticker, scenario, close, trigger/supporto, volume/liquidita e perche lo stato numerico richiede conferma ora. "
+            "Non usare motivazioni generiche come score alto, top candidate o watchlist prioritaria se non c'e un trigger numerico in conferma. "
             "Quando approfondisci piu candidati, procedi in sequenza: chiama un solo tool alla volta, attendi il risultato, "
             "riassumi cosa hai imparato e solo dopo decidi se chiamare il tool per il candidato successivo. "
             "Analizza un titolo selezionato alla volta: completa grafico, eventuali news, sintesi e giudizio provvisorio "
@@ -797,6 +1044,10 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
     log_step("Prompt operativo inviato all'agente:")
     log_step(display_request or request)
     log_step(f"Invio richiesta all'agente OpenAI SDK e attendo risposta/tool calls... max_turns={run_max_turns}")
+    log_step(
+        "FASE AI: consegno il contesto all'agente. "
+        "Le righe successive 'Tool ... chiamato' indicano quali strumenti usa davvero e su quali ticker."
+    )
     before_state = monitoring_state_signature()
     final_output = ""
     try:
@@ -829,6 +1080,8 @@ def build_periodic_monitor_request(
 ):
     live_news_hint = (
         "usa news live via Playwright solo per titoli con trigger, rischio rilevante o possibile operazione"
+        if live_news
+        else "usa solo news in cache con live=False; non avviare Playwright/ChatGPT in questo ciclo"
     )
     universe_hint = f"universe_limit={universe_limit}" if universe_limit else "universo completo"
     if auto_apply_virtual:
@@ -855,15 +1108,19 @@ def build_periodic_monitor_request(
         "Prima chiama get_portfolio_operating_status e get_portfolio_performance. "
         "Se get_portfolio_performance mostra alert rilevanti su P/L posizione o portafoglio, chiama send_portfolio_performance_telegram. "
         "Se ci sono posizioni aperte, analizzale una alla volta con analyze_stock_chart; "
-        f"{live_news_hint}. Se emergono segnali di uscita, riduzione, protezione o presa profitto, usa analyze_stock_news live=True "
-        "e, quando serve conferma grafica, confirm_candidate_chart_with_playwright prima di decidere. Poi crea una proposta pending "
+        f"{live_news_hint}. Se emergono segnali concreti di uscita, riduzione, protezione o presa profitto, usa analyze_stock_news "
+        f"live={str(bool(live_news))} "
+        f"e {'confirm_candidate_chart_with_playwright solo su titoli in portafoglio con decisione operativa concreta o segnale di uscita/riduzione/protezione' if live_news else 'non usare conferma grafica Playwright; resta su analisi tecnica locale/cache'}. "
+        "Poi crea una proposta pending "
         "con create_position_action_proposal e applicala se la modalita autonoma virtuale e abilitata. "
-        "Poi rivaluta tutte le condizioni waiting con evaluate_entry_scenarios, usando use_playwright=True, live_news=True "
+        "Poi rivaluta tutte le condizioni waiting con evaluate_entry_scenarios, "
+        f"usando use_playwright={str(bool(live_news))}, live_news={str(bool(live_news))} "
         f"e max_playwright={deep_confirm_limit}. Questo tool fa prima filtri numerici e usa Playwright solo per scenari CONFIRMING. "
         "Se una condizione diventa met/BUY_CANDIDATE, decidi autonomamente se creare una proposta pending motivata e applicarla "
         "se la modalita autonoma virtuale e abilitata; puoi anche vendere o ridurre posizioni esistenti se il ribilanciamento e migliore. "
         "Poi controlla i titoli della watchlist manuale una alla volta con list_manual_watchlist; "
-        "per i ticker prioritari o non analizzati di recente usa analyze_stock_chart; usa news live via Playwright solo se il titolo e vicino a una decisione. "
+        "per i ticker prioritari o non analizzati di recente usa analyze_stock_chart; "
+        f"{'usa news live via Playwright solo se il titolo e vicino a una decisione' if live_news else 'usa solo news in cache e non aprire Playwright'}. "
         "Se un titolo in watchlist ha entry_condition, verifica quella; se non ce l'ha, definisci una condizione di ingresso concreta "
         "usando esplicitamente scenario BREAKOUT oppure PULLBACK_SUPPORTO. "
         + ENTRY_SCENARIOS_GUIDE +
@@ -871,14 +1128,14 @@ def build_periodic_monitor_request(
         f"Infine scannerizza il FTSE MIB con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
         "Se il file MateriePrime.xlsx e disponibile, scannerizza anche le materie prime con scan_commodities_for_candidates "
         f"limit={scan_limit}, {universe_hint}. "
-        "Dopo i due scanner costruisci una short-list unica di candidati interessanti, distinguendo mercato FTSE MIB e mercato materie prime. "
-        "Non approfondire tutti con Playwright: approfondisci solo i candidati con score alto, trigger vicino, volumi/rischio non contrari o forte rilevanza per portafoglio/watchlist. "
+        f"Scannerizza anche il mercato ETF configurato con scan_etf_for_candidates limit={scan_limit}, {universe_hint}. "
+        "Dopo gli scanner costruisci una short-list unica di candidati interessanti, distinguendo mercato FTSE MIB, materie prime ed ETF. "
+        f"{'Non usare Playwright sui candidati appena usciti dallo scanner. Prima salva o aggiorna condizioni monitorate concrete; Playwright verra usato solo dalla rivalutazione trigger quando lo stato numerico diventa CONFIRMING/BUY_CANDIDATE.' if live_news else 'Non usare Playwright in questo ciclo: limita la valutazione dei candidati a scanner locale, condizioni salvate e cache news.'} "
         "Per le commodity agisci con prudenza: se un candidato e interessante ma non ancora confermato, preferisci salvare un trigger monitorato "
         "con scenario BREAKOUT o PULLBACK_SUPPORTO; crea e applica una proposta solo se tecnica, volumi e news disponibili non sono contrari. "
         "Se un candidato commodity e piu forte di una posizione in portafoglio, valuta ribilanciamento virtuale: reduce/sell della posizione debole "
         "e buy commodity, motivando confronto, rischio e impatto su cash/esposizione. "
-        f"Approfondisci al massimo {deep_confirm_limit} nuovi candidati complessivi tra FTSE MIB e materie prime, solo se servono davvero per una proposta o per un monitoraggio serio; "
-        "in tal caso usa confirm_candidate_chart_with_playwright un ticker alla volta. "
+        f"{'Budget Playwright massimo ' + str(deep_confirm_limit) + ': deve essere consumato solo da evaluate_entry_scenarios su condizioni in CONFIRMING/BUY_CANDIDATE, non dalla fase scanner.' if live_news else 'Per FTSE MIB e materie prime salva condizioni monitorate concrete quando servono, ma rimanda conferme Playwright a un ciclo con live_news abilitato.'} "
         "Se trovi candidati interessanti ma non ancora comprabili, salva condizioni concrete con record_monitored_condition. "
         "Concludi con una vista compatta: posizioni, proposte pending, condizioni monitorate, nuovi candidati, azioni consigliate. "
         "Se condizioni/proposte/stato sono cambiati, il runner inviera il riepilogo Telegram automatico."
@@ -912,6 +1169,15 @@ def run_periodic_monitor_loop(
             f"#{cycle} | interval_minutes={interval_minutes} scan_limit={scan_limit} "
             f"universe_limit={universe_limit} live_news={live_news} auto_apply_virtual={auto_apply_virtual}"
         )
+        log_monitor_plan(
+            scan_limit=scan_limit,
+            universe_limit=universe_limit,
+            live_news=live_news,
+            deep_confirm_limit=deep_confirm_limit,
+            auto_apply_virtual=auto_apply_virtual,
+            max_auto_trade_pct=max_auto_trade_pct,
+        )
+        log_operational_snapshot("prima del ciclo")
         invalidated_liquidity = invalidate_illiquid_monitored_conditions()
         if invalidated_liquidity:
             log_step(f"Trigger invalidati per liquidita insufficiente: {len(invalidated_liquidity)}")
@@ -942,6 +1208,7 @@ def run_periodic_monitor_loop(
                 max_turns=periodic_max_turns,
             )
             after_state = monitoring_state_signature()
+            log_operational_snapshot("dopo il ciclo")
             performance = calculate_portfolio_performance()
             has_alerts = bool(performance.get("alerts"))
             should_send, reason, telegram_settings = should_send_monitoring_summary(
@@ -973,6 +1240,8 @@ def run_periodic_monitor_loop(
                 error=getattr(result, "interrupted_error", ""),
             )
         except Exception as exc:
+            log_step(f"Errore durante il ciclo monitor: {exc.__class__.__name__}: {exc}")
+            log_operational_snapshot("dopo errore")
             mark_agent_run_completed(interval_minutes=interval_minutes, once=once, error=str(exc))
             raise
         if once:
@@ -1068,7 +1337,10 @@ def maybe_send_automatic_monitoring_summary(request, final_output, before_state,
 
 def build_contextual_request(history, user_text, max_turns=6):
     recent_history = history[-max_turns:]
+    resolver_context = resolve_ticker_context(user_text, history=recent_history)
     if not recent_history:
+        if resolver_context:
+            return "\n".join([resolver_context, "", "Richiesta utente:", user_text])
         return user_text
 
     lines = [
@@ -1080,6 +1352,9 @@ def build_contextual_request(history, user_text, max_turns=6):
     for item in recent_history:
         lines.append(f"Utente: {item['user']}")
         lines.append(f"Agente: {item['assistant']}")
+        lines.append("")
+    if resolver_context:
+        lines.append(resolver_context)
         lines.append("")
     lines.append("Nuova richiesta utente:")
     lines.append(user_text)
@@ -1159,11 +1434,13 @@ def handle_local_interactive_command(user_text):
 
     buy_intent = re.search(r"\b(compra|compriamo|acquista|acquistiamo|procedi|procediamo)\b", text, flags=re.IGNORECASE)
     ticker_match = re.search(r"\b([A-Z0-9]{1,8}\.[A-Z]{1,4})\b", text, flags=re.IGNORECASE)
-    if buy_intent and ticker_match:
-        ticker = ticker_match.group(1).upper()
-        amount_candidates = re.findall(r"[0-9][0-9\., ]*", text[: ticker_match.start()])
+    resolved_ticker = resolve_ticker(text)
+    if buy_intent and resolved_ticker:
+        ticker = resolved_ticker
+        amount_area = text[: ticker_match.start()] if ticker_match else text
+        amount_candidates = re.findall(r"[0-9][0-9\., ]*", amount_area)
         if not amount_candidates:
-            print("Importo non trovato. Esempio: compriamo 10000 euro di HER.MI")
+            print("Importo non trovato. Esempio: compriamo 10000 euro di Amplifon")
             return True
         amount = parse_italian_amount(amount_candidates[-1])
         portfolio = load_portfolio_file()
@@ -1511,7 +1788,7 @@ def main():
         if args.deep_chart_confirmation:
             request += (
                 f"Prima di presentare la proposta finale, conferma i primi {args.deep_confirm_limit} "
-                "candidati migliori con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "candidati migliori con confirm_candidate_chart_with_playwright(no_telegram=True, reason=...). "
                 "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Se la conferma visuale smentisce un candidato, dichiaralo e riduci la convinzione. "
             )
@@ -1519,7 +1796,7 @@ def main():
             request += (
                 f"Prima di presentare la proposta finale, valuta autonomamente i migliori candidati e, "
                 f"se serve conferma o se stai allocando capitale, approfondisci fino a {args.deep_confirm_limit} "
-                "candidati con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "candidati con confirm_candidate_chart_with_playwright(no_telegram=True, reason=...). "
                 "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Riporta quali candidati hai approfondito e quali no, con motivazione. "
             )
@@ -1561,14 +1838,14 @@ def main():
         if args.deep_chart_confirmation:
             request += (
                 f"Dopo lo scan devi confermare i primi {args.deep_confirm_limit} candidati migliori "
-                "chiamando confirm_candidate_chart_with_playwright con no_telegram=True per ciascuno. "
+                "chiamando confirm_candidate_chart_with_playwright con no_telegram=True e reason compilato per ciascuno. "
                 "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Solo dopo questa conferma visuale puoi indicare quali metteresti in proposta. "
             )
         elif not args.no_auto_deep_confirmation:
             request += (
                 f"Dopo lo scan valuta autonomamente se approfondire fino a {args.deep_confirm_limit} candidati "
-                "con confirm_candidate_chart_with_playwright(no_telegram=True). "
+                "con confirm_candidate_chart_with_playwright(no_telegram=True, reason=...). "
                 "Se il risultato deve diventare una proposta o una raccomandazione operativa, approfondisci i migliori candidati. "
                 "Lavora un ticker alla volta: completa approfondimento e giudizio del primo candidato prima di passare al secondo. "
                 "Se non lo fai, spiega chiaramente perche lo score numerico e sufficiente. "
@@ -1589,6 +1866,7 @@ def main():
             "Poi produci una sintesi comparativa con rischio, momentum, news disponibili e priorita di monitoraggio."
         )
 
+    request = build_contextual_request([], request)
     agent = build_agent(model=args.model)
     run_agent_once(agent, request, suppress_auto_telegram_summary=args.suppress_auto_telegram_summary)
 

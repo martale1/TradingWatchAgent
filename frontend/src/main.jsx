@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Activity, Bot, LineChart, MessageSquare, RefreshCw, Send, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import "./styles.css";
@@ -7,7 +7,7 @@ const API = "http://127.0.0.1:8000";
 
 function eur(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/d";
-  return `EUR ${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 }
 
 function pct(value, signed = true) {
@@ -66,6 +66,7 @@ function levelsFromCondition(condition = "") {
 function cleanText(value) {
   return String(value || "")
     .replaceAll("â‚¬", "€")
+    .replaceAll("â‚¬", "€")
     .replaceAll("Ã¨", "è")
     .replaceAll("Ã©", "é")
     .replaceAll("Ã ", "à")
@@ -73,6 +74,18 @@ function cleanText(value) {
     .replaceAll("Ã¹", "ù")
     .replaceAll("Ã¬", "ì")
     .replaceAll("Â°", "°");
+}
+
+function compactErrorMessage(value) {
+  const text = cleanText(value);
+  const maxChars = 260;
+  const firstUsefulLine = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("[agent]") && !line.startsWith("[chart-tool]"));
+  const base = firstUsefulLine || text;
+  if (base.length <= maxChars) return base;
+  return `${base.slice(0, maxChars).trim()}...`;
 }
 
 function renderInline(text) {
@@ -155,6 +168,54 @@ function signedClass(value) {
   return "neutral";
 }
 
+const SCENARIO_PRIORITY = {
+  BUY_CANDIDATE: 50,
+  TRIGGER_MET: 45,
+  CONFIRMED: 40,
+  CONFIRMING: 35,
+  NEAR_TRIGGER: 25,
+  WAIT: 10,
+};
+
+const STATUS_PRIORITY = {
+  met: 30,
+  waiting: 20,
+  invalidated: 5,
+};
+
+function conditionPriority(item) {
+  const scenario = String(item?.scenario_state || "").toUpperCase();
+  const status = String(item?.status || "").toLowerCase();
+  const updated = Date.parse(item?.updated_at || item?.created_at || "") || 0;
+  return [
+    SCENARIO_PRIORITY[scenario] || 0,
+    STATUS_PRIORITY[status] || 0,
+    updated,
+  ];
+}
+
+function compareConditionPriority(a, b) {
+  const pa = conditionPriority(a);
+  const pb = conditionPriority(b);
+  for (let index = 0; index < pa.length; index += 1) {
+    if (pa[index] !== pb[index]) return pa[index] - pb[index];
+  }
+  return 0;
+}
+
+function uniqueConditionsByTicker(rows = []) {
+  const best = new Map();
+  rows.forEach((item) => {
+    const ticker = String(item?.ticker || "").trim().toUpperCase();
+    if (!ticker) return;
+    const current = best.get(ticker);
+    if (!current || compareConditionPriority(item, current) > 0) {
+      best.set(ticker, item);
+    }
+  });
+  return Array.from(best.values());
+}
+
 async function api(path, options = {}) {
   const { timeoutMs = 30000, ...fetchOptions } = options;
   const controller = new AbortController();
@@ -172,7 +233,9 @@ async function api(path, options = {}) {
     } catch {
       // Keep raw response text.
     }
-    throw new Error(text || `Errore HTTP ${response.status}`);
+    const error = new Error(compactErrorMessage(text || `Errore HTTP ${response.status}`));
+    error.fullOutput = cleanText(text || "");
+    throw error;
   }
   const data = await response.json();
   return normalizeData(data);
@@ -187,19 +250,21 @@ function normalizeData(value) {
   return value;
 }
 
-function Metric({ label, value, delta, icon }) {
+function Metric({ label, value, delta, icon, valueTone }) {
+  const valueToneClass = valueTone ? `metricValue${valueTone[0].toUpperCase()}${valueTone.slice(1)}` : "";
   return (
     <div className="metric">
       <div className="metricLabel">{icon}{label}</div>
-      <div className="metricValue">{value}</div>
+      <div className={`metricValue ${valueToneClass}`.trim()}>{value}</div>
       {delta !== undefined && <div className={`metricDelta ${signedClass(delta)}`}>{pct(delta)}</div>}
     </div>
   );
 }
 
-function AgentRunStatus({ state = {} }) {
+function AgentRunStatus({ state = {}, stats = {} }) {
   const status = state.status || "never_run";
-  const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" ? "negative" : "neutral";
+  const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" || status === "stale" ? "negative" : "neutral";
+  const statusLabel = status === "never_run" ? "mai eseguito" : status === "stale" ? "run appesa" : status;
   const schedulerDisabled = state.scheduler_state === "Disabled" || state.scheduler_enabled === false;
   const primaryNextRun = state.scheduler_enabled && state.scheduler_next_run_at
     ? state.scheduler_next_run_at
@@ -215,7 +280,7 @@ function AgentRunStatus({ state = {} }) {
   const scheduleBadge = schedulerDisabled
     ? "task disabled"
     : state.running_state_is_stale
-      ? "running stale"
+      ? "run appesa"
       : primaryNextRunIsOverdue
         ? "in ritardo"
         : "";
@@ -223,10 +288,22 @@ function AgentRunStatus({ state = {} }) {
     <section className="agentStatus">
       <div>
         <span className="agentStatusLabel">Stato agente</span>
-        <strong className={`pill ${statusClass}`}>{status === "never_run" ? "mai eseguito" : status}</strong>
+        <strong className={`pill ${statusClass}`}>{statusLabel}</strong>
       </div>
-      <div><span>Ultimo grafico/analisi file</span><b>{dateTime(state.last_stock_analysis_at)}</b></div>
-      <div><span>Ultimo ticker con file analisi</span><b>{state.last_stock_analysis_ticker || "n/d"}</b></div>
+      <div>
+        <span>Ultimo file analisi AI</span>
+        <b>{dateTime(state.last_stock_analysis_at)}</b>
+        <small className="agentScheduleDetail">
+          Grafico analizzato via Playwright/ChatGPT, quando richiesto dall'agente.
+        </small>
+      </div>
+      <div>
+        <span>Portafoglio e trigger</span>
+        <b>{stats.positionsCount || 0} posizioni / {stats.monitoredCount || 0} trigger</b>
+        <small className="agentScheduleDetail">
+          Titoli gia in portafoglio e condizioni operative da rivalutare.
+        </small>
+      </div>
       <div>
         <span>Prossimo scheduled expected</span>
         <b>{scheduleText}</b>
@@ -240,7 +317,15 @@ function AgentRunStatus({ state = {} }) {
         )}
       </div>
       <div><span>Intervallo</span><b>{state.interval_minutes || 30} min</b></div>
-      <div><span>Analisi disponibili</span><b>{state.analyzed_tickers_count || 0} titoli</b></div>
+      <div>
+        <span>Universo controllato</span>
+        <b>
+          {stats.ftseMibCount || 0} FTSE MIB / {stats.commoditiesCount || 0} materie prime / {stats.etfCount || 0} ETF
+        </b>
+        <small className="agentScheduleDetail">
+          Strumenti disponibili per scanner tecnico e selezione candidati.
+        </small>
+      </div>
       <div><span>Ultimo ciclo agente completato</span><b>{dateTime(state.last_completed_at)}</b></div>
       <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
@@ -306,7 +391,7 @@ function PortfolioPerformanceChart({ data = {} }) {
   const span = max - min || 1;
   const yMin = min - span * 0.08;
   const yMax = max + span * 0.08;
-  const x = (index) => pad.left + (rows.length <= 1 ? 0 : (index / (rows.length - 1)) * plotW);
+  const x = (index) => pad.left + (rows.length <= 1 ? plotW / 2 : (index / (rows.length - 1)) * plotW);
   const y = (value) => pad.top + ((yMax - value) / (yMax - yMin)) * plotH;
   const path = rows
     .map((row, index) => `${index === 0 ? "M" : "L"} ${x(index).toFixed(2)} ${y(Number(row.total_value)).toFixed(2)}`)
@@ -315,6 +400,10 @@ function PortfolioPerformanceChart({ data = {} }) {
   const dateTicks = rows
     .map((row, index) => ({ ...row, index }))
     .filter((row, index) => index === 0 || index === rows.length - 1 || index % Math.max(1, Math.round(rows.length / 5)) === 0);
+  const snapshotTickLabel = (timestamp) => {
+    const formatted = dateTime(timestamp);
+    return formatted.slice(0, 10);
+  };
   const lastDaily = latest?.daily_return_pct;
   const best = data.best_daily_snapshot;
   const worst = data.worst_daily_snapshot;
@@ -323,11 +412,11 @@ function PortfolioPerformanceChart({ data = {} }) {
     <section className="panel">
       <div className="sectionHeader">
         <h2>Rendimento portafoglio</h2>
-        <span>{rows.length ? `${rows.length} snapshot salvati` : "storico non ancora disponibile"}</span>
+        <span>{rows.length ? `${rows.length} giorni disponibili` : "storico non ancora disponibile"}</span>
       </div>
       <div className="performanceHistoryStats">
-        <div><span>Valore ultimo snapshot</span><b>{eur(latest?.total_value)}</b></div>
-        <div><span>P/L ultimo snapshot</span><b className={signedClass(latest?.total_pnl)}>{eur(latest?.total_pnl)} ({pct(latest?.total_pnl_pct)})</b></div>
+        <div><span>Valore ultimo giorno</span><b>{eur(latest?.total_value)}</b></div>
+        <div><span>P/L ultimo giorno</span><b className={signedClass(latest?.total_pnl)}>{eur(latest?.total_pnl)} ({pct(latest?.total_pnl_pct)})</b></div>
         <div><span>Rendimento giornaliero</span><b className={signedClass(lastDaily)}>{pct(lastDaily)}</b></div>
         <div><span>Range giornaliero storico</span><b>{pct(worst?.daily_return_pct)} / {pct(best?.daily_return_pct)}</b></div>
       </div>
@@ -339,13 +428,13 @@ function PortfolioPerformanceChart({ data = {} }) {
           {ticks.map((tick) => (
             <g key={tick} className="gridLine">
               <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
-              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace("EUR ", "")}</text>
+              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace(" €", "")}</text>
             </g>
           ))}
           {dateTicks.map((tick) => (
             <g key={`${tick.timestamp}-${tick.index}`} className="dateTick">
               <line x1={x(tick.index)} x2={x(tick.index)} y1={pad.top + plotH} y2={pad.top + plotH + 7} />
-              <text x={x(tick.index)} y={height - 18}>{dateTime(tick.timestamp).slice(0, 10)}</text>
+              <text x={x(tick.index)} y={height - 18}>{snapshotTickLabel(tick.timestamp)}</text>
             </g>
           ))}
           <path className={pnlValues[pnlValues.length - 1] >= 0 ? "portfolioLine positiveLine" : "portfolioLine negativeLine"} d={path} />
@@ -370,7 +459,7 @@ function ExitConditions({ rows = [], onChart }) {
   if (!rows.length) {
     return (
       <section className="panel">
-        <h2>Condizioni di uscita</h2>
+        <h2>Piano di uscita</h2>
         <div className="emptyState">Nessuna posizione aperta da gestire.</div>
       </section>
     );
@@ -378,8 +467,8 @@ function ExitConditions({ rows = [], onChart }) {
   return (
     <section className="panel">
       <div className="sectionHeader">
-        <h2>Condizioni di uscita</h2>
-        <span>Basate su supporti/resistenze e analisi Playwright quando disponibile</span>
+        <h2>Piano di uscita</h2>
+        <span>Stop, target e segnali operativi sulle posizioni gia in portafoglio</span>
       </div>
       <div className="exitGrid">
         {rows.map((row) => (
@@ -388,13 +477,13 @@ function ExitConditions({ rows = [], onChart }) {
               <strong>{row.ticker}</strong>
               <span className={`status ${row.status_kind}`}>{row.status}</span>
             </div>
-            <div className="triggerGrid">
-              <div><span>Prezzo</span><b>{price(row.current_price)}</b></div>
-              <div><span>Oggi</span><b className={signedClass(row.daily_change_pct)}>{pct(row.daily_change_pct)}</b></div>
-              <div><span>P/L posizione</span><b className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</b></div>
+            <div className="exitSummary">
+              Prezzo e P/L sono nella tabella portafoglio. Qui trovi solo i livelli decisionali.
+            </div>
+            <div className="triggerGrid exitLevelGrid">
               <div><span>Stop uscita</span><b>{price(row.stop_level)}</b></div>
-              <div><span>Take profit</span><b>{price(row.take_profit_level)}</b></div>
               <div><span>Distanza stop</span><b className={signedClass(row.distance_to_stop_pct)}>{pct(row.distance_to_stop_pct)}</b></div>
+              <div><span>Take profit</span><b>{price(row.take_profit_level)}</b></div>
               <div><span>Distanza target</span><b className={signedClass(row.distance_to_take_profit_pct)}>{pct(row.distance_to_take_profit_pct)}</b></div>
             </div>
             <p className="exitAction">{row.primary_action}</p>
@@ -420,9 +509,11 @@ function ExitConditions({ rows = [], onChart }) {
   );
 }
 
-function TriggerCard({ item, onChart }) {
+function TriggerCard({ item, onChart, isInPortfolio = false }) {
   const progress = item.trigger_progress ?? 0;
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
+  const triggerLabel = isInPortfolio ? "Trigger incremento" : "Trigger ingresso";
+  const actionLabel = isInPortfolio ? "Incremento/ribilanciamento" : "Ingresso";
   const scenarioKind = item.scenario_state === "BUY_CANDIDATE"
     ? "positive"
     : item.scenario_state === "CONFIRMING" || item.scenario_state === "NEAR_TRIGGER"
@@ -436,6 +527,11 @@ function TriggerCard({ item, onChart }) {
         <strong>{item.ticker}</strong>
         <span className={`status ${item.trigger_status_kind}`}>{item.trigger_status}</span>
       </div>
+      {isInPortfolio && (
+        <div className="positionContext">
+          Gia in portafoglio: questo box non e il P/L, serve per decidere se incrementare o ribilanciare.
+        </div>
+      )}
       {item.scenario_state && (
         <div className="scenarioLine">
           <span className={`status ${scenarioKind}`}>{item.scenario_state}</span>
@@ -445,7 +541,7 @@ function TriggerCard({ item, onChart }) {
       <div className="triggerGrid">
         <div><span>Prezzo attuale</span><b>{price(item.current_price)}</b></div>
         <div><span>Oggi</span><b className={signedClass(item.daily_change_pct)}>{pct(item.daily_change_pct)}</b></div>
-        <div><span>Trigger ingresso</span><b>{price(item.trigger_level)}</b></div>
+        <div><span>{triggerLabel}</span><b>{price(item.trigger_level)}</b></div>
         <div><span>Supporto/stop</span><b>{price(item.support_level)}</b></div>
         <div><span>Distanza trigger</span><b className={signedClass(item.trigger_distance_pct)}>{pct(item.trigger_distance_pct)}</b></div>
       </div>
@@ -455,7 +551,7 @@ function TriggerCard({ item, onChart }) {
         {item.trigger_distance_pct >= 0
           ? `Prezzo sopra il trigger di ${pct(item.trigger_distance_pct, false)}.`
           : missing !== null
-            ? `Mancano ${pct(missing, false)} al trigger di ingresso.`
+            ? `Mancano ${pct(missing, false)} al trigger di ${actionLabel.toLowerCase()}.`
             : "Distanza dal trigger non disponibile."}
       </p>
       <p className="condition">{item.condition}</p>
@@ -467,6 +563,10 @@ function TriggerCard({ item, onChart }) {
 
 function marketGroupForCondition(row) {
   const market = `${row.market || ""} ${row.asset_class || ""} ${row.source || ""} ${row.condition || ""}`.toLowerCase();
+  const ticker = String(row.ticker || "").toUpperCase();
+  if (market.includes(" etf") || market.includes("etf") || ticker === "ROBO.MI") {
+    return "etf";
+  }
   if (market.includes("materie") || market.includes("commodity") || market.includes("etc") || market.includes("etn")) {
     return "commodities";
   }
@@ -476,7 +576,7 @@ function marketGroupForCondition(row) {
   return "other";
 }
 
-function MonitoringGroup({ title, subtitle, rows, onChart }) {
+function MonitoringGroup({ title, subtitle, rows, onChart, positionTickers }) {
   if (!rows.length) return null;
   const near = rows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
   return (
@@ -489,18 +589,28 @@ function MonitoringGroup({ title, subtitle, rows, onChart }) {
         <span>{rows.length} trigger | {near.length} vicini entro +/-3%</span>
       </div>
       <div className="cardsGrid">
-        {rows.map((item) => <TriggerCard key={item.id || item.ticker} item={item} onChart={onChart} />)}
+        {rows.map((item) => (
+          <TriggerCard
+            key={item.id || item.ticker}
+            item={item}
+            onChart={onChart}
+            isInPortfolio={positionTickers.has(String(item.ticker || "").toUpperCase())}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function Monitoring({ rows = [], onChart }) {
-  const near = rows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
+function Monitoring({ rows = [], positions = [], onChart }) {
+  const uniqueRows = uniqueConditionsByTicker(rows);
+  const positionTickers = new Set(positions.map((row) => String(row.ticker || "").toUpperCase()));
+  const near = uniqueRows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
   const groups = {
-    ftse: rows.filter((row) => marketGroupForCondition(row) === "ftse"),
-    commodities: rows.filter((row) => marketGroupForCondition(row) === "commodities"),
-    other: rows.filter((row) => marketGroupForCondition(row) === "other"),
+    ftse: uniqueRows.filter((row) => marketGroupForCondition(row) === "ftse"),
+    commodities: uniqueRows.filter((row) => marketGroupForCondition(row) === "commodities"),
+    etf: uniqueRows.filter((row) => marketGroupForCondition(row) === "etf"),
+    other: uniqueRows.filter((row) => marketGroupForCondition(row) === "other"),
   };
   return (
     <section className="panel">
@@ -513,20 +623,30 @@ function Monitoring({ rows = [], onChart }) {
         subtitle="Azioni italiane e condizioni operative sul listino principale."
         rows={groups.ftse}
         onChart={onChart}
+        positionTickers={positionTickers}
       />
       <MonitoringGroup
         title="Materie prime / ETC"
         subtitle="Strumenti commodity, ETC/ETN e sottostanti materie prime."
         rows={groups.commodities}
         onChart={onChart}
+        positionTickers={positionTickers}
+      />
+      <MonitoringGroup
+        title="ETF"
+        subtitle="ETF tematici e strumenti indicizzati configurati manualmente."
+        rows={groups.etf}
+        onChart={onChart}
+        positionTickers={positionTickers}
       />
       <MonitoringGroup
         title="Altri strumenti e watchlist"
         subtitle="Ticker esteri o condizioni manuali non classificate."
         rows={groups.other}
         onChart={onChart}
+        positionTickers={positionTickers}
       />
-      {!rows.length && <div className="okBox">Nessuna condizione monitorata.</div>}
+      {!uniqueRows.length && <div className="okBox">Nessuna condizione monitorata.</div>}
     </section>
   );
 }
@@ -710,7 +830,10 @@ function Watchlist({ rows = [], reload, onChart }) {
 function MarketScanner({
   title,
   subtitle,
+  marketKey,
   rows = [],
+  monitoredRows = [],
+  positions = [],
   scanEndpoint,
   countLabel,
   emptyText,
@@ -722,6 +845,35 @@ function MarketScanner({
   const [scan, setScan] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const [universeRows, setUniverseRows] = useState([]);
+  const [universeMessage, setUniverseMessage] = useState("");
+  const [manualTicker, setManualTicker] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [importPath, setImportPath] = useState("");
+  const [replaceImport, setReplaceImport] = useState(false);
+  const [activateImport, setActivateImport] = useState(false);
+  const minOperationalScore = 5;
+
+  async function loadUniverse() {
+    if (!marketKey) return;
+    try {
+      const result = await api(`/api/markets/${marketKey}/universe`);
+      setUniverseRows(result.items || []);
+    } catch (error) {
+      setUniverseMessage(`Lista mercato non disponibile: ${error.message}`);
+    }
+  }
+
+  useEffect(() => {
+    loadUniverse();
+  }, [marketKey]);
+
+  const activeUniverseRows = universeRows.length
+    ? universeRows.filter((item) => item.active !== false)
+    : rows;
 
   async function runScan() {
     setBusy(true);
@@ -741,18 +893,174 @@ function MarketScanner({
     }
   }
 
-  const candidates = scan?.candidates || [];
+  async function addInstrument() {
+    if (!marketKey || !manualTicker.trim()) return;
+    setUniverseMessage(`Aggiungo ${manualTicker.trim().toUpperCase()} alla lista ${title}...`);
+    try {
+      await api(`/api/markets/${marketKey}/instrument`, {
+        method: "POST",
+        body: JSON.stringify({
+          ticker: manualTicker.trim().toUpperCase(),
+          name: manualName.trim(),
+          description: manualDescription.trim(),
+          active: true,
+        }),
+      });
+      setManualTicker("");
+      setManualName("");
+      setManualDescription("");
+      setUniverseMessage("Strumento aggiunto e attivato.");
+      await loadUniverse();
+    } catch (error) {
+      setUniverseMessage(`Errore aggiunta strumento: ${error.message}`);
+    }
+  }
+
+  async function toggleInstrument(row) {
+    if (!marketKey || !row?.ticker) return;
+    const nextActive = row.active === false;
+    try {
+      await api(`/api/markets/${marketKey}/instrument/${encodeURIComponent(row.ticker)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: nextActive }),
+      });
+      setUniverseMessage(`${row.ticker} ${nextActive ? "attivato" : "disattivato"} nello scope operativo.`);
+      await loadUniverse();
+    } catch (error) {
+      setUniverseMessage(`Errore aggiornamento ${row.ticker}: ${error.message}`);
+    }
+  }
+
+  async function removeInstrument(row) {
+    if (!marketKey || !row?.ticker) return;
+    try {
+      await api(`/api/markets/${marketKey}/instrument/${encodeURIComponent(row.ticker)}`, { method: "DELETE" });
+      setUniverseMessage(`${row.ticker} rimosso dalla lista configurata.`);
+      await loadUniverse();
+    } catch (error) {
+      setUniverseMessage(`Errore rimozione ${row.ticker}: ${error.message}`);
+    }
+  }
+
+  async function importExcel() {
+    if (!marketKey || !importPath.trim()) return;
+    setUniverseMessage(`Import Excel in corso per ${title}...`);
+    try {
+      const result = await api(`/api/markets/${marketKey}/import-excel`, {
+        method: "POST",
+        body: JSON.stringify({
+          path: importPath.trim(),
+          replace: replaceImport,
+          activate: activateImport,
+        }),
+        timeoutMs: 120000,
+      });
+      setUniverseMessage(`Import completato: ${result.imported || 0} righe importate, ${result.active_count || 0} attive.`);
+      await loadUniverse();
+    } catch (error) {
+      setUniverseMessage(`Errore import Excel: ${error.message}`);
+    }
+  }
+
+  const scanCandidates = scan?.candidates || [];
+  const scanRows = scan?.scanned_rows || [];
+  const uniqueMonitoredRows = useMemo(() => uniqueConditionsByTicker(monitoredRows), [monitoredRows]);
+  const monitoredByTicker = useMemo(() => {
+    const map = new Map();
+    uniqueMonitoredRows.forEach((item) => {
+      if (item.ticker) map.set(String(item.ticker).toUpperCase(), item);
+    });
+    return map;
+  }, [uniqueMonitoredRows]);
+  const positionByTicker = useMemo(() => {
+    const map = new Map();
+    positions.forEach((item) => {
+      if (item.ticker) map.set(String(item.ticker).toUpperCase(), item);
+    });
+    return map;
+  }, [positions]);
+  const candidateByTicker = useMemo(() => {
+    const map = new Map();
+    scanCandidates.forEach((item) => {
+      if (item.ticker) map.set(String(item.ticker).toUpperCase(), item);
+    });
+    return map;
+  }, [scanCandidates]);
+  const rowByTicker = useMemo(() => {
+    const map = new Map();
+    activeUniverseRows.forEach((item) => {
+      if (item.ticker) map.set(String(item.ticker).toUpperCase(), item);
+    });
+    return map;
+  }, [activeUniverseRows]);
+  const mergedRows = useMemo(() => {
+    const map = new Map();
+    activeUniverseRows.forEach((item) => map.set(String(item.ticker || "").toUpperCase(), { ...item }));
+    scanRows.forEach((item) => {
+      const ticker = String(item.ticker || "").toUpperCase();
+      map.set(ticker, { ...(map.get(ticker) || {}), ...item });
+    });
+    scanCandidates.forEach((item) => {
+      const ticker = String(item.ticker || "").toUpperCase();
+      map.set(ticker, { ...(map.get(ticker) || {}), ...item });
+    });
+    monitoredRows.forEach((item) => {
+      const ticker = String(item.ticker || "").toUpperCase();
+      const base = map.get(ticker);
+      if (base) map.set(ticker, { ...base, monitored: item });
+    });
+    return Array.from(map.values()).filter((item) => item.ticker);
+  }, [activeUniverseRows, scanRows, scanCandidates, monitoredRows]);
+  const monitoredInUniverse = uniqueMonitoredRows.filter((item) => rowByTicker.has(String(item.ticker || "").toUpperCase()));
+  const nearMonitored = monitoredInUniverse.filter((item) => item.trigger_distance_pct !== null && item.trigger_distance_pct !== undefined && Math.abs(item.trigger_distance_pct) <= 3);
+  const hasScore = (item) => item.score !== null && item.score !== undefined && item.score !== "";
+  const isHeldTicker = (ticker) => positionByTicker.has(String(ticker || "").toUpperCase());
+  const isOperationalCandidate = (item) => (
+    item &&
+    item.liquidity_ok !== false &&
+    Number(item.score || 0) >= minOperationalScore &&
+    !isHeldTicker(item.ticker)
+  );
+  const scannedRows = mergedRows
+    .filter((item) => hasScore(item))
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+  const liquidScannedRows = scannedRows.filter((item) => item.liquidity_ok !== false);
+  const lowLiquidityScannedRows = scannedRows.filter((item) => item.liquidity_ok === false);
+  const visibleCandidates = scanCandidates.length
+    ? scanCandidates.filter(isOperationalCandidate)
+    : liquidScannedRows.filter(isOperationalCandidate).slice(0, Number(limit) || 8);
+  const heldScannerRows = (scanCandidates.length ? scanCandidates : liquidScannedRows)
+    .filter((item) => item.liquidity_ok !== false && isHeldTicker(item.ticker));
+  const liquidCandidates = visibleCandidates.filter((item) => item.liquidity_ok !== false);
+  const bestCandidate = visibleCandidates[0];
+  const filteredRows = mergedRows.filter((item) => {
+    const text = `${item.ticker || ""} ${item.name || ""} ${item.sector || ""} ${item.industry || ""} ${item.market || ""}`.toLowerCase();
+    if (query.trim() && !text.includes(query.trim().toLowerCase())) return false;
+    const ticker = String(item.ticker || "").toUpperCase();
+    if (filter === "monitored") return monitoredByTicker.has(ticker);
+    if (filter === "candidates") return isOperationalCandidate(item);
+    if (filter === "liquid") return (candidateByTicker.has(ticker) || hasScore(item)) && item.liquidity_ok !== false;
+    if (filter === "illiquid") return (candidateByTicker.has(ticker) || hasScore(item)) && item.liquidity_ok === false;
+    return true;
+  });
+  const filterOptions = [
+    ["all", "Tutti"],
+    ["monitored", "Monitorati"],
+    ["candidates", "Nuovi candidati"],
+    ["liquid", "Liquidi"],
+    ["illiquid", "Liquidita bassa"],
+  ];
 
   return (
     <section className="panel">
       <div className="sectionHeader">
         <h2>{title}</h2>
         <div className="sectionActions">
-          <span>{rows.length} {countLabel}</span>
+          <span>{activeUniverseRows.length} attivi / {universeRows.length || rows.length} totali</span>
           <label className="inlineControl">Top
             <input type="number" min="3" max="30" value={limit} onChange={(event) => setLimit(event.target.value)} />
           </label>
-          <button onClick={runScan} disabled={busy || !rows.length}>
+          <button onClick={runScan} disabled={busy || !activeUniverseRows.length}>
             {busy ? "Scansione..." : `Scansiona ${title}`}
           </button>
         </div>
@@ -760,11 +1068,75 @@ function MarketScanner({
       {subtitle && <p className="marketSubtitle">{subtitle}</p>}
       {message && <div className={`scanMessage ${busy ? "running" : ""}`}>{message}</div>}
 
-      {candidates.length > 0 && (
+      {marketKey && (
+        <div className="marketListManager">
+          <div className="listManagerHeader">
+            <div>
+              <h3>Gestione lista mercato</h3>
+              <p>Aggiungi strumenti a mano oppure importa un Excel, poi seleziona quali restano nello scope operativo.</p>
+            </div>
+            <span>{activeUniverseRows.length} attivi</span>
+          </div>
+          <div className="listManagerForms">
+            <div className="listManagerForm">
+              <b>Aggiunta manuale</b>
+              <input value={manualTicker} onChange={(event) => setManualTicker(event.target.value)} placeholder="Ticker, es. ROBO.MI" />
+              <input value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="Nome" />
+              <input value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Descrizione o motivo" />
+              <button onClick={addInstrument} disabled={!manualTicker.trim()}>Aggiungi attivo</button>
+            </div>
+            <div className="listManagerForm importForm">
+              <b>Import da Excel</b>
+              <input value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="Percorso file .xlsx sul PC" />
+              <label><input type="checkbox" checked={replaceImport} onChange={(event) => setReplaceImport(event.target.checked)} /> Sostituisci lista configurata</label>
+              <label><input type="checkbox" checked={activateImport} onChange={(event) => setActivateImport(event.target.checked)} /> Attiva subito gli importati</label>
+              <button onClick={importExcel} disabled={!importPath.trim()}>Importa Excel</button>
+            </div>
+          </div>
+          {universeMessage && <div className="universeMessage">{universeMessage}</div>}
+          <div className="universeSelection">
+            {(universeRows.length ? universeRows : rows).slice(0, 120).map((item) => (
+              <div className={`universeSelectionRow ${item.active === false ? "disabled" : ""}`} key={item.ticker}>
+                <label>
+                  <input type="checkbox" checked={item.active !== false} onChange={() => toggleInstrument(item)} />
+                  <span>{item.ticker}</span>
+                </label>
+                <em>{item.name || item.description || "n/d"}</em>
+                {universeRows.length > 0 && <button className="miniButton" onClick={() => removeInstrument(item)}>Rimuovi</button>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="marketOverview">
+        <article className="marketKpi">
+          <span>Universo</span>
+          <strong>{activeUniverseRows.length}</strong>
+          <small>{countLabel}</small>
+        </article>
+        <article className="marketKpi">
+          <span>Monitorati</span>
+          <strong>{monitoredInUniverse.length}</strong>
+          <small>{nearMonitored.length} vicini entro +/-3%</small>
+        </article>
+        <article className="marketKpi">
+          <span>Score disponibili</span>
+          <strong>{scannedRows.length || "n/d"}</strong>
+          <small>{scannedRows.length ? `${liquidScannedRows.length} liquidi, ${lowLiquidityScannedRows.length} esclusi per liquidita` : "premi Scansiona per aggiornare"}</small>
+        </article>
+        <article className="marketKpi highlight">
+          <span>Migliore candidato</span>
+          <strong>{bestCandidate?.ticker || "n/d"}</strong>
+          <small>{bestCandidate ? `score ${bestCandidate.score} | oggi ${pct(bestCandidate.change_1d_pct)}` : "nessuno scan recente"}</small>
+        </article>
+      </div>
+
+      {visibleCandidates.length > 0 && (
         <>
-          <h3>Candidati migliori</h3>
+          <h3>Nuovi candidati operativi liquidi dopo scanner</h3>
           <div className="cardsGrid commoditiesGrid">
-            {candidates.map((item) => (
+            {visibleCandidates.map((item) => (
               <div className="commodityCard" key={item.ticker}>
                 <div className="commodityCardHeader">
                   <div>
@@ -802,8 +1174,55 @@ function MarketScanner({
         </>
       )}
 
-      <h3>Universo disponibile</h3>
-      {!rows.length ? (
+      {heldScannerRows.length > 0 && (
+        <div className="heldScannerPanel">
+          <div>
+            <h3>Posizioni gia in portafoglio rilevate dallo scanner</h3>
+            <p>
+              Questi titoli non sono nuovi ingressi: lo scanner li considera tecnicamente interessanti,
+              ma vanno letti nella sezione Portafoglio e Condizioni di uscita.
+            </p>
+          </div>
+          <div className="heldScannerList">
+            {heldScannerRows.map((item) => (
+              <button
+                key={item.ticker}
+                className="heldScannerItem"
+                onClick={() => onChart({
+                  ticker: item.ticker,
+                  condition: chartCondition(item),
+                })}
+              >
+                <strong>{item.ticker}</strong>
+                <span>score {item.score} | oggi {pct(item.change_1d_pct)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="marketToolbar">
+        <div>
+          <h3>Vista operativa universo</h3>
+          <p>Filtra per stato operativo, liquidita o cerca direttamente un ticker.</p>
+        </div>
+        <div className="marketFilters">
+          <div className="segmentedControl">
+            {filterOptions.map(([id, label]) => (
+              <button key={id} className={filter === id ? "active" : ""} onClick={() => setFilter(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="marketSearch"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Cerca in ${title}...`}
+          />
+        </div>
+      </div>
+      {!activeUniverseRows.length ? (
         <div className="emptyState">{emptyText}</div>
       ) : (
         <div className="tableWrap">
@@ -811,29 +1230,83 @@ function MarketScanner({
             <thead>
               <tr>
                 {universeColumns.map((column) => <th key={column.key}>{column.label}</th>)}
+                <th>Stato</th>
+                <th>Score</th>
+                <th>Trigger / liquidita</th>
                 <th>Azioni</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.ticker}>
-                  {universeColumns.map((column) => (
-                    <td key={column.key} className={column.key === "ticker" ? "ticker" : ""}>
-                      {column.render ? column.render(row) : row[column.key] || "n/d"}
+              {filteredRows.map((row) => {
+                const ticker = String(row.ticker || "").toUpperCase();
+                const monitored = monitoredByTicker.get(ticker);
+                const inPortfolio = positionByTicker.has(ticker);
+                const isCandidate = isOperationalCandidate(row);
+                const scannedButWeak = hasScore(row) && row.liquidity_ok !== false && !isCandidate && !inPortfolio;
+                return (
+                  <tr key={row.ticker}>
+                    {universeColumns.map((column) => (
+                      <td key={column.key} className={column.key === "ticker" ? "ticker" : ""}>
+                        {column.render ? column.render(row) : row[column.key] || "n/d"}
+                      </td>
+                    ))}
+                    <td>
+                      <div className="statusStack">
+                        {monitored && <span className={`status ${monitored.trigger_status_kind || "warning"}`}>{monitored.trigger_status || "monitorato"}</span>}
+                        {inPortfolio && <span className="status portfolio">in portafoglio</span>}
+                        {isCandidate && <span className="status positive">nuovo candidato</span>}
+                        {hasScore(row) && row.liquidity_ok === false && <span className="status danger">escluso liquidita</span>}
+                        {scannedButWeak && <span className="status neutral">score sotto soglia</span>}
+                        {!monitored && !inPortfolio && !isCandidate && !hasScore(row) && <span className="status neutral">universo</span>}
+                      </div>
                     </td>
-                  ))}
-                  <td>
-                    <button className="miniButton" onClick={() => onChart({
-                      ticker: row.ticker,
-                      condition: row.name || title,
-                    })}><LineChart size={15} /> Grafico</button>
-                  </td>
-                </tr>
-              ))}
+                    <td>
+                      {hasScore(row) ? (
+                        <div className="scoreCell">
+                          <b>{row.score}</b>
+                          <span className={signedClass(row.change_1d_pct)}>{pct(row.change_1d_pct)}</span>
+                        </div>
+                      ) : "n/d"}
+                    </td>
+                    <td className="operationalCell">
+                      {monitored ? (
+                        <>
+                          <b>{price(monitored.trigger_level)}</b>
+                          <span>{monitored.trigger_distance_pct !== null && monitored.trigger_distance_pct !== undefined ? `${pct(monitored.trigger_distance_pct)} dal trigger` : "trigger monitorato"}</span>
+                        </>
+                      ) : inPortfolio ? (
+                        <>
+                          <b>posizione aperta</b>
+                          <span>Gestire da Portafoglio e Condizioni di uscita; non e un nuovo ingresso.</span>
+                        </>
+                      ) : isCandidate ? (
+                        <>
+                          <b>{row.liquidity_ok === false ? "liquidita bassa" : "liquidita ok"}</b>
+                          <span>{(row.reasons || []).slice(0, 2).join("; ") || "segnali tecnici"}</span>
+                        </>
+                      ) : scannedButWeak ? (
+                        <>
+                          <b>non operativo</b>
+                          <span>Score {row.score} sotto soglia {minOperationalScore}; resta visibile solo come risultato scanner.</span>
+                        </>
+                      ) : (
+                        <span>Da valutare con scanner</span>
+                      )}
+                    </td>
+                    <td>
+                      <button className="miniButton" onClick={() => onChart({
+                        ticker: row.ticker,
+                        condition: monitored?.condition || chartCondition(row) || row.name || title,
+                      })}><LineChart size={15} /> Grafico</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
+      {activeUniverseRows.length > 0 && filteredRows.length === 0 && <div className="emptyState">Nessuno strumento corrisponde ai filtri impostati.</div>}
       <p className="small">
         Questo mercato entra nello stesso funnel operativo: scanner tecnico, short-list dei candidati interessanti, approfondimento selettivo e solo poi trigger/proposte.
       </p>
@@ -841,12 +1314,15 @@ function MarketScanner({
   );
 }
 
-function FtseMib({ rows = [], onChart }) {
+function FtseMib({ rows = [], monitoredRows = [], positions = [], onChart }) {
   return (
     <MarketScanner
       title="FTSE MIB"
       subtitle="Azioni italiane dello stesso universo finora chiamato MIB30 nel codice storico."
+      marketKey="ftse_mib"
       rows={rows}
+      monitoredRows={monitoredRows}
+      positions={positions}
       scanEndpoint="/api/ftse-mib/scan"
       countLabel="titoli disponibili"
       emptyText="File validtickers_IT_MIB30_with_sector.xlsx non trovato o vuoto."
@@ -862,12 +1338,15 @@ function FtseMib({ rows = [], onChart }) {
   );
 }
 
-function Commodities({ rows = [], onChart }) {
+function Commodities({ rows = [], monitoredRows = [], positions = [], onChart }) {
   return (
     <MarketScanner
       title="Materie prime"
       subtitle="ETC/ETN e strumenti legati a commodity caricati da MateriePrime.xlsx."
+      marketKey="commodities"
       rows={rows}
+      monitoredRows={monitoredRows}
+      positions={positions}
       scanEndpoint="/api/commodities/scan"
       countLabel="strumenti da MateriePrime.xlsx"
       emptyText="File MateriePrime.xlsx non trovato o vuoto."
@@ -875,9 +1354,31 @@ function Commodities({ rows = [], onChart }) {
         { key: "ticker", label: "Ticker" },
         { key: "name", label: "Nome" },
         { key: "latest_quotation", label: "Ultima quotazione file" },
-        { key: "market", label: "Mercato", render: (row) => row.market || "Materie prime / ETC" },
       ]}
       chartCondition={(item) => `Materia prima / ETC. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`}
+      onChart={onChart}
+    />
+  );
+}
+
+function Etfs({ rows = [], monitoredRows = [], positions = [], onChart }) {
+  return (
+    <MarketScanner
+      title="ETF"
+      subtitle="ETF tematici configurati manualmente. Per ora include ROBO.MI, Robotics and Automation."
+      marketKey="etfs"
+      rows={rows}
+      monitoredRows={monitoredRows}
+      positions={positions}
+      scanEndpoint="/api/etfs/scan"
+      countLabel="ETF configurati"
+      emptyText="Nessun ETF configurato."
+      universeColumns={[
+        { key: "ticker", label: "Ticker" },
+        { key: "name", label: "Nome" },
+        { key: "description", label: "Descrizione" },
+      ]}
+      chartCondition={(item) => `ETF. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`}
       onChart={onChart}
     />
   );
@@ -920,6 +1421,11 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   const first = prices[0];
   const hover = hoverIndex === null ? last : prices[hoverIndex];
   const hoverX = hover ? x(hoverIndex === null ? prices.length - 1 : hoverIndex) : null;
+  const hoverOpen = hover ? Number(hover.open) : null;
+  const hoverClose = hover ? Number(hover.close) : null;
+  const hoverDailyPct = hoverOpen && hoverClose && Number.isFinite(hoverOpen) && Number.isFinite(hoverClose) && hoverOpen !== 0
+    ? ((hoverClose - hoverOpen) / hoverOpen) * 100
+    : null;
   const bandTop = Number(triggerLevel) > 0 ? y(Number(triggerLevel)) : null;
   const bandBottom = Number(supportLevel) > 0 ? y(Number(supportLevel)) : null;
   const dateTicks = prices
@@ -1047,10 +1553,13 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
         <g className="hoverLayer">
           <line x1={hoverX} x2={hoverX} y1={pad.top} y2={plotBottom} />
           <circle cx={hoverX} cy={y(Number(hover.close))} r="4" />
-          <g transform={`translate(${Math.min(hoverX + 12, width - 172)} ${pad.top + 12})`}>
-            <rect width="152" height="56" rx="8" />
+          <g transform={`translate(${Math.min(hoverX + 12, width - 190)} ${pad.top + 12})`}>
+            <rect width="170" height="76" rx="8" />
             <text x="10" y="22">{hover.date}</text>
             <text x="10" y="44">Close {price(hover.close)}</text>
+            <text x="10" y="64" className={hoverDailyPct !== null && hoverDailyPct >= 0 ? "tooltipPositive" : "tooltipNegative"}>
+              Giorno {pct(hoverDailyPct)}
+            </text>
           </g>
         </g>
       )}
@@ -1400,6 +1909,93 @@ function Chat() {
   );
 }
 
+function DeepPortfolioReport({ report }) {
+  if (!report) return null;
+  const items = report.items || [];
+  const portfolio = report.portfolio || {};
+  const reportTime = report.saved_at || report.finished_at || report.generated_at || report.created_at;
+  const actionLabel = {
+    hold: "Mantieni",
+    mantieni: "Mantieni",
+    reduce: "Riduci",
+    riduci: "Riduci",
+    sell: "Vendi",
+    vendi: "Vendi",
+    protect: "Proteggi",
+    proteggi: "Proteggi",
+  };
+
+  return (
+    <div className="deepReport">
+      <div className="deepReportHeader">
+        <div>
+          <h3>Report analisi portafoglio</h3>
+          {reportTime && <p className="deepReportTimestamp">Ultima analisi: <strong>{dateTime(reportTime)}</strong></p>}
+          <p>{report.summary || "Analisi completata."}</p>
+        </div>
+        <div className="deepReportTotals">
+          <span>Valore <strong>{eur(portfolio.total_value)}</strong></span>
+          <span className={signedClass(portfolio.pnl)}>P/L <strong>{eur(portfolio.pnl)}</strong> ({pct(portfolio.pnl_pct)})</span>
+          <span>Cash <strong>{eur(portfolio.cash)}</strong></span>
+        </div>
+      </div>
+      <div className="deepReportGrid">
+        {items.map((item) => {
+          const decision = item.decision || {};
+          const perf = item.performance || {};
+          const position = item.position || {};
+          const technical = item.technical || {};
+          const levels = decision.levels || {};
+          const action = String(decision.action || "hold").toLowerCase();
+          const actionText = actionLabel[action] || decision.action || "Da valutare";
+          return (
+            <article key={item.ticker} className={`deepReportCard ${signedClass(perf.pnl)}`}>
+              <div className="deepReportCardTop">
+                <h4>{item.ticker}</h4>
+                <span className={`actionBadge ${action}`}>{actionText}</span>
+              </div>
+              <div className="deepReportMetrics">
+                <span><small>Investito</small><strong>{eur(position.invested_amount)}</strong></span>
+                <span><small>Quantita</small><strong>{price(position.quantity)}</strong></span>
+                <span><small>Entry</small><strong>{price(position.entry_price)}</strong></span>
+                <span><small>Prezzo</small><strong>{price(perf.current_price)}</strong></span>
+                <span className={signedClass(perf.pnl)}><small>P/L</small><strong>{eur(perf.pnl)}</strong></span>
+                <span className={signedClass(perf.pnl_pct)}><small>P/L %</small><strong>{pct(perf.pnl_pct)}</strong></span>
+                <span className={signedClass(perf.daily_change_pct)}><small>Oggi</small><strong>{pct(perf.daily_change_pct)}</strong></span>
+                <span><small>Valore</small><strong>{eur(perf.market_value)}</strong></span>
+              </div>
+              <div className="deepReportLevels">
+                <span>Supporto <strong>{price(technical.support || levels.support)}</strong></span>
+                <span>Resistenza <strong>{price(technical.resistance || levels.resistance)}</strong></span>
+                <span>RSI <strong>{price(technical.rsi)}</strong></span>
+                <span>ADX <strong>{price(technical.adx)}</strong></span>
+              </div>
+              <p className="deepReportReason">{decision.reason || "Nessuna motivazione disponibile."}</p>
+              {item.proposal?.id && (
+                <p className="deepReportProposal">
+                  Proposta: <strong>{item.proposal.id}</strong> ({item.proposal.action || "azione n/d"})
+                </p>
+              )}
+              {item.applied && (
+                <p className="deepReportApplied">Operazione applicata: {item.applied.action || "azione"} {item.applied.amount ? eur(item.applied.amount) : ""}</p>
+              )}
+              <details>
+                <summary>File e anteprima analisi</summary>
+                <div className="deepReportFiles">
+                  {item.chart_analysis_file && <span>Grafico AI: {item.chart_analysis_file}</span>}
+                  {item.news_file && <span>News: {item.news_file}</span>}
+                </div>
+                {item.chart_preview && <pre>{cleanText(item.chart_preview).slice(0, 900)}</pre>}
+                {item.news_preview && <pre>{cleanText(item.news_preview).slice(0, 700)}</pre>}
+              </details>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Controls({ reload }) {
   const [scanLimit, setScanLimit] = useState(5);
   const [maxTradePct, setMaxTradePct] = useState(25);
@@ -1408,14 +2004,21 @@ function Controls({ reload }) {
     send_performance_alerts: true,
     max_monitoring_items: 5,
   });
+  const [autonomySettings, setAutonomySettings] = useState({
+    portfolio_action_mode: "full_auto",
+    notify_telegram: true,
+  });
   const [busy, setBusy] = useState("");
   const [log, setLog] = useState("");
+  const [deepReport, setDeepReport] = useState(null);
   const [status, setStatus] = useState({
     state: "idle",
     label: "Pronto",
     detail: "Nessuna operazione in corso.",
     startedAt: null,
     finishedAt: null,
+    percent: 0,
+    events: [],
   });
   const [now, setNow] = useState(Date.now());
 
@@ -1437,6 +2040,30 @@ function Controls({ reload }) {
     loadTelegramSettings();
   }, []);
 
+  useEffect(() => {
+    async function loadAutonomySettings() {
+      try {
+        const result = await api("/api/autonomy/settings");
+        setAutonomySettings(result.settings || autonomySettings);
+      } catch (error) {
+        setLog(`Errore caricamento configurazione autonomia: ${error.message}`);
+      }
+    }
+    loadAutonomySettings();
+  }, []);
+
+  useEffect(() => {
+    async function loadLatestDeepReport() {
+      try {
+        const result = await api("/api/portfolio/deep-analysis/latest");
+        setDeepReport(result.report || null);
+      } catch (error) {
+        // Il report e opzionale: se non esiste ancora, la pagina resta pulita.
+      }
+    }
+    loadLatestDeepReport();
+  }, []);
+
   function elapsedLabel(startedAt, finishedAt) {
     if (!startedAt) return "";
     const end = finishedAt || now;
@@ -1450,6 +2077,7 @@ function Controls({ reload }) {
     const startedAt = Date.now();
     setBusy(label);
     setLog("");
+    setDeepReport(null);
     setNow(startedAt);
     setStatus({
       state: "running",
@@ -1457,6 +2085,8 @@ function Controls({ reload }) {
       detail: `Esecuzione ${label} in corso. Attendo risposta dal backend/agente...`,
       startedAt,
       finishedAt: null,
+      percent: 8,
+      events: [],
     });
     try {
       const result = await api(path, { method: "POST", body: JSON.stringify(body || {}), timeoutMs: 900000 });
@@ -1467,17 +2097,93 @@ function Controls({ reload }) {
         detail: `Operazione ${label} completata.`,
         startedAt,
         finishedAt: Date.now(),
+        percent: 100,
+        events: [],
       });
       reload();
     } catch (error) {
-      setLog(error.message);
+      setLog(
+        error.fullOutput
+          ? `Errore sintetico: ${error.message}\n\nDettaglio completo disponibile nel tab Run log.`
+          : error.message
+      );
       setStatus({
         state: "error",
         label,
         detail: `Errore durante ${label}: ${error.message}`,
         startedAt,
         finishedAt: Date.now(),
+        percent: 100,
+        events: [],
       });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function runDeepPortfolioAnalysis() {
+    const label = "analisi profonda portafoglio";
+    const startedAt = Date.now();
+    setBusy(label);
+    setLog("");
+    setDeepReport(null);
+    setNow(startedAt);
+    setStatus({
+      state: "running",
+      label,
+      detail: "Creo il job e carico le posizioni aperte...",
+      startedAt,
+      finishedAt: null,
+      percent: 1,
+      events: [],
+    });
+    try {
+      const created = await api("/api/portfolio/deep-analysis", {
+        method: "POST",
+        body: JSON.stringify({
+          max_positions: 10,
+          create_proposals: true,
+          auto_apply: ["protective", "full_auto"].includes(autonomySettings.portfolio_action_mode),
+          telegram: autonomySettings.notify_telegram,
+        }),
+      });
+      if (!created.job_id) throw new Error("Il backend non ha restituito il job_id.");
+
+      while (true) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const job = await api(`/api/portfolio/deep-analysis/${created.job_id}`);
+        setStatus({
+          state: job.state === "completed" ? "done" : job.state,
+          label,
+          detail: job.message || "Analisi in corso...",
+          stage: job.stage,
+          ticker: job.ticker,
+          current: job.current,
+          total: job.total,
+          percent: Number.isFinite(job.percent) ? job.percent : 5,
+          events: job.events || [],
+          startedAt,
+          finishedAt: ["completed", "error"].includes(job.state) ? Date.now() : null,
+        });
+        if (job.state === "completed") {
+          setDeepReport(job.result || null);
+          setLog(job.result?.summary || "Analisi approfondita completata.");
+          reload();
+          break;
+        }
+        if (job.state === "error") {
+          throw new Error(job.error || job.message || "Analisi approfondita fallita.");
+        }
+      }
+    } catch (error) {
+      setLog(error.message);
+      setStatus((current) => ({
+        ...current,
+        state: "error",
+        detail: `Errore durante ${label}: ${error.message}`,
+        percent: 100,
+        finishedAt: Date.now(),
+      }));
     } finally {
       setBusy("");
     }
@@ -1522,27 +2228,114 @@ function Controls({ reload }) {
     }
   }
 
+  async function saveAutonomySettings(nextSettings = autonomySettings) {
+    const startedAt = Date.now();
+    setBusy("autonomy-settings");
+    setStatus({
+      state: "running",
+      label: "configurazione autonomia",
+      detail: "Salvataggio regole operative del portafoglio virtuale...",
+      startedAt,
+      finishedAt: null,
+    });
+    try {
+      const result = await api("/api/autonomy/settings", {
+        method: "POST",
+        body: JSON.stringify(nextSettings),
+      });
+      setAutonomySettings(result.settings || nextSettings);
+      setLog(`Configurazione salvata: ${result.settings?.portfolio_action_mode || nextSettings.portfolio_action_mode}`);
+      setStatus({
+        state: "done",
+        label: "configurazione autonomia",
+        detail: "Regole operative salvate e attive anche per i run schedulati.",
+        startedAt,
+        finishedAt: Date.now(),
+      });
+    } catch (error) {
+      setLog(error.message);
+      setStatus({
+        state: "error",
+        label: "configurazione autonomia",
+        detail: `Errore salvataggio autonomia: ${error.message}`,
+        startedAt,
+        finishedAt: Date.now(),
+      });
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <section className="panel">
       <h2>Controlli</h2>
       <div className="controlRow">
-        <label>Scan limit<input type="number" value={scanLimit} min="1" max="40" onChange={(e) => setScanLimit(e.target.value)} /></label>
+        <label>Top candidati<input type="number" value={scanLimit} min="1" max="40" onChange={(e) => setScanLimit(e.target.value)} /></label>
         <label>Max auto trade %<input type="number" value={maxTradePct} min="1" max="100" onChange={(e) => setMaxTradePct(e.target.value)} /></label>
       </div>
       <div className="actions">
         <button onClick={() => run("/api/agent/run-once", { scan_limit: scanLimit, max_auto_trade_pct: maxTradePct }, "monitor SDK")} disabled={!!busy}>Run monitor SDK</button>
         <button
+          onClick={runDeepPortfolioAnalysis}
+          disabled={!!busy}
+        >
+          Analisi profonda portafoglio
+        </button>
+        <button
           onClick={() => run("/api/playwright-monitor/run", { limit: scanLimit, deep_limit: 2, universe_limit: 0, telegram: true }, "monitor Playwright")}
           disabled={!!busy}
         >
-          Run Playwright no API
+          Monitor via ChatGPT Web
         </button>
         <button onClick={() => run("/api/telegram/monitoring", {}, "telegram")} disabled={!!busy}>Telegram monitoraggio</button>
         <button onClick={() => run("/api/telegram/performance", {}, "performance")} disabled={!!busy}>Telegram performance</button>
       </div>
       <p className="controlHint">
-        Il monitor SDK usa OpenAI API key per orchestrare le decisioni. Il monitor Playwright usa ChatGPT nel browser per gli approfondimenti e riduce il consumo token API.
+        Il monitor manuale considera tutto lo scope disponibile; "Top candidati" indica solo quanti migliori risultati sintetizzare dopo lo scan. Il monitor SDK usa OpenAI API key per orchestrare le decisioni. Il monitor Playwright usa ChatGPT nel browser per gli approfondimenti e riduce il consumo token API.
+        L'analisi profonda portafoglio lavora sulle posizioni aperte. I monitor completi applicano la stessa policy anche a nuovi ingressi, incrementi e ribilanciamenti.
       </p>
+      <div className="settingsBox">
+        <div>
+          <h3>Autonomia sul portafoglio virtuale</h3>
+          <p>
+            Stabilisce cosa può fare l'agente su tutto il portafoglio virtuale: nuovi acquisti,
+            incrementi, riduzioni, vendite e ribilanciamenti. Ogni decisione viene registrata nei log.
+          </p>
+        </div>
+        <div className="autonomyModes">
+          {[
+            ["confirmation", "Conferma sempre", "Ogni acquisto, incremento, riduzione, vendita o ribilanciamento resta pending finché l'utente non conferma."],
+            ["protective", "Protezione automatica", "Può ridurre o vendere automaticamente su rischio confermato. Nuovi ingressi e incrementi richiedono conferma."],
+            ["full_auto", "Autonomia completa", "Può comprare, incrementare, ridurre, vendere e ribilanciare automaticamente il portafoglio virtuale."],
+          ].map(([value, label, description]) => (
+            <button
+              key={value}
+              className={autonomySettings.portfolio_action_mode === value ? "selectedMode" : ""}
+              onClick={() => {
+                const next = { ...autonomySettings, portfolio_action_mode: value };
+                setAutonomySettings(next);
+                saveAutonomySettings(next);
+              }}
+              disabled={!!busy}
+            >
+              <strong>{label}</strong>
+              <span>{description}</span>
+            </button>
+          ))}
+        </div>
+        <label className="checkboxLabel">
+          <input
+            type="checkbox"
+            checked={autonomySettings.notify_telegram}
+            onChange={(event) => {
+              const next = { ...autonomySettings, notify_telegram: event.target.checked };
+              setAutonomySettings(next);
+              saveAutonomySettings(next);
+            }}
+          />
+          Notifica su Telegram le operazioni applicate e le nuove proposte che richiedono conferma
+        </label>
+      </div>
       <div className="settingsBox">
         <div>
           <h3>Notifiche Telegram</h3>
@@ -1597,9 +2390,30 @@ function Controls({ reload }) {
           <strong>{status.label}</strong>
           <span>{elapsedLabel(status.startedAt, status.finishedAt)}</span>
         </div>
-        <div className="runProgress" aria-hidden="true"><span /></div>
+        <div className="runProgress" aria-hidden="true">
+          <span style={{ width: `${Math.max(0, Math.min(100, status.percent || 0))}%` }} />
+        </div>
         <p>{status.detail}</p>
+        {status.state === "running" && status.total > 0 && (
+          <div className="runCurrentStep">
+            <strong>{status.current}/{status.total}</strong>
+            <span>{status.ticker || "Portafoglio"}</span>
+            <span>{status.stage?.replaceAll("_", " ")}</span>
+          </div>
+        )}
+        {status.events?.length > 0 && (
+          <div className="runEventLog" aria-live="polite">
+            {status.events.slice(-12).map((event, index) => (
+              <div key={`${event.timestamp}-${index}`} className={event.stage === "error" ? "eventError" : ""}>
+                <time>{event.timestamp ? event.timestamp.slice(11, 19) : "--:--:--"}</time>
+                <strong>{event.ticker || "Sistema"}</strong>
+                <span>{event.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+      <DeepPortfolioReport report={deepReport} />
       {log && <pre className="log">{log}</pre>}
     </section>
   );
@@ -1608,9 +2422,11 @@ function Controls({ reload }) {
 function RunLogs() {
   const [state, setState] = useState({ loading: true, error: "", data: null });
   const [lines, setLines] = useState(300);
+  const [clearing, setClearing] = useState(false);
 
-  async function loadLogs() {
-    setState((current) => ({ ...current, loading: true, error: "" }));
+  async function loadLogs(options = {}) {
+    const silent = Boolean(options.silent);
+    if (!silent) setState((current) => ({ ...current, loading: true, error: "" }));
     try {
       const data = await api(`/api/run-logs?lines=${lines}`);
       setState({ loading: false, error: "", data });
@@ -1620,16 +2436,37 @@ function RunLogs() {
   }
 
   useEffect(() => { loadLogs(); }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => loadLogs({ silent: true }), 3000);
+    return () => window.clearInterval(timer);
+  }, [lines]);
+
+  async function clearLogs() {
+    if (!window.confirm("Vuoi svuotare tutti i log di esecuzione? Portafoglio, condizioni e analisi salvate non verranno toccati.")) return;
+    setClearing(true);
+    try {
+      await api("/api/run-logs/clear", { method: "POST", body: JSON.stringify({}) });
+      await loadLogs();
+    } catch (error) {
+      setState((current) => ({ ...current, error: error.message }));
+    } finally {
+      setClearing(false);
+    }
+  }
 
   return (
     <section className="panel">
       <div className="sectionHeader">
         <h2>Run log</h2>
         <div className="sectionActions">
+          <span className="autoRefreshHint">Auto refresh 3s</span>
           <label className="logLinesControl">Righe
             <input type="number" min="50" max="2000" value={lines} onChange={(event) => setLines(event.target.value)} />
           </label>
           <button className="iconButton" onClick={loadLogs} disabled={state.loading}><RefreshCw size={16} /> Aggiorna log</button>
+          <button className="iconButton dangerButton" onClick={clearLogs} disabled={state.loading || clearing}>
+            <X size={16} /> {clearing ? "Pulisco..." : "Pulisci log"}
+          </button>
         </div>
       </div>
       {state.loading && <div className="chartStatus">Caricamento log run...</div>}
@@ -1644,17 +2481,47 @@ function RunLogs() {
             </div>
           )}
           <div>
-            <h3>web-agent.log</h3>
+            <h3>Journal aggregato dei run</h3>
+            <pre className="log runLog">{state.data.combined_run_log || "Nessun log disponibile."}</pre>
+          </div>
+          {Array.isArray(state.data.log_files) && (
+            <div className="logFileSummary">
+              <h3>File log tracciati</h3>
+              <div className="logFileGrid">
+                {state.data.log_files.map((file) => (
+                  <div className={`logFileCard ${file.size > 0 ? "hasContent" : "emptyLogFile"}`} key={file.name}>
+                    <strong>{file.name}</strong>
+                    <span>{file.exists ? `${file.size} byte` : "non creato"}</span>
+                    <small>{file.updated_at ? formatDateTime(file.updated_at * 1000) : "mai aggiornato"}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <details>
+            <summary>Dettaglio run-journal.log</summary>
+            <pre className="log runLog">{state.data.run_journal_log || "Nessun run registrato nel journal dopo l'ultima pulizia."}</pre>
+          </details>
+          <details>
+            <summary>Dettaglio manual-optimized-run.log</summary>
+            <pre className="log runLog">{state.data.manual_optimized_log || "Nessun run manuale ottimizzato registrato."}</pre>
+          </details>
+          <details>
+            <summary>Dettaglio web-agent.log</summary>
             <pre className="log runLog">{state.data.web_agent_log || "Nessuna richiesta web agente registrata."}</pre>
-          </div>
-          <div>
-            <h3>scheduled-monitor.log</h3>
+          </details>
+          <details>
+            <summary>Dettaglio scheduled-monitor.log</summary>
             <pre className="log runLog">{state.data.scheduled_log || "Nessun output disponibile."}</pre>
-          </div>
-          <div>
-            <h3>scheduled-monitor.err.log</h3>
+          </details>
+          <details>
+            <summary>Dettaglio scheduled-monitor.err.log</summary>
             <pre className="log runLog errorLog">{state.data.scheduled_err || "Nessun errore disponibile."}</pre>
-          </div>
+          </details>
+          <details>
+            <summary>Dettaglio telegram-agent.log</summary>
+            <pre className="log runLog">{state.data.telegram_agent_log || "Nessun log Telegram disponibile."}</pre>
+          </details>
         </div>
       )}
     </section>
@@ -1668,9 +2535,13 @@ function App() {
   const [chartItem, setChartItem] = useState(null);
   const [runNowBusy, setRunNowBusy] = useState(false);
   const [runNowMessage, setRunNowMessage] = useState("");
+  const loadingRef = useRef(false);
 
-  async function load() {
-    setDashboardLoading(true);
+  async function load(options = {}) {
+    const silent = Boolean(options.silent);
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    if (!silent) setDashboardLoading(true);
     try {
       setError("");
       setData(await api("/api/dashboard", { timeoutMs: 120000 }));
@@ -1680,17 +2551,22 @@ function App() {
         : err.message;
       setError(message);
     } finally {
-      setDashboardLoading(false);
+      loadingRef.current = false;
+      if (!silent) setDashboardLoading(false);
     }
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => load({ silent: true }), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
   const perf = data?.performance || {};
   const portfolio = data?.portfolio || {};
 
   async function runNow() {
     setRunNowBusy(true);
-    setRunNowMessage("Esecuzione manuale avviata. L'agente puo impiegare qualche minuto.");
+    setRunNowMessage("Esecuzione manuale avviata. Analizzo tutto lo scope: FTSE MIB, MateriePrime.xlsx, ETF, watchlist e trigger monitorati.");
     try {
       await api("/api/agent/run-once", {
         method: "POST",
@@ -1700,7 +2576,7 @@ function App() {
       setRunNowMessage("Esecuzione manuale completata. Dashboard aggiornata.");
       await load();
     } catch (err) {
-      setRunNowMessage(`Errore esecuzione manuale: ${err.message}`);
+      setRunNowMessage(`Errore esecuzione manuale: ${err.message}. Dettagli completi nel tab Run log.`);
     } finally {
       setRunNowBusy(false);
     }
@@ -1709,9 +2585,10 @@ function App() {
   const tabs = useMemo(() => [
     ["dashboard", "Dashboard"],
     ["ftse-mib", "FTSE MIB"],
-    ["watchlist", "Watchlist"],
     ["commodities", "Materie prime"],
+    ["etfs", "ETF"],
     ["chat", "Chat"],
+    ["watchlist", "Watchlist"],
     ["actions", "Azioni"],
     ["logs", "Run log"],
     ["controls", "Controlli"],
@@ -1752,10 +2629,19 @@ function App() {
       {data && (
         <>
           <div className="metrics">
-            <AgentRunStatus state={data.agent_run_state || {}} />
+            <AgentRunStatus
+              state={data.agent_run_state || {}}
+              stats={{
+                positionsCount: (perf.positions || []).length,
+                monitoredCount: (data.monitored || []).length,
+                ftseMibCount: (data.ftse_mib || []).length,
+                commoditiesCount: (data.commodities || []).length,
+                etfCount: (data.etfs || []).length,
+              }}
+            />
             <Metric label="Capitale" value={eur(portfolio.initial_capital)} icon={<Wallet size={16} />} />
             <Metric label="Valore portafoglio" value={eur(perf.total_value)} delta={perf.total_pnl_pct} icon={<Activity size={16} />} />
-            <Metric label="P/L totale" value={eur(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />
+            <Metric label="P/L totale" value={eur(perf.total_pnl)} valueTone={signedClass(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />
             <Metric label="Cash" value={eur(portfolio.cash)} icon={<Wallet size={16} />} />
           </div>
           {runNowMessage && <div className={`manualRunBanner ${runNowBusy ? "running" : ""}`}>{runNowMessage}</div>}
@@ -1765,13 +2651,14 @@ function App() {
               <PortfolioPerformanceChart data={data.performance_history || {}} />
               <Positions rows={perf.positions || []} onChart={setChartItem} />
               <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
-              <Monitoring rows={data.monitored || []} onChart={setChartItem} />
+              <Monitoring rows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />
             </>
           )}
-          {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} onChart={setChartItem} />}
-          {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
-          {tab === "commodities" && <Commodities rows={data.commodities || []} onChart={setChartItem} />}
+          {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
+          {tab === "commodities" && <Commodities rows={data.commodities || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
+          {tab === "etfs" && <Etfs rows={data.etfs || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
           {tab === "chat" && <Chat />}
+          {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
           {tab === "actions" && <Actions rows={data.recent_actions || []} />}
           {tab === "logs" && <RunLogs />}
           {tab === "controls" && <Controls reload={load} />}

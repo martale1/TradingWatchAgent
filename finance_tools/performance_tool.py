@@ -80,6 +80,12 @@ def build_performance_history_view(history=None):
     cleaned = []
     day_first_values = {}
     previous_value = None
+    available_days = {
+        str(item.get("date") or item.get("timestamp") or "")[:10]
+        for item in rows
+        if str(item.get("date") or item.get("timestamp") or "")[:10]
+    }
+    single_day_history = len(available_days) <= 1
 
     for item in rows:
         total_value = safe_float(item.get("total_value"), None)
@@ -90,7 +96,10 @@ def build_performance_history_view(history=None):
         if day and day not in day_first_values:
             day_first_values[day] = total_value
         day_start = day_first_values.get(day)
-        daily_return_pct = ((total_value - day_start) / day_start * 100.0) if day_start else 0.0
+        if single_day_history:
+            daily_return_pct = safe_float(item.get("total_pnl_pct"), 0.0)
+        else:
+            daily_return_pct = ((total_value - day_start) / day_start * 100.0) if day_start else 0.0
         interval_return_pct = (
             ((total_value - previous_value) / previous_value * 100.0)
             if previous_value
@@ -106,16 +115,36 @@ def build_performance_history_view(history=None):
             }
         )
 
-    best = max(cleaned, key=lambda item: item.get("daily_return_pct", 0), default=None)
-    worst = min(cleaned, key=lambda item: item.get("daily_return_pct", 0), default=None)
-    latest = cleaned[-1] if cleaned else None
+    daily_by_day = {}
+    for item in cleaned:
+        day = str(item.get("date") or item.get("timestamp") or "")[:10]
+        if day:
+            daily_by_day[day] = item
+
+    daily_rows = sorted(daily_by_day.values(), key=lambda item: str(item.get("timestamp") or ""))
+    previous_day_value = None
+    for item in daily_rows:
+        total_value = safe_float(item.get("total_value"), None)
+        if previous_day_value:
+            item["daily_return_pct"] = round(((total_value - previous_day_value) / previous_day_value) * 100.0, 2)
+        else:
+            item["daily_return_pct"] = round(safe_float(item.get("total_pnl_pct"), 0.0), 2)
+        previous_day_value = total_value
+
+    best = max(daily_rows, key=lambda item: item.get("daily_return_pct", 0), default=None)
+    worst = min(daily_rows, key=lambda item: item.get("daily_return_pct", 0), default=None)
+    latest = daily_rows[-1] if daily_rows else None
     return {
         "status": "ok",
-        "count": len(cleaned),
+        "count": len(daily_rows),
+        "snapshot_count": len(cleaned),
         "latest": latest,
         "best_daily_snapshot": best,
         "worst_daily_snapshot": worst,
-        "history": cleaned,
+        "available_days_count": len(available_days),
+        "daily_return_mode": "daily_latest_snapshot",
+        "history": daily_rows,
+        "snapshots": cleaned,
     }
 
 

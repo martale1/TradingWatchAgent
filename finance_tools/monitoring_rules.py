@@ -3,6 +3,7 @@ from datetime import datetime
 
 from finance_tools.chart_tool import generate_snapshot_context
 from finance_tools.commodity_scanner import load_commodity_tickers
+from finance_tools.etf_scanner import load_etf_tickers
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
 from finance_tools.liquidity import liquidity_metrics
 from finance_tools.news_tool import get_news_report
@@ -49,6 +50,13 @@ def _commodity_tickers():
         return set()
 
 
+def _etf_tickers():
+    try:
+        return {str(item.get("ticker", "")).strip().upper() for item in load_etf_tickers() if item.get("ticker")}
+    except Exception:
+        return set()
+
+
 def _fmt_level(value):
     if value is None:
         return None
@@ -79,11 +87,11 @@ def _has_negative_news(report):
     return any(term in text for term in NEGATIVE_NEWS_TERMS)
 
 
-def _has_waiting_condition(ticker):
+def _has_active_condition(ticker):
     ticker = ticker.strip().upper()
-    for item in list_monitored_conditions(status="waiting"):
+    for item in list_monitored_conditions(status=None):
         if str(item.get("ticker", "")).strip().upper() == ticker:
-            return True
+            return item.get("status") in {"waiting", "met"}
     return False
 
 
@@ -160,7 +168,7 @@ def ensure_candidate_conditions(candidates, market, min_score=MIN_MONITOR_SCORE,
     selected = candidates if max_items is None else candidates[: int(max_items)]
     for candidate in selected:
         ticker = str(candidate.get("ticker", "")).strip().upper()
-        if not ticker or _has_waiting_condition(ticker):
+        if not ticker or _has_active_condition(ticker):
             continue
         score = int(candidate.get("score") or 0)
         if score < int(min_score):
@@ -268,7 +276,13 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
     metadata = item.get("metadata", {}) or {}
     market_text = f"{metadata.get('market', '')} {metadata.get('asset_class', '')}".lower()
     commodity_tickers = _commodity_tickers()
-    asset_class = "commodity" if ticker in commodity_tickers or "materie" in market_text or "commodity" in market_text else "equity"
+    etf_tickers = _etf_tickers()
+    if ticker in commodity_tickers or "materie" in market_text or "commodity" in market_text:
+        asset_class = "commodity"
+    elif ticker in etf_tickers or "etf" in market_text:
+        asset_class = "etf"
+    else:
+        asset_class = "equity"
     snapshot = generate_snapshot_context(ticker, period="1y")["snapshot"]
     liquidity = liquidity_metrics(snapshot, asset_class=asset_class)
     scenarios = metadata.get("entry_scenarios") or _scenario_from_legacy_condition(item, snapshot)
@@ -277,6 +291,14 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
     best_state = SCENARIO_WAIT
     best_reason = ""
 
+    print(
+        "[scenario] VALUTO TRIGGER "
+        f"{ticker} | mercato={asset_class} close={snapshot.get('close')} "
+        f"oggi={snapshot.get('change_1d_pct')}% volume_ratio={_volume_ratio(snapshot)} "
+        f"liquidita_ok={liquidity.get('liquidity_ok')} | condizione={item.get('condition')}",
+        flush=True,
+    )
+
     for scenario in scenarios:
         scenario = dict(scenario)
         kind = str(scenario.get("type", "")).upper()
@@ -284,6 +306,12 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
             state, reason = _evaluate_pullback(scenario, snapshot, liquidity)
         else:
             state, reason = _evaluate_breakout(scenario, snapshot, liquidity)
+        print(
+            "[scenario] "
+            f"{ticker} | scenario={kind or 'BREAKOUT'} stato={state} motivo={reason} "
+            f"trigger={scenario.get('trigger')} supporto={scenario.get('support')} stop={scenario.get('stop')}",
+            flush=True,
+        )
         scenario["state"] = state
         scenario["last_reason"] = reason
         scenario["last_price"] = snapshot.get("close")
@@ -301,6 +329,12 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
     chart_confirmation = None
     news_confirmation = None
     if use_playwright and needs_playwright and max_playwright > 0:
+        print(
+            "[scenario] USO PLAYWRIGHT "
+            f"{ticker} | motivo=stato CONFIRMING: {best_reason}; "
+            "serve conferma visuale grafico e news live/non negative prima di BUY_CANDIDATE",
+            flush=True,
+        )
         chart_confirmation = confirm_candidate_with_chart_ai(ticker, no_telegram=True)
         news_confirmation = get_news_report(ticker, live=live_news)
         chart_ok = chart_confirmation.get("status") == "ok"
@@ -317,6 +351,19 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         else:
             best_state = SCENARIO_NEAR_TRIGGER
             best_reason = "conferma Playwright/news non sufficiente per comprare"
+    elif needs_playwright:
+        print(
+            "[scenario] SALTO PLAYWRIGHT "
+            f"{ticker} | motivo=budget Playwright esaurito o disabilitato "
+            f"(use_playwright={use_playwright}, max_playwright={max_playwright}); resta in valutazione numerica",
+            flush=True,
+        )
+    else:
+        print(
+            "[scenario] SALTO PLAYWRIGHT "
+            f"{ticker} | motivo=nessuno scenario in stato CONFIRMING; stato migliore={best_state or SCENARIO_WAIT}",
+            flush=True,
+        )
 
     new_status = item.get("status", "waiting")
     if best_state == SCENARIO_BUY_CANDIDATE:
@@ -354,6 +401,12 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         note=f"{best_state}: {best_reason}",
         metadata=updated_metadata,
     )
+    print(
+        "[scenario] ESITO TRIGGER "
+        f"{ticker} | status_salvato={new_status} scenario_state={best_state} motivo={best_reason or 'nessun cambio'} "
+        f"playwright_usato={bool(chart_confirmation or news_confirmation)}",
+        flush=True,
+    )
     return {
         "condition_id": item.get("id"),
         "ticker": ticker,
@@ -375,11 +428,23 @@ def evaluate_monitored_entry_scenarios(tickers=None, use_playwright=True, live_n
     selected = {str(t).strip().upper() for t in (tickers or []) if str(t).strip()}
     results = []
     used_playwright = 0
+    print(
+        "[scenario] INIZIO RIVALUTAZIONE TRIGGER | "
+        f"tickers={sorted(selected) if selected else 'tutti waiting'} "
+        f"use_playwright={use_playwright} live_news={live_news} max_playwright={max_playwright}",
+        flush=True,
+    )
     for item in list_monitored_conditions(status="waiting"):
         ticker = str(item.get("ticker", "")).strip().upper()
         if selected and ticker not in selected:
             continue
         allow_playwright = use_playwright and used_playwright < int(max_playwright)
+        print(
+            "[scenario] CANDIDATO A RIVALUTAZIONE "
+            f"{ticker} | allow_playwright={allow_playwright} "
+            f"playwright_usati={used_playwright}/{max_playwright}",
+            flush=True,
+        )
         result = evaluate_condition_entry_scenarios(
             item,
             use_playwright=allow_playwright,
@@ -389,6 +454,11 @@ def evaluate_monitored_entry_scenarios(tickers=None, use_playwright=True, live_n
         if result.get("playwright_used"):
             used_playwright += 1
         results.append(result)
+    print(
+        "[scenario] FINE RIVALUTAZIONE TRIGGER | "
+        f"valutati={len(results)} playwright_usati={used_playwright}/{max_playwright}",
+        flush=True,
+    )
     return {
         "status": "ok",
         "evaluated": len(results),
@@ -400,6 +470,7 @@ def evaluate_monitored_entry_scenarios(tickers=None, use_playwright=True, live_n
 def invalidate_illiquid_monitored_conditions():
     """Invalidate existing waiting trigger conditions when liquidity is clearly too low."""
     commodity_tickers = _commodity_tickers()
+    etf_tickers = _etf_tickers()
     invalidated = []
     for item in list_monitored_conditions(status="waiting"):
         ticker = str(item.get("ticker", "")).strip().upper()
@@ -407,7 +478,12 @@ def invalidate_illiquid_monitored_conditions():
             continue
         metadata = item.get("metadata", {}) or {}
         market_text = f"{metadata.get('market', '')} {metadata.get('asset_class', '')}".lower()
-        asset_class = "commodity" if ticker in commodity_tickers or "materie" in market_text or "commodity" in market_text else "equity"
+        if ticker in commodity_tickers or "materie" in market_text or "commodity" in market_text:
+            asset_class = "commodity"
+        elif ticker in etf_tickers or "etf" in market_text:
+            asset_class = "etf"
+        else:
+            asset_class = "equity"
         try:
             snapshot = generate_snapshot_context(ticker, period="1y")["snapshot"]
             liquidity = liquidity_metrics(snapshot, asset_class=asset_class)

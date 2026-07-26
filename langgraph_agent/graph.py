@@ -6,8 +6,13 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from typing import Any
 
+from finance_tools.autonomy_settings import (
+    autonomous_action_allowed,
+    load_autonomy_settings,
+)
 from finance_tools.commodity_scanner import scan_commodity_candidates
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
+from finance_tools.etf_scanner import scan_etf_candidates
 from finance_tools.mib30_scanner import scan_mib30_candidates
 from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.portfolio_store import (
@@ -187,7 +192,7 @@ def _log_scan_rows(
 def load_operating_state(state: TradingGraphState) -> TradingGraphState:
     patch = _log(
         state,
-        "STEP 1/8 load_operating_state START | leggo portafoglio, performance, posizioni e trigger.",
+        "STEP 1/9 load_operating_state START | leggo portafoglio, performance, posizioni e trigger.",
     )
     try:
         portfolio = portfolio_status_summary()
@@ -208,7 +213,7 @@ def load_operating_state(state: TradingGraphState) -> TradingGraphState:
         patch.update(
             _log(
                 {**state, **patch},
-                "STEP 1/8 load_operating_state END | "
+                "STEP 1/9 load_operating_state END | "
                 f"posizioni={len(positions)}, trigger_waiting={len(waiting)}, "
                 f"cash={portfolio.get('cash', 'n/d')}, pnl={performance.get('total_pnl', 'n/d')} | "
                 f"modalita={'operativa_virtuale' if state.get('apply_virtual', True) else 'dry_run'}.",
@@ -227,7 +232,7 @@ def scan_ftse_mib(state: TradingGraphState) -> TradingGraphState:
     universe_limit = state.get("universe_limit")
     patch = _log(
         state,
-        f"STEP 2/8 scan_ftse_mib START | market=FTSE_MIB | "
+        f"STEP 2/9 scan_ftse_mib START | market=FTSE_MIB | "
         f"calcolo locale Yahoo+indicatori | universo={universe_limit or 'completo'} | top={limit} | "
         "OpenAI=no Playwright=no.",
     )
@@ -240,13 +245,13 @@ def scan_ftse_mib(state: TradingGraphState) -> TradingGraphState:
                 verbose=False,
             )
         )
-        _log_captured_tool_output(state, patch, "STEP 2/8", "FTSE_MIB", captured_lines)
+        _log_captured_tool_output(state, patch, "STEP 2/9", "FTSE_MIB", captured_lines)
         patch["ftse_mib_scan"] = scan
         _log_scan_rows(state, patch, "FTSE_MIB", scan)
         patch.update(
             _log(
                 {**state, **patch},
-                f"STEP 2/8 scan_ftse_mib END | market=FTSE_MIB | {scan.get('count', 0)} ok, "
+                f"STEP 2/9 scan_ftse_mib END | market=FTSE_MIB | {scan.get('count', 0)} ok, "
                 f"{len(scan.get('errors', []) or [])} errori, "
                 f"{len(scan.get('candidates', []) or [])} candidati liquidi.",
             )
@@ -264,7 +269,7 @@ def scan_commodities(state: TradingGraphState) -> TradingGraphState:
     universe_limit = state.get("universe_limit")
     patch = _log(
         state,
-        f"STEP 3/8 scan_commodities START | market=COMMODITIES_ETC | "
+        f"STEP 3/9 scan_commodities START | market=COMMODITIES_ETC | "
         f"calcolo locale Yahoo+indicatori | universo={universe_limit or 'completo'} | top={limit} | "
         "OpenAI=no Playwright=no.",
     )
@@ -276,13 +281,13 @@ def scan_commodities(state: TradingGraphState) -> TradingGraphState:
                 verbose=False,
             )
         )
-        _log_captured_tool_output(state, patch, "STEP 3/8", "COMMODITIES_ETC", captured_lines)
+        _log_captured_tool_output(state, patch, "STEP 3/9", "COMMODITIES_ETC", captured_lines)
         patch["commodity_scan"] = scan
         _log_scan_rows(state, patch, "COMMODITIES_ETC", scan)
         patch.update(
             _log(
                 {**state, **patch},
-                f"STEP 3/8 scan_commodities END | market=COMMODITIES_ETC | {scan.get('count', 0)} ok, "
+                f"STEP 3/9 scan_commodities END | market=COMMODITIES_ETC | {scan.get('count', 0)} ok, "
                 f"{len(scan.get('errors', []) or [])} errori, "
                 f"{len(scan.get('candidates', []) or [])} candidati liquidi.",
             )
@@ -295,15 +300,52 @@ def scan_commodities(state: TradingGraphState) -> TradingGraphState:
     return patch
 
 
+def scan_etfs(state: TradingGraphState) -> TradingGraphState:
+    limit = int(state.get("scan_limit", 5))
+    universe_limit = state.get("universe_limit")
+    patch = _log(
+        state,
+        f"STEP 4/9 scan_etfs START | market=ETF | "
+        f"calcolo locale Yahoo+indicatori | universo={universe_limit or 'completo'} | top={limit} | "
+        "OpenAI=no Playwright=no.",
+    )
+    try:
+        scan, captured_lines = _capture_tool_output(
+            lambda: scan_etf_candidates(
+                limit=limit,
+                universe_limit=universe_limit,
+                verbose=False,
+            )
+        )
+        _log_captured_tool_output(state, patch, "STEP 4/9", "ETF", captured_lines)
+        patch["etf_scan"] = scan
+        _log_scan_rows(state, patch, "ETF", scan)
+        patch.update(
+            _log(
+                {**state, **patch},
+                f"STEP 4/9 scan_etfs END | market=ETF | {scan.get('count', 0)} ok, "
+                f"{len(scan.get('errors', []) or [])} errori, "
+                f"{len(scan.get('candidates', []) or [])} candidati liquidi.",
+            )
+        )
+    except Exception as exc:
+        errors = list(state.get("errors", []))
+        errors.append(f"scan_etfs: {exc}")
+        patch.update({"errors": errors})
+        patch.update(_log({**state, **patch}, f"Errore scanner ETF: {exc}"))
+    return patch
+
+
 def build_shortlist(state: TradingGraphState) -> TradingGraphState:
     patch = _log(
         state,
-        "STEP 4/8 build_shortlist START | unisco candidati FTSE MIB + Materie prime, filtro hard liquidita.",
+        "STEP 5/9 build_shortlist START | unisco candidati FTSE MIB + Materie prime + ETF, filtro hard liquidita.",
     )
     rows: list[dict[str, Any]] = []
     for market_key, market_label in [
         ("ftse_mib_scan", "FTSE MIB"),
         ("commodity_scan", "Materie prime/ETC"),
+        ("etf_scan", "ETF"),
     ]:
         scan = state.get(market_key) or {}
         for item in scan.get("candidates", []) or []:
@@ -328,7 +370,7 @@ def build_shortlist(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 4/8 shortlist item #{index} | ticker={item.get('ticker')} "
+                    f"STEP 5/9 shortlist item #{index} | ticker={item.get('ticker')} "
                     f"market={item.get('market_scope')} "
                     f"score={item.get('score')} close={item.get('close')} oggi={item.get('change_1d_pct')}% | "
                     f"motivi={reasons} | rischi={risks}.",
@@ -339,7 +381,7 @@ def build_shortlist(state: TradingGraphState) -> TradingGraphState:
     patch.update(
         _log(
             {**state, **patch},
-            f"STEP 4/8 build_shortlist END | shortlist_size={len(shortlist)}.",
+            f"STEP 5/9 build_shortlist END | shortlist_size={len(shortlist)}.",
         )
     )
     return patch
@@ -348,7 +390,7 @@ def build_shortlist(state: TradingGraphState) -> TradingGraphState:
 def plan_deep_analysis(state: TradingGraphState) -> TradingGraphState:
     patch = _log(
         state,
-        "STEP 5/8 plan_deep_analysis START | policy Playwright: solo posizioni, trigger scattati, buy candidate o richiesta esplicita.",
+        "STEP 6/9 plan_deep_analysis START | policy Playwright: solo posizioni, trigger scattati, buy candidate o richiesta esplicita.",
     )
     portfolio = state.get("portfolio") or {}
     positions = {item.get("ticker") for item in (portfolio.get("positions") or [])}
@@ -385,7 +427,7 @@ def plan_deep_analysis(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 5/8 playwright_plan=yes | ticker={ticker} market={item.get('market_scope')} "
+                    f"STEP 6/9 playwright_plan=yes | ticker={ticker} market={item.get('market_scope')} "
                     f"reason={' ; '.join(reason)}.",
                 )
             )
@@ -393,7 +435,7 @@ def plan_deep_analysis(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 5/8 playwright_plan=no | ticker={ticker} market={item.get('market_scope')} "
+                    f"STEP 6/9 playwright_plan=no | ticker={ticker} market={item.get('market_scope')} "
                     "reason=non_posizione_non_trigger_non_buy_forte.",
                 )
             )
@@ -401,7 +443,7 @@ def plan_deep_analysis(state: TradingGraphState) -> TradingGraphState:
     patch.update(
         _log(
             {**state, **patch},
-            f"STEP 5/8 plan_deep_analysis END | playwright_items={len(plan)}.",
+            f"STEP 6/9 plan_deep_analysis END | playwright_items={len(plan)}.",
         )
     )
     return patch
@@ -411,7 +453,7 @@ def run_deep_analysis(state: TradingGraphState) -> TradingGraphState:
     use_playwright = bool(state.get("use_playwright", True))
     patch = _log(
         state,
-        "STEP 6/8 run_deep_analysis START | "
+        "STEP 7/9 run_deep_analysis START | "
         f"use_playwright={use_playwright} | eseguo Playwright solo sui titoli pianificati.",
     )
     results: list[dict[str, Any]] = []
@@ -423,14 +465,14 @@ def run_deep_analysis(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 6/8 playwright SKIP | ticker={ticker} | motivo_approfondimento={reason}.",
+                    f"STEP 7/9 playwright SKIP | ticker={ticker} | motivo_approfondimento={reason}.",
                 )
             )
             continue
         patch.update(
             _log(
                 {**state, **patch},
-                f"STEP 6/8 playwright START | ticker={ticker} | motivo_approfondimento={reason}.",
+                f"STEP 7/9 playwright START | ticker={ticker} | motivo_approfondimento={reason}.",
             )
         )
         try:
@@ -440,13 +482,13 @@ def run_deep_analysis(state: TradingGraphState) -> TradingGraphState:
                     no_telegram=True,
                 )
             )
-            _log_captured_tool_output(state, patch, "STEP 6/8", f"PLAYWRIGHT {ticker}", captured_lines)
+            _log_captured_tool_output(state, patch, "STEP 7/9", f"PLAYWRIGHT {ticker}", captured_lines)
             report_len = len(result.get("report") or "")
             results.append({**item, **result})
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 6/8 playwright END | ticker={ticker} status={result.get('status')} "
+                    f"STEP 7/9 playwright END | ticker={ticker} status={result.get('status')} "
                     f"analysis_file={result.get('analysis_file')} report_chars={report_len}.",
                 )
             )
@@ -458,14 +500,14 @@ def run_deep_analysis(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 6/8 playwright ERROR | ticker={ticker} | {exc}.",
+                    f"STEP 7/9 playwright ERROR | ticker={ticker} | {exc}.",
                 )
             )
     patch["deep_analysis_results"] = results
     patch.update(
         _log(
             {**state, **patch},
-            f"STEP 6/8 run_deep_analysis END | completati={len(results)}.",
+            f"STEP 7/9 run_deep_analysis END | completati={len(results)}.",
         )
     )
     return patch
@@ -473,10 +515,11 @@ def run_deep_analysis(state: TradingGraphState) -> TradingGraphState:
 
 def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
     apply_virtual = bool(state.get("apply_virtual", True))
+    autonomy_mode = load_autonomy_settings()["portfolio_action_mode"]
     max_pct = float(state.get("max_auto_trade_pct", 25.0) or 25.0)
     patch = _log(
         state,
-        "STEP 7/8 apply_virtual_decisions START | "
+        "STEP 8/9 apply_virtual_decisions START | "
         f"apply_virtual={apply_virtual} max_trade_pct_cash={max_pct}.",
     )
     decisions: list[dict[str, Any]] = []
@@ -529,21 +572,36 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
         patch.update(
             _log(
                 {**state, **patch},
-                f"STEP 7/8 portfolio decision | ticker={ticker} pnl_pct={pnl_pct:.2f} "
+                f"STEP 8/9 portfolio decision | ticker={ticker} pnl_pct={pnl_pct:.2f} "
                 f"action={action} percent={percent:g} applied_pending={apply_virtual and action != 'hold'}.",
             )
         )
         if apply_virtual and action in {"sell", "reduce"} and ticker not in pending_tickers:
+            guarded_action = (
+                "sell_virtual_position" if action == "sell" else "reduce_virtual_position"
+            )
             proposal = add_position_action_proposal(
                 ticker=ticker,
                 action_type=action,
                 reason=reason,
                 percent=percent,
                 reference_price=price,
-                metadata={"source": "langgraph_autonomous", "run_id": state.get("run_id")},
+                metadata={"source": "langgraph_policy", "run_id": state.get("run_id")},
             )
-            result = confirm_proposal(proposal["id"])
             created.append(proposal)
+            pending_tickers.add(ticker)
+            action_allowed, _ = autonomous_action_allowed(guarded_action)
+            if not action_allowed:
+                patch.update(
+                    _log(
+                        {**state, **patch},
+                        f"STEP 8/9 portfolio PENDING_CONFIRMATION | ticker={ticker} "
+                        f"proposal={proposal['id']} action={action} autonomy_mode={autonomy_mode}; "
+                        "attendo conferma utente.",
+                    )
+                )
+                continue
+            result = confirm_proposal(proposal["id"])
             applied.append(
                 {
                     "ticker": ticker,
@@ -556,7 +614,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 7/8 portfolio APPLY | ticker={ticker} proposal={proposal['id']} "
+                    f"STEP 8/9 portfolio APPLY | ticker={ticker} proposal={proposal['id']} "
                     f"action={proposal['action']} status={result.get('status')}.",
                 )
             )
@@ -601,7 +659,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
         patch.update(
             _log(
                 {**state, **patch},
-                f"STEP 7/8 entry decision | ticker={ticker} market={item.get('market_scope')} "
+                f"STEP 8/9 entry decision | ticker={ticker} market={item.get('market_scope')} "
                 f"action={action} score={score:g} liquid={_is_liquid(item)} "
                 f"deep_status={deep_status} deep_confirms_buy={deep_confirms} "
                 f"already_open={already_open} already_pending={already_pending} "
@@ -613,7 +671,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
             proposal = add_buy_proposal(
                 ticker=ticker,
                 reason=(
-                    f"BUY autonomo LangGraph: score {score:g}, liquido, "
+                    f"BUY LangGraph: score {score:g}, liquido, "
                     f"conferma Playwright ok. Motivi: {reason}. Rischi: {risk or 'n/d'}."
                 ),
                 amount=amount,
@@ -626,9 +684,21 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
                     "deep_analysis_file": deep.get("analysis_file"),
                 },
             )
+            created.append(proposal)
+            pending_tickers.add(ticker)
+            action_allowed, _ = autonomous_action_allowed("buy_virtual_position")
+            if not action_allowed:
+                patch.update(
+                    _log(
+                        {**state, **patch},
+                        f"STEP 8/9 entry PENDING_CONFIRMATION | ticker={ticker} "
+                        f"proposal={proposal['id']} amount={amount:.2f} "
+                        f"autonomy_mode={autonomy_mode}; attendo conferma utente.",
+                    )
+                )
+                continue
             result = confirm_proposal(proposal["id"])
             cash = max(0.0, cash - amount)
-            created.append(proposal)
             applied.append(
                 {
                     "ticker": ticker,
@@ -650,7 +720,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 7/8 entry APPLY | ticker={ticker} proposal={proposal['id']} "
+                    f"STEP 8/9 entry APPLY | ticker={ticker} proposal={proposal['id']} "
                     f"amount={amount:.2f} entry={close} status={result.get('status')} cash_after={cash:.2f}.",
                 )
             )
@@ -658,7 +728,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"STEP 7/8 entry SKIP | ticker={ticker} reason=amount_sotto_minimo amount={amount:.2f}.",
+                    f"STEP 8/9 entry SKIP | ticker={ticker} reason=amount_sotto_minimo amount={amount:.2f}.",
                 )
             )
 
@@ -675,7 +745,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
     patch.update(
         _log(
             {**state, **patch},
-            f"STEP 7/8 apply_virtual_decisions END | decisions={len(decisions)} "
+            f"STEP 8/9 apply_virtual_decisions END | decisions={len(decisions)} "
             f"proposals_created={len(created)} trade_applicati={len(applied)}.",
         )
     )
@@ -685,7 +755,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
 def finalize(state: TradingGraphState) -> TradingGraphState:
     patch = _log(
         state,
-        "STEP 8/8 finalize START | preparo riepilogo sintetico del ciclo LangGraph.",
+        "STEP 9/9 finalize START | preparo riepilogo sintetico del ciclo LangGraph.",
     )
     lines = ["Autonomous Trading Agent - LangGraph workflow", ""]
     lines.append(f"Run ID: {state.get('run_id', 'n/d')}")
@@ -730,7 +800,7 @@ def finalize(state: TradingGraphState) -> TradingGraphState:
     patch.update(
         _log(
             {**state, **patch},
-            "STEP 8/8 finalize END | ciclo completato.",
+            "STEP 9/9 finalize END | ciclo completato.",
         )
     )
     return patch
@@ -743,6 +813,7 @@ def build_graph():
     graph.add_node("load_operating_state", load_operating_state)
     graph.add_node("scan_ftse_mib", scan_ftse_mib)
     graph.add_node("scan_commodities", scan_commodities)
+    graph.add_node("scan_etfs", scan_etfs)
     graph.add_node("build_shortlist", build_shortlist)
     graph.add_node("plan_deep_analysis", plan_deep_analysis)
     graph.add_node("run_deep_analysis", run_deep_analysis)
@@ -752,7 +823,8 @@ def build_graph():
     graph.set_entry_point("load_operating_state")
     graph.add_edge("load_operating_state", "scan_ftse_mib")
     graph.add_edge("scan_ftse_mib", "scan_commodities")
-    graph.add_edge("scan_commodities", "build_shortlist")
+    graph.add_edge("scan_commodities", "scan_etfs")
+    graph.add_edge("scan_etfs", "build_shortlist")
     graph.add_edge("build_shortlist", "plan_deep_analysis")
     graph.add_edge("plan_deep_analysis", "run_deep_analysis")
     graph.add_edge("run_deep_analysis", "apply_virtual_decisions")
