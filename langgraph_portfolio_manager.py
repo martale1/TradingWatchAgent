@@ -22,6 +22,22 @@ def main():
         default=None,
         help="Limita il numero di strumenti per mercato durante i test.",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Esegue il grafo senza applicare operazioni al portafoglio virtuale.",
+    )
+    parser.add_argument(
+        "--skip-playwright",
+        action="store_true",
+        help="Salta gli approfondimenti Playwright/ChatGPT: utile per test rapidi del grafo.",
+    )
+    parser.add_argument(
+        "--max-auto-trade-pct",
+        type=float,
+        default=25.0,
+        help="Quota massima del cash usabile per ogni acquisto autonomo virtuale.",
+    )
     parser.add_argument("--json", action="store_true", help="Stampa lo stato finale JSON.")
     args = parser.parse_args()
 
@@ -29,6 +45,9 @@ def main():
         request=args.request,
         scan_limit=args.scan_limit,
         universe_limit=args.universe_limit,
+        apply_virtual=not args.dry_run,
+        use_playwright=not args.skip_playwright,
+        max_auto_trade_pct=args.max_auto_trade_pct,
     )
     if args.json:
         print(state_to_json(final_state))
@@ -39,4 +58,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

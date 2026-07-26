@@ -57,7 +57,7 @@ output/                           # grafici, analisi e cache news
 
 ## Architettura LangGraph proposta
 
-Il branch `codex/langgraph-review` introduce un prototipo LangGraph per rendere il ciclo operativo piu prevedibile. L'idea e spostare la sequenza decisionale dal solo prompt dell'agente a un grafo esplicito, dove ogni nodo ha input, output e responsabilita chiare.
+Il branch `codex/langgraph-review` introduce un workflow LangGraph per rendere il ciclo operativo piu prevedibile. L'idea e spostare la sequenza decisionale dal solo prompt dell'agente a un grafo esplicito, dove ogni nodo ha input, output e responsabilita chiare.
 
 ### Vista logica del grafo
 
@@ -68,14 +68,16 @@ flowchart TD
     C --> D["scan_commodities"]
     D --> E["build_shortlist"]
     E --> F["plan_deep_analysis"]
-    F --> G["draft_decisions"]
-    G --> H["finalize"]
+    F --> G["run_deep_analysis"]
+    G --> H["apply_virtual_decisions"]
+    H --> I["finalize"]
 
     B -. legge .-> B1["portfolio.json"]
     C -. scrive .-> C1["output/stock_ai/mib30_scan.json"]
     D -. scrive .-> D1["output/stock_ai/commodity_scan.json"]
-    F -. pianifica solo se serve .-> F1["Playwright / ChatGPT"]
-    G -. futuro .-> G1["azioni virtuali / trigger / notifiche"]
+    F -. pianifica solo se serve .-> F1["policy Playwright"]
+    G -. esegue solo sui selezionati .-> G1["Playwright / ChatGPT"]
+    H -. applica se abilitato .-> H1["portfolio.json"]
 ```
 
 ### Sequenza prevedibile
@@ -87,8 +89,9 @@ flowchart TD
 | 3 | `scan_commodities` | Calcola indicatori locali su Materie prime/ETC. | No | No |
 | 4 | `build_shortlist` | Unisce i candidati liquidi e ordina per score. | No | No |
 | 5 | `plan_deep_analysis` | Decide quali ticker meritano approfondimento. | No | Non lo esegue, lo pianifica |
-| 6 | `draft_decisions` | Produce decisioni preliminari: monitor, candidate, hold. | No nella prima versione | No |
-| 7 | `finalize` | Crea riepilogo finale e stato leggibile. | No | No |
+| 6 | `run_deep_analysis` | Esegue Playwright/ChatGPT solo sui ticker pianificati. | No | Si, solo se serve |
+| 7 | `apply_virtual_decisions` | Applica operazioni virtuali con guardrail: buy, reduce, sell. | No | No |
+| 8 | `finalize` | Crea riepilogo finale e stato leggibile. | No | No |
 
 ### Regole di prevedibilita
 
@@ -103,7 +106,7 @@ flowchart TD
   - con trigger di ingresso scattato;
   - buy candidate liquido con score forte;
   - richiesto esplicitamente dall'utente.
-- Ogni decisione deve riportare:
+- Ogni decisione riporta nei log:
   - mercato;
   - ticker;
   - score;
@@ -112,6 +115,22 @@ flowchart TD
   - motivo tecnico;
   - eventuale motivo news/grafico;
   - azione proposta o applicata.
+
+### Modalita operativa LangGraph
+
+Il comando LangGraph adesso puo lavorare in due modalita:
+
+- **operativa virtuale**: default, puo applicare modifiche simulate a `portfolio.json`;
+- **dry-run**: con `--dry-run`, non applica operazioni ma stampa le decisioni.
+
+Guardrail principali:
+
+- non compra ticker gia presenti in portafoglio;
+- non compra ticker con liquidita bassa;
+- non compra senza conferma Playwright quando il titolo entra in zona decisionale;
+- limita ogni nuovo acquisto a `--max-auto-trade-pct` del cash disponibile;
+- riduce o vende posizioni virtuali solo secondo soglie P/L e senza ripetere la stessa azione piu volte nello stesso giorno;
+- aggiorna le condizioni monitorate come `applied` quando un trigger produce un acquisto virtuale.
 
 ### Responsabilita tra LangGraph e OpenAI SDK Agent
 
@@ -164,10 +183,16 @@ Il log ideale deve spiegare il ciclo senza dover leggere il codice:
 
 ### Test del prototipo LangGraph
 
-Test veloce con pochi strumenti:
+Run operativo virtuale con pochi strumenti:
 
 ```powershell
 C:\Users\theoi\anaconda3\envs\openaiAgent\python.exe langgraph_portfolio_manager.py --scan-limit 2 --universe-limit 3
+```
+
+Test veloce senza modificare il portafoglio e senza Playwright:
+
+```powershell
+C:\Users\theoi\anaconda3\envs\openaiAgent\python.exe langgraph_portfolio_manager.py --scan-limit 3 --universe-limit 5 --dry-run --skip-playwright
 ```
 
 Output completo JSON:
