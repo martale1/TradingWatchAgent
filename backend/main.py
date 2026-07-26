@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -441,10 +442,27 @@ class AutonomySettingsRequest(BaseModel):
     notify_telegram: bool = True
 
 
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def clean_log_text(text: str):
+    """Keep log output renderable even when subprocesses write odd encodings."""
+    if not text:
+        return ""
+    text = text.replace("\x00", "")
+    text = ANSI_ESCAPE_RE.sub("", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return "".join(char for char in text if char in "\n\t" or ord(char) >= 32)
+
+
 def tail_text(path: Path, max_lines: int = 300):
     if not path.exists():
         return ""
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except OSError as exc:
+        return f"[log-read-error] impossibile leggere {path.name}: {exc}"
+    lines = clean_log_text(text).splitlines()
     return "\n".join(lines[-max_lines:])
 
 

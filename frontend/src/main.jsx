@@ -2419,6 +2419,18 @@ function Controls({ reload }) {
   );
 }
 
+function safeLogText(value) {
+  return String(value || "")
+    .replace(/\u0000/g, "")
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+}
+
+function LogBlock({ value, fallback, className = "log runLog" }) {
+  const text = safeLogText(value);
+  return <pre className={className}>{text || fallback}</pre>;
+}
+
 function RunLogs() {
   const [state, setState] = useState({ loading: true, error: "", data: null });
   const [lines, setLines] = useState(300);
@@ -2482,7 +2494,7 @@ function RunLogs() {
           )}
           <div>
             <h3>Journal aggregato dei run</h3>
-            <pre className="log runLog">{state.data.combined_run_log || "Nessun log disponibile."}</pre>
+            <LogBlock value={state.data.combined_run_log} fallback="Nessun log disponibile." />
           </div>
           {Array.isArray(state.data.log_files) && (
             <div className="logFileSummary">
@@ -2500,27 +2512,27 @@ function RunLogs() {
           )}
           <details>
             <summary>Dettaglio run-journal.log</summary>
-            <pre className="log runLog">{state.data.run_journal_log || "Nessun run registrato nel journal dopo l'ultima pulizia."}</pre>
+            <LogBlock value={state.data.run_journal_log} fallback="Nessun run registrato nel journal dopo l'ultima pulizia." />
           </details>
           <details>
             <summary>Dettaglio manual-optimized-run.log</summary>
-            <pre className="log runLog">{state.data.manual_optimized_log || "Nessun run manuale ottimizzato registrato."}</pre>
+            <LogBlock value={state.data.manual_optimized_log} fallback="Nessun run manuale ottimizzato registrato." />
           </details>
           <details>
             <summary>Dettaglio web-agent.log</summary>
-            <pre className="log runLog">{state.data.web_agent_log || "Nessuna richiesta web agente registrata."}</pre>
+            <LogBlock value={state.data.web_agent_log} fallback="Nessuna richiesta web agente registrata." />
           </details>
           <details>
             <summary>Dettaglio scheduled-monitor.log</summary>
-            <pre className="log runLog">{state.data.scheduled_log || "Nessun output disponibile."}</pre>
+            <LogBlock value={state.data.scheduled_log} fallback="Nessun output disponibile." />
           </details>
           <details>
             <summary>Dettaglio scheduled-monitor.err.log</summary>
-            <pre className="log runLog errorLog">{state.data.scheduled_err || "Nessun errore disponibile."}</pre>
+            <LogBlock value={state.data.scheduled_err} fallback="Nessun errore disponibile." className="log runLog errorLog" />
           </details>
           <details>
             <summary>Dettaglio telegram-agent.log</summary>
-            <pre className="log runLog">{state.data.telegram_agent_log || "Nessun log Telegram disponibile."}</pre>
+            <LogBlock value={state.data.telegram_agent_log} fallback="Nessun log Telegram disponibile." />
           </details>
         </div>
       )}
