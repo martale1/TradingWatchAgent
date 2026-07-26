@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import io
+from contextlib import redirect_stdout
 from datetime import datetime
 from typing import Any
 
@@ -16,12 +18,50 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _new_run_id() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
 def _log(state: TradingGraphState, message: str) -> TradingGraphState:
     logs = list(state.get("logs", []))
-    line = f"{_now()} [langgraph] {message}"
+    run_id = state.get("run_id", "no-run-id")
+    line = f"{_now()} [run {run_id}] [langgraph] {message}"
     logs.append(line)
     print(line, flush=True)
     return {"logs": logs}
+
+
+def _capture_tool_output(func):
+    """Run a noisy local tool and keep raw prints out of the graph timeline."""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        result = func()
+    captured_lines = [line.strip() for line in buffer.getvalue().splitlines() if line.strip()]
+    return result, captured_lines
+
+
+def _log_captured_tool_output(
+    state: TradingGraphState,
+    patch: TradingGraphState,
+    step: str,
+    market_label: str,
+    captured_lines: list[str],
+) -> None:
+    if not captured_lines:
+        patch.update(
+            _log(
+                {**state, **patch},
+                f"{step} tool_output | market={market_label} | nessuna riga interna catturata.",
+            )
+        )
+        return
+    patch.update(
+        _log(
+            {**state, **patch},
+            f"{step} tool_output | market={market_label} | "
+            f"{len(captured_lines)} righe interne catturate e normalizzate nei dettagli scan.",
+        )
+    )
 
 
 def _as_number(value: Any, default: float = 0.0) -> float:
@@ -31,8 +71,49 @@ def _as_number(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _is_liquid(item: dict[str, Any]) -> bool:
+    return item.get("liquidity_ok") is not False
+
+
+def _scan_decision_label(item: dict[str, Any], candidates: list[dict[str, Any]]) -> str:
+    if not _is_liquid(item):
+        return "candidate=no reason=liquidita_bassa"
+    candidate_tickers = {candidate.get("ticker") for candidate in candidates}
+    if item.get("ticker") in candidate_tickers:
+        return "candidate=yes reason=score_top_liquido"
+    return "candidate=no reason=score_fuori_shortlist"
+
+
+def _log_scan_rows(
+    state: TradingGraphState,
+    patch: TradingGraphState,
+    market_label: str,
+    scan: dict[str, Any],
+) -> None:
+    candidates = scan.get("candidates", []) or []
+    rows = scan.get("scanned_rows", []) or []
+    for index, item in enumerate(rows, start=1):
+        reasons = "; ".join((item.get("reasons") or [])[:3]) or "nessun segnale forte"
+        risks = "; ".join((item.get("risks") or [])[:2]) or "nessun rischio principale"
+        liquidity = "ok" if _is_liquid(item) else "bassa"
+        decision = _scan_decision_label(item, candidates)
+        patch.update(
+            _log(
+                {**state, **patch},
+                f"STEP scan detail | market={market_label} | "
+                f"{index}/{len(rows)} ticker={item.get('ticker')} "
+                f"score={item.get('score')} close={item.get('close')} "
+                f"oggi={item.get('change_1d_pct')}% liquidity={liquidity} "
+                f"{decision} | motivi={reasons} | rischi={risks}",
+            )
+        )
+
+
 def load_operating_state(state: TradingGraphState) -> TradingGraphState:
-    patch = _log(state, "Nodo stato: leggo portafoglio, performance e condizioni monitorate.")
+    patch = _log(
+        state,
+        "STEP 1/7 load_operating_state START | leggo portafoglio, performance, posizioni e trigger.",
+    )
     try:
         portfolio = portfolio_status_summary()
         performance = calculate_portfolio_performance(record_history=False)
@@ -52,7 +133,7 @@ def load_operating_state(state: TradingGraphState) -> TradingGraphState:
         patch.update(
             _log(
                 {**state, **patch},
-                "Stato pronto: "
+                "STEP 1/7 load_operating_state END | "
                 f"posizioni={len(positions)}, trigger_waiting={len(waiting)}, "
                 f"cash={portfolio.get('cash', 'n/d')}, pnl={performance.get('total_pnl', 'n/d')}.",
             )
@@ -70,21 +151,26 @@ def scan_ftse_mib(state: TradingGraphState) -> TradingGraphState:
     universe_limit = state.get("universe_limit")
     patch = _log(
         state,
-        f"Nodo scanner FTSE MIB: calcolo indicatori locali e score su universo="
-        f"{universe_limit or 'completo'}, top={limit}.",
+        f"STEP 2/7 scan_ftse_mib START | market=FTSE_MIB | "
+        f"calcolo locale Yahoo+indicatori | universo={universe_limit or 'completo'} | top={limit} | "
+        "OpenAI=no Playwright=no.",
     )
     try:
-        scan = scan_mib30_candidates(
-            limit=limit,
-            universe_limit=universe_limit,
-            create_proposals=False,
-            verbose=True,
+        scan, captured_lines = _capture_tool_output(
+            lambda: scan_mib30_candidates(
+                limit=limit,
+                universe_limit=universe_limit,
+                create_proposals=False,
+                verbose=False,
+            )
         )
+        _log_captured_tool_output(state, patch, "STEP 2/7", "FTSE_MIB", captured_lines)
         patch["ftse_mib_scan"] = scan
+        _log_scan_rows(state, patch, "FTSE_MIB", scan)
         patch.update(
             _log(
                 {**state, **patch},
-                f"FTSE MIB completato: {scan.get('count', 0)} ok, "
+                f"STEP 2/7 scan_ftse_mib END | market=FTSE_MIB | {scan.get('count', 0)} ok, "
                 f"{len(scan.get('errors', []) or [])} errori, "
                 f"{len(scan.get('candidates', []) or [])} candidati liquidi.",
             )
@@ -102,20 +188,25 @@ def scan_commodities(state: TradingGraphState) -> TradingGraphState:
     universe_limit = state.get("universe_limit")
     patch = _log(
         state,
-        f"Nodo scanner Materie prime/ETC: calcolo indicatori locali e score su universo="
-        f"{universe_limit or 'completo'}, top={limit}.",
+        f"STEP 3/7 scan_commodities START | market=COMMODITIES_ETC | "
+        f"calcolo locale Yahoo+indicatori | universo={universe_limit or 'completo'} | top={limit} | "
+        "OpenAI=no Playwright=no.",
     )
     try:
-        scan = scan_commodity_candidates(
-            limit=limit,
-            universe_limit=universe_limit,
-            verbose=True,
+        scan, captured_lines = _capture_tool_output(
+            lambda: scan_commodity_candidates(
+                limit=limit,
+                universe_limit=universe_limit,
+                verbose=False,
+            )
         )
+        _log_captured_tool_output(state, patch, "STEP 3/7", "COMMODITIES_ETC", captured_lines)
         patch["commodity_scan"] = scan
+        _log_scan_rows(state, patch, "COMMODITIES_ETC", scan)
         patch.update(
             _log(
                 {**state, **patch},
-                f"Materie prime completato: {scan.get('count', 0)} ok, "
+                f"STEP 3/7 scan_commodities END | market=COMMODITIES_ETC | {scan.get('count', 0)} ok, "
                 f"{len(scan.get('errors', []) or [])} errori, "
                 f"{len(scan.get('candidates', []) or [])} candidati liquidi.",
             )
@@ -131,7 +222,7 @@ def scan_commodities(state: TradingGraphState) -> TradingGraphState:
 def build_shortlist(state: TradingGraphState) -> TradingGraphState:
     patch = _log(
         state,
-        "Nodo short-list: unisco candidati FTSE MIB e Materie prime, escludendo liquidita bassa.",
+        "STEP 4/7 build_shortlist START | unisco candidati FTSE MIB + Materie prime, filtro hard liquidita.",
     )
     rows: list[dict[str, Any]] = []
     for market_key, market_label in [
@@ -161,20 +252,27 @@ def build_shortlist(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"Short-list #{index}: {item.get('ticker')} [{item.get('market_scope')}] "
+                    f"STEP 4/7 shortlist item #{index} | ticker={item.get('ticker')} "
+                    f"market={item.get('market_scope')} "
                     f"score={item.get('score')} close={item.get('close')} oggi={item.get('change_1d_pct')}% | "
                     f"motivi={reasons} | rischi={risks}.",
                 )
             )
     else:
         patch.update(_log({**state, **patch}, "Short-list vuota: nessun candidato liquido."))
+    patch.update(
+        _log(
+            {**state, **patch},
+            f"STEP 4/7 build_shortlist END | shortlist_size={len(shortlist)}.",
+        )
+    )
     return patch
 
 
 def plan_deep_analysis(state: TradingGraphState) -> TradingGraphState:
     patch = _log(
         state,
-        "Nodo piano approfondimenti: Playwright viene pianificato solo per posizioni, trigger scattati o buy candidate.",
+        "STEP 5/7 plan_deep_analysis START | policy Playwright: solo posizioni, trigger scattati, buy candidate o richiesta esplicita.",
     )
     portfolio = state.get("portfolio") or {}
     positions = {item.get("ticker") for item in (portfolio.get("positions") or [])}
@@ -211,22 +309,33 @@ def plan_deep_analysis(state: TradingGraphState) -> TradingGraphState:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"Approfondimento Playwright pianificato per {ticker}: {'; '.join(reason)}.",
+                    f"STEP 5/7 playwright_plan=yes | ticker={ticker} market={item.get('market_scope')} "
+                    f"reason={' ; '.join(reason)}.",
                 )
             )
         else:
             patch.update(
                 _log(
                     {**state, **patch},
-                    f"Niente Playwright per {ticker}: candidato monitorabile ma non posizione/trigger/buy forte.",
+                    f"STEP 5/7 playwright_plan=no | ticker={ticker} market={item.get('market_scope')} "
+                    "reason=non_posizione_non_trigger_non_buy_forte.",
                 )
             )
     patch["deep_analysis_plan"] = plan
+    patch.update(
+        _log(
+            {**state, **patch},
+            f"STEP 5/7 plan_deep_analysis END | playwright_items={len(plan)}.",
+        )
+    )
     return patch
 
 
 def draft_decisions(state: TradingGraphState) -> TradingGraphState:
-    patch = _log(state, "Nodo decisioni: creo decisioni preliminari senza applicare operazioni.")
+    patch = _log(
+        state,
+        "STEP 6/7 draft_decisions START | prototipo dry-run: nessuna operazione applicata.",
+    )
     decisions: list[dict[str, Any]] = []
     for item in state.get("shortlist", []) or []:
         score = _as_number(item.get("score"))
@@ -247,16 +356,29 @@ def draft_decisions(state: TradingGraphState) -> TradingGraphState:
         patch.update(
             _log(
                 {**state, **patch},
-                f"Decisione preliminare {item.get('ticker')}: {action}, score={score:g}.",
+                f"STEP 6/7 decision | ticker={item.get('ticker')} market={item.get('market_scope')} "
+                f"action={action} score={score:g} applied=no.",
             )
         )
     patch["decisions"] = decisions
+    patch.update(
+        _log(
+            {**state, **patch},
+            f"STEP 6/7 draft_decisions END | decisions={len(decisions)} | trade_applicati=0.",
+        )
+    )
     return patch
 
 
 def finalize(state: TradingGraphState) -> TradingGraphState:
-    patch = _log(state, "Nodo finale: preparo riepilogo sintetico del ciclo LangGraph.")
+    patch = _log(
+        state,
+        "STEP 7/7 finalize START | preparo riepilogo sintetico del ciclo LangGraph.",
+    )
     lines = ["Autonomous Trading Agent - LangGraph prototype", ""]
+    lines.append(f"Run ID: {state.get('run_id', 'n/d')}")
+    lines.append("Modalita: dry-run prototipo, nessuna operazione applicata")
+    lines.append("")
     if state.get("errors"):
         lines.append("Errori:")
         lines.extend(f"- {item}" for item in state["errors"])
@@ -275,6 +397,12 @@ def finalize(state: TradingGraphState) -> TradingGraphState:
     else:
         lines.append("- nessuno")
     patch["final_summary"] = "\n".join(lines)
+    patch.update(
+        _log(
+            {**state, **patch},
+            "STEP 7/7 finalize END | ciclo completato.",
+        )
+    )
     return patch
 
 
@@ -307,6 +435,7 @@ def run_langgraph_workflow(
     universe_limit: int | None = None,
 ) -> TradingGraphState:
     initial_state: TradingGraphState = {
+        "run_id": _new_run_id(),
         "request": request,
         "scan_limit": scan_limit,
         "universe_limit": universe_limit,
@@ -319,4 +448,3 @@ def run_langgraph_workflow(
 
 def state_to_json(state: TradingGraphState) -> str:
     return json.dumps(state, ensure_ascii=False, indent=2, default=str)
-

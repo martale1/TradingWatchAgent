@@ -4,6 +4,7 @@ from typing import Any, TypedDict
 class TradingGraphState(TypedDict, total=False):
     """Shared state passed across the LangGraph workflow."""
 
+    run_id: str
     request: str
     mode: str
     scan_limit: int
@@ -18,4 +19,3 @@ class TradingGraphState(TypedDict, total=False):
     logs: list[str]
     errors: list[str]
     final_summary: str
-
