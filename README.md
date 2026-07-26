@@ -38,6 +38,8 @@ L'obiettivo e usare l'API OpenAI solo per orchestrare l'agente, non per fare tut
 
 ```text
 agent_portfolio_manager.py        # CLI principale e agente OpenAI SDK
+langgraph_portfolio_manager.py    # prototipo workflow LangGraph
+langgraph_agent/                  # nodi e stato condiviso del grafo
 playwright_monitor.py             # monitor Playwright-first, meno consumo API
 chatgpt_playwright_demo.py        # news/report via ChatGPT nel browser
 stock_chart_ai_analysis.py        # grafici + analisi visuale ChatGPT via Playwright
@@ -51,6 +53,134 @@ scripts/                          # scheduler Windows e launcher
 validTickers/                     # universi ticker
 logs/                             # log schedulati e Telegram bot
 output/                           # grafici, analisi e cache news
+```
+
+## Architettura LangGraph proposta
+
+Il branch `codex/langgraph-review` introduce un prototipo LangGraph per rendere il ciclo operativo piu prevedibile. L'idea e spostare la sequenza decisionale dal solo prompt dell'agente a un grafo esplicito, dove ogni nodo ha input, output e responsabilita chiare.
+
+### Vista logica del grafo
+
+```mermaid
+flowchart TD
+    A["Start ciclo"] --> B["load_operating_state"]
+    B --> C["scan_ftse_mib"]
+    C --> D["scan_commodities"]
+    D --> E["build_shortlist"]
+    E --> F["plan_deep_analysis"]
+    F --> G["draft_decisions"]
+    G --> H["finalize"]
+
+    B -. legge .-> B1["portfolio.json"]
+    C -. scrive .-> C1["output/stock_ai/mib30_scan.json"]
+    D -. scrive .-> D1["output/stock_ai/commodity_scan.json"]
+    F -. pianifica solo se serve .-> F1["Playwright / ChatGPT"]
+    G -. futuro .-> G1["azioni virtuali / trigger / notifiche"]
+```
+
+### Sequenza prevedibile
+
+| Ordine | Nodo | Cosa fa | Usa API OpenAI? | Usa Playwright? |
+|---:|---|---|---|---|
+| 1 | `load_operating_state` | Legge portafoglio, posizioni, cash, trigger, performance. | No | No |
+| 2 | `scan_ftse_mib` | Calcola indicatori locali sui titoli FTSE MIB. | No | No |
+| 3 | `scan_commodities` | Calcola indicatori locali su Materie prime/ETC. | No | No |
+| 4 | `build_shortlist` | Unisce i candidati liquidi e ordina per score. | No | No |
+| 5 | `plan_deep_analysis` | Decide quali ticker meritano approfondimento. | No | Non lo esegue, lo pianifica |
+| 6 | `draft_decisions` | Produce decisioni preliminari: monitor, candidate, hold. | No nella prima versione | No |
+| 7 | `finalize` | Crea riepilogo finale e stato leggibile. | No | No |
+
+### Regole di prevedibilita
+
+- FTSE MIB e Materie prime vengono analizzati come mercati separati.
+- Lo scan iniziale e sempre locale: Yahoo Finance, indicatori tecnici, liquidita, supporti/resistenze.
+- Gli strumenti con liquidita bassa restano visibili nei risultati, ma non entrano nei candidati operativi.
+- Lo score serve solo a creare una short-list, non equivale a comprare.
+- Playwright non viene usato sul file Excel completo.
+- Playwright viene usato solo se il ticker e:
+  - gia in portafoglio;
+  - vicino a un trigger di uscita;
+  - con trigger di ingresso scattato;
+  - buy candidate liquido con score forte;
+  - richiesto esplicitamente dall'utente.
+- Ogni decisione deve riportare:
+  - mercato;
+  - ticker;
+  - score;
+  - liquidita;
+  - trigger coinvolto;
+  - motivo tecnico;
+  - eventuale motivo news/grafico;
+  - azione proposta o applicata.
+
+### Responsabilita tra LangGraph e OpenAI SDK Agent
+
+```mermaid
+flowchart LR
+    A["LangGraph"] --> A1["sequenza ciclo"]
+    A --> A2["stato run"]
+    A --> A3["policy Playwright"]
+    A --> A4["decisioni ripetibili"]
+
+    B["OpenAI SDK Agent"] --> B1["chat GUI/Telegram"]
+    B --> B2["spiegazioni"]
+    B --> B3["ragionamento qualitativo"]
+    B --> B4["interpretazione richieste utente"]
+
+    C["Tool locali"] --> C1["scanner"]
+    C --> C2["portfolio store"]
+    C --> C3["performance"]
+    C --> C4["grafici"]
+
+    D["Playwright/ChatGPT"] --> D1["news live"]
+    D --> D2["analisi visuale grafici"]
+
+    A --> C
+    A --> D
+    B --> A
+    B --> C
+```
+
+La direzione consigliata e:
+
+- **LangGraph** come motore operativo autonomo e schedulato.
+- **OpenAI SDK Agent** come interfaccia conversazionale per GUI e Telegram.
+- **Playwright/ChatGPT** come approfondimento selettivo per news e grafici.
+- **Tool locali** come fonte primaria per dati numerici, score, liquidita e portafoglio.
+
+### Esempio di log atteso
+
+Il log ideale deve spiegare il ciclo senza dover leggere il codice:
+
+```text
+2026-07-25 09:00:00 [run 20260725-090000] START scheduled
+2026-07-25 09:00:02 [run 20260725-090000] node=scan_ftse_mib universe=40
+2026-07-25 09:00:08 [run 20260725-090000] ticker=AMP.MI score=8 liquidity=ok candidate=yes reason="MACD sopra signal; DI+ sopra DI-"
+2026-07-25 09:00:11 [run 20260725-090000] ticker=GBS.MI score=4 liquidity=low candidate=no reason="volume medio sotto soglia"
+2026-07-25 09:00:30 [run 20260725-090000] playwright_plan ticker=HER.MI reason="posizione aperta; controllo uscita"
+2026-07-25 09:01:20 [run 20260725-090000] action=buy_virtual_position ticker=HER.MI amount=2000 reason="trigger pullback support confirmed"
+2026-07-25 09:01:25 [run 20260725-090000] END ok duration=85s
+```
+
+### Test del prototipo LangGraph
+
+Test veloce con pochi strumenti:
+
+```powershell
+C:\Users\theoi\anaconda3\envs\openaiAgent\python.exe langgraph_portfolio_manager.py --scan-limit 2 --universe-limit 3
+```
+
+Output completo JSON:
+
+```powershell
+C:\Users\theoi\anaconda3\envs\openaiAgent\python.exe langgraph_portfolio_manager.py --scan-limit 2 --universe-limit 3 --json
+```
+
+Documentazione di dettaglio:
+
+```text
+docs/architecture-langgraph-analysis.md
+docs/langgraph-roadmap.md
 ```
 
 ## Mercati supportati
