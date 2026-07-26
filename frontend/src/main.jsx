@@ -2426,6 +2426,19 @@ function safeLogText(value) {
     .replace(/[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 }
 
+function formatLogDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "data non disponibile";
+  return date.toLocaleString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function LogBlock({ value, fallback, className = "log runLog" }) {
   const text = safeLogText(value);
   return <pre className={className}>{text || fallback}</pre>;
@@ -2504,7 +2517,7 @@ function RunLogs() {
                   <div className={`logFileCard ${file.size > 0 ? "hasContent" : "emptyLogFile"}`} key={file.name}>
                     <strong>{file.name}</strong>
                     <span>{file.exists ? `${file.size} byte` : "non creato"}</span>
-                    <small>{file.updated_at ? formatDateTime(file.updated_at * 1000) : "mai aggiornato"}</small>
+                    <small>{file.updated_at ? formatLogDateTime(file.updated_at * 1000) : "mai aggiornato"}</small>
                   </div>
                 ))}
               </div>
