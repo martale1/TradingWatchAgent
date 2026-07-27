@@ -1,11 +1,14 @@
 import re
+from datetime import datetime
 from pathlib import Path
 
 from finance_tools.common import PROJECT_ROOT
-from finance_tools.monitoring_view import parse_condition_levels
+from finance_tools.monitoring_view import first_level_after_keywords, parse_condition_targets
 
 
 ANALYSIS_ROOT = PROJECT_ROOT / "output" / "stock_ai"
+MIN_TAKE_PROFIT_PCT = 3.0
+MIN_HOLD_HOURS_BEFORE_TAKE_PROFIT = 24
 
 
 def safe_float(value):
@@ -23,6 +26,17 @@ def pct_distance(current, level):
     if current is None or level in {None, 0}:
         return None
     return round((current - level) / level * 100.0, 2)
+
+
+def position_age_hours(opened_at):
+    if not opened_at:
+        return None
+    try:
+        opened = datetime.fromisoformat(str(opened_at).replace("Z", "+00:00"))
+        now = datetime.now(opened.tzinfo) if opened.tzinfo else datetime.now()
+        return max(0.0, (now - opened).total_seconds() / 3600.0)
+    except (TypeError, ValueError):
+        return None
 
 
 def normalize_analysis_text(text):
@@ -67,15 +81,44 @@ def extract_sentence(text, keywords):
 
 
 def levels_from_reason(reason, current_price=None):
-    levels = parse_condition_levels(reason)
-    if not levels:
-        return None, None
+    stop = first_level_after_keywords(
+        reason,
+        [
+            r"stop\s+stretto\s+sotto",
+            r"stop\s+sotto",
+            r"invalidatione\s+sotto",
+            r"invalidazione\s+sotto",
+        ],
+    )
+    trigger, support = parse_condition_targets(reason)
+    resistance = first_level_after_keywords(
+        reason,
+        [
+            r"take\s+profit",
+            r"target",
+            r"resistenza",
+            r"prima\s+resistenza",
+        ],
+    )
+
     current = safe_float(current_price)
-    below = [level for level in levels if current is not None and level < current]
-    above = [level for level in levels if current is not None and level > current]
-    support = max(below) if below else min(levels)
-    resistance = min(above) if above else max(levels)
-    return support, resistance
+    if resistance is not None and current is not None and resistance <= current:
+        resistance = None
+    # Entry triggers are not exit targets. If the original reason only talks about
+    # entry/support levels, keep them for stop logic and leave take-profit unset.
+    return stop or support, resistance
+
+
+def should_take_profit(current, target, pnl_pct, opened_at):
+    if current is None or target is None or current < target:
+        return False, ""
+    pnl = safe_float(pnl_pct) or 0.0
+    age_hours = position_age_hours(opened_at)
+    if age_hours is not None and age_hours < MIN_HOLD_HOURS_BEFORE_TAKE_PROFIT:
+        return False, "posizione aperta da meno di 24 ore"
+    if pnl < MIN_TAKE_PROFIT_PCT:
+        return False, f"profitto {pnl:.2f}% sotto soglia {MIN_TAKE_PROFIT_PCT:.0f}%"
+    return True, ""
 
 
 def build_exit_conditions(performance, portfolio):
@@ -94,6 +137,7 @@ def build_exit_conditions(performance, portfolio):
         pnl_pct = safe_float(item.get("pnl_pct"))
         raw = raw_positions.get(ticker, {})
         reason = normalize_analysis_text(raw.get("reason") or item.get("reason") or "")
+        opened_at = raw.get("opened_at")
         path, analysis_text, _ = read_playwright_analysis(ticker)
 
         support_1 = parse_label_level(analysis_text, "S1")
@@ -105,16 +149,28 @@ def build_exit_conditions(performance, portfolio):
         stop_level = support_1 or fallback_support or (round(entry * 0.95, 4) if entry else None)
         panic_level = support_2
         take_profit_level = resistance_1 or fallback_resistance
+        if take_profit_level is not None and stop_level is not None and take_profit_level <= stop_level:
+            take_profit_level = None
+        if take_profit_level is not None and entry is not None:
+            min_take_profit_price = entry * (1 + MIN_TAKE_PROFIT_PCT / 100.0)
+            if take_profit_level < min_take_profit_price:
+                take_profit_level = None
         stretch_target = resistance_2 if resistance_2 and resistance_2 != take_profit_level else None
+
+        take_profit_ready, take_profit_blocker = should_take_profit(current, take_profit_level, pnl_pct, opened_at)
 
         if current is not None and stop_level is not None and current <= stop_level:
             status = "USCITA DA VALUTARE"
             status_kind = "negative"
             primary_action = "Prezzo sotto il primo supporto: valuta vendita o riduzione."
-        elif current is not None and take_profit_level is not None and current >= take_profit_level:
+        elif take_profit_ready:
             status = "TAKE PROFIT"
             status_kind = "positive"
             primary_action = "Prezzo sopra la prima resistenza: valuta presa profitto parziale."
+        elif current is not None and take_profit_level is not None and current >= take_profit_level:
+            status = "MANTIENI"
+            status_kind = "neutral"
+            primary_action = f"Target tecnico raggiunto, ma niente take profit: {take_profit_blocker}."
         elif pnl_pct is not None and pnl_pct <= -3:
             status = "SOTTO OSSERVAZIONE"
             status_kind = "warning"
