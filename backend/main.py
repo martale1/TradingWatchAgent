@@ -11,7 +11,7 @@ from queue import Empty, Queue
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -34,6 +34,7 @@ from finance_tools.market_universe_store import (  # noqa: E402
 )
 from finance_tools.mib30_scanner import load_mib30_tickers, scan_mib30_candidates  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
+from finance_tools.news_tool import get_news_report  # noqa: E402
 from finance_tools.performance_tool import build_performance_history_view, calculate_portfolio_performance  # noqa: E402
 from finance_tools.portfolio_deep_analysis import run_deep_portfolio_analysis  # noqa: E402
 from finance_tools.portfolio_store import (  # noqa: E402
@@ -339,6 +340,8 @@ def json_safe(value):
 
 
 NEWS_REPORTS_ROOT = ROOT / "output" / "stock_ai"
+NEWS_LIVE_LOCK = threading.Lock()
+NEWS_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{0,24}$")
 NEWS_NO_RELEVANT_PATTERNS = (
     "nessuna news rilevante",
     "nessun report",
@@ -348,6 +351,25 @@ NEWS_NO_RELEVANT_PATTERNS = (
     "non risultano notizie",
     "nessuna nuova comunicazione",
 )
+
+
+def normalize_news_ticker(ticker):
+    value = str(ticker or "").strip().upper()
+    if not value or not NEWS_TICKER_RE.match(value):
+        raise HTTPException(status_code=400, detail="Ticker non valido.")
+    return value
+
+
+def news_summary_lines(text, max_lines=8):
+    lines = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip().strip("*")
+        if not line or line == "---":
+            continue
+        lines.append(line[:260])
+        if len(lines) >= max_lines:
+            break
+    return lines
 
 
 def compact_news_preview(text, max_chars=900):
@@ -404,12 +426,21 @@ def read_saved_news_reports(limit=200, query="", relevant_only=False):
                 "has_relevant_news": status == "relevant",
                 "headline": (lines[0] if lines else "")[:180],
                 "preview": compact_news_preview(text),
+                "summary_lines": news_summary_lines(text),
                 "report": text,
             }
         )
         if len(items) >= limit:
             break
     return items
+
+
+def latest_news_item_for_ticker(ticker):
+    normalized = str(ticker or "").strip().upper()
+    for item in read_saved_news_reports(limit=500):
+        if str(item.get("ticker", "")).upper() == normalized:
+            return item
+    return None
 
 
 def save_last_deep_analysis_report(report):
@@ -734,6 +765,31 @@ def news_reports(limit: int = 200, query: str = "", relevant_only: bool = False)
             "root": str(NEWS_REPORTS_ROOT.relative_to(ROOT)),
         }
     )
+
+
+@app.post("/api/news/search")
+def search_news_live(payload: dict = Body(...)):
+    ticker = normalize_news_ticker(payload.get("ticker") if isinstance(payload, dict) else "")
+    if not NEWS_LIVE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Una ricerca news live e gia in corso. Riprova tra poco.")
+    started_at = datetime.now().isoformat(timespec="seconds")
+    started = time.time()
+    try:
+        tool_result = get_news_report(ticker=ticker, live=True, force=True)
+        item = latest_news_item_for_ticker(ticker)
+        return json_safe(
+            {
+                "ticker": ticker,
+                "started_at": started_at,
+                "duration_sec": round(time.time() - started, 1),
+                "item": item,
+                "tool_result": tool_result,
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Ricerca news live fallita per {ticker}: {exc}") from exc
+    finally:
+        NEWS_LIVE_LOCK.release()
 
 
 def fallback_market_rows(market: str):

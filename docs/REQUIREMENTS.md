@@ -617,26 +617,36 @@ Deve includere:
 
 Il messaggio Telegram puo essere una sintesi; la GUI deve contenere il report esteso.
 
-## News Salvate
+## News Salvate E Ricerca On Demand
 
-La GUI deve avere una pagina `News` dedicata alle news gia cercate.
+La GUI deve avere una pagina `News` dedicata alle news gia cercate e alla ricerca live esplicita richiesta dall'utente.
 
 La pagina deve:
 
 - leggere i report salvati in `output/stock_ai/*/*_news.txt`;
-- mostrare ticker, data/ora ultimo file news, stato della news, file sorgente, preview e dettaglio espandibile;
+- mostrare ticker, data/ora ultimo file news, stato della news, file sorgente, sintesi leggibile e dettaglio espandibile;
 - distinguere report con news rilevanti, report senza novita rilevanti e report vuoti;
 - permettere filtro testuale per ticker o contenuto;
 - permettere filtro `solo news rilevanti`;
-- chiarire che sta mostrando l'archivio delle ricerche gia fatte, non una ricerca live.
+- avere una ricerca live on demand per ticker;
+- dopo una ricerca live, aggiornare il report salvato e ricaricare la scheda del ticker;
+- mostrare chiaramente stato, errore o completamento della ricerca live.
+
+La ricerca live dalla pagina `News` deve:
+
+- usare Playwright/ChatGPT nel browser gia loggato;
+- non usare OpenAI API per cercare le news;
+- essere esplicita, avviata dall'utente;
+- accettare ticker come `CPR.MI`, `VOD.L`, `ROBO.MI`;
+- evitare ricerche live concorrenti sullo stesso browser, usando una coda o lock.
 
 La pagina `News` non deve:
 
-- lanciare Playwright;
-- consumare token OpenAI;
-- sostituire una ricerca live quando l'utente chiede esplicitamente news aggiornate.
+- lanciare ricerche live su interi universi;
+- consumare token OpenAI per la ricerca news;
+- sostituire il monitor periodico o la logica decisionale dell'agente.
 
-Le ricerche live restano responsabilita dei tool Playwright/ChatGPT e aggiornano questi file quando vengono eseguite.
+Le ricerche live tramite Playwright/ChatGPT aggiornano i file news, che poi diventano consultabili nella pagina.
 
 ## Branch LangGraph
 

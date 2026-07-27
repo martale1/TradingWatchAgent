@@ -7,7 +7,7 @@ const API = "http://127.0.0.1:8000";
 
 function eur(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/d";
-  return `${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  return `${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} â‚¬`;
 }
 
 function pct(value, signed = true) {
@@ -37,7 +37,7 @@ function parseLevel(value) {
 function levelsFromCondition(condition = "") {
   const text = cleanText(condition).toLowerCase();
   const number = "([0-9]+(?:[,.][0-9]+)?)";
-  const unit = "\\s*(?:eur|euro|gbp|p|€)?";
+  const unit = "\\s*(?:eur|euro|gbp|p|â‚¬)?";
   const triggerPatterns = [
     new RegExp(`(?:chiusura\\s+)?(?:sopra|oltre|superamento|breakout)\\s*(?:a|di)?${unit}${number}`, "i"),
     new RegExp(`(?:ingresso|trigger)\\s*(?:solo\\s+)?(?:su|a|sopra|oltre)?\\s*(?:chiusura\\s+)?(?:sopra|oltre)?${unit}${number}`, "i"),
@@ -65,15 +65,15 @@ function levelsFromCondition(condition = "") {
 
 function cleanText(value) {
   return String(value || "")
-    .replaceAll("â‚¬", "€")
-    .replaceAll("â‚¬", "€")
-    .replaceAll("Ã¨", "è")
-    .replaceAll("Ã©", "é")
-    .replaceAll("Ã ", "à")
-    .replaceAll("Ã²", "ò")
-    .replaceAll("Ã¹", "ù")
-    .replaceAll("Ã¬", "ì")
-    .replaceAll("Â°", "°");
+    .replaceAll("Ã¢â€šÂ¬", "â‚¬")
+    .replaceAll("Ã¢â€šÂ¬", "â‚¬")
+    .replaceAll("ÃƒÂ¨", "Ã¨")
+    .replaceAll("ÃƒÂ©", "Ã©")
+    .replaceAll("Ãƒ ", "Ã ")
+    .replaceAll("ÃƒÂ²", "Ã²")
+    .replaceAll("ÃƒÂ¹", "Ã¹")
+    .replaceAll("ÃƒÂ¬", "Ã¬")
+    .replaceAll("Ã‚Â°", "Â°");
 }
 
 function compactErrorMessage(value) {
@@ -433,7 +433,7 @@ function PortfolioPerformanceChart({ data = {} }) {
           {ticks.map((tick) => (
             <g key={tick} className="gridLine">
               <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
-              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace(" €", "")}</text>
+              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace(" â‚¬", "")}</text>
             </g>
           ))}
           {dateTicks.map((tick) => (
@@ -2307,15 +2307,15 @@ function Controls({ reload }) {
         <div>
           <h3>Autonomia sul portafoglio virtuale</h3>
           <p>
-            Stabilisce cosa può fare l'agente su tutto il portafoglio virtuale: nuovi acquisti,
+            Stabilisce cosa puÃ² fare l'agente su tutto il portafoglio virtuale: nuovi acquisti,
             incrementi, riduzioni, vendite e ribilanciamenti. Ogni decisione viene registrata nei log.
           </p>
         </div>
         <div className="autonomyModes">
           {[
-            ["confirmation", "Conferma sempre", "Ogni acquisto, incremento, riduzione, vendita o ribilanciamento resta pending finché l'utente non conferma."],
-            ["protective", "Protezione automatica", "Può ridurre o vendere automaticamente su rischio confermato. Nuovi ingressi e incrementi richiedono conferma."],
-            ["full_auto", "Autonomia completa", "Può comprare, incrementare, ridurre, vendere e ribilanciare automaticamente il portafoglio virtuale."],
+            ["confirmation", "Conferma sempre", "Ogni acquisto, incremento, riduzione, vendita o ribilanciamento resta pending finchÃ© l'utente non conferma."],
+            ["protective", "Protezione automatica", "PuÃ² ridurre o vendere automaticamente su rischio confermato. Nuovi ingressi e incrementi richiedono conferma."],
+            ["full_auto", "Autonomia completa", "PuÃ² comprare, incrementare, ridurre, vendere e ribilanciare automaticamente il portafoglio virtuale."],
           ].map(([value, label, description]) => (
             <button
               key={value}
@@ -2433,18 +2433,53 @@ function NewsReports() {
   const [query, setQuery] = useState("");
   const [onlyRelevant, setOnlyRelevant] = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [liveTicker, setLiveTicker] = useState("");
+  const [liveState, setLiveState] = useState({ running: false, ticker: "", message: "", error: "" });
 
   async function loadNews(options = {}) {
     const silent = Boolean(options.silent);
+    const effectiveQuery = options.queryOverride ?? query;
     if (!silent) setState((current) => ({ ...current, loading: true, error: "" }));
     const params = new URLSearchParams({ limit: "200" });
-    if (query.trim()) params.set("query", query.trim());
+    if (effectiveQuery.trim()) params.set("query", effectiveQuery.trim());
     if (onlyRelevant) params.set("relevant_only", "true");
     try {
       const data = await api(`/api/news/reports?${params.toString()}`, { timeoutMs: 60000 });
       setState({ loading: false, error: "", data });
     } catch (error) {
       setState({ loading: false, error: error.message, data: null });
+    }
+  }
+
+  async function runLiveNews(tickerArg = "") {
+    const ticker = String(tickerArg || liveTicker || query || "").trim().toUpperCase();
+    if (!ticker) {
+      setLiveState({ running: false, ticker: "", message: "Inserisci un ticker, ad esempio CPR.MI o VOD.L.", error: "" });
+      return;
+    }
+    setLiveTicker(ticker);
+    setQuery(ticker);
+    setLiveState({
+      running: true,
+      ticker,
+      message: `Cerco news live per ${ticker} con Playwright/ChatGPT. Chrome deve essere aperto con debug remoto.`,
+      error: "",
+    });
+    try {
+      const result = await api("/api/news/search", {
+        method: "POST",
+        body: JSON.stringify({ ticker }),
+        timeoutMs: 360000,
+      });
+      setLiveState({
+        running: false,
+        ticker,
+        message: `News live aggiornate per ${ticker} in ${result.duration_sec || "n/d"}s.`,
+        error: "",
+      });
+      await loadNews({ queryOverride: ticker });
+    } catch (error) {
+      setLiveState({ running: false, ticker, message: "", error: error.message });
     }
   }
 
@@ -2458,13 +2493,38 @@ function NewsReports() {
       <div className="sectionHeader">
         <div>
           <h2><Newspaper size={22} /> News cercate</h2>
-          <span>Archivio dei report news salvati dalle ricerche Playwright/ChatGPT. Questa pagina non avvia nuove ricerche live.</span>
+          <span>Archivio dei report salvati e ricerca live on demand via Playwright/ChatGPT.</span>
         </div>
         <div className="sectionActions">
           <button className="iconButton" onClick={() => loadNews()} disabled={state.loading}>
             <RefreshCw size={16} /> {state.loading ? "Aggiorno..." : "Aggiorna news"}
           </button>
         </div>
+      </div>
+
+      <div className="newsLivePanel">
+        <div className="newsLiveCopy">
+          <strong>Cerca news live on demand</strong>
+          <span>
+            Avvia una ricerca per ticker usando ChatGPT nel browser tramite Playwright. Non usa la OpenAI API per cercare le news.
+          </span>
+        </div>
+        <div className="newsLiveForm">
+          <input
+            value={liveTicker}
+            onChange={(event) => setLiveTicker(event.target.value.toUpperCase())}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") runLiveNews();
+            }}
+            placeholder="Ticker, es. CPR.MI, VOD.L, ROBO.MI"
+            disabled={liveState.running}
+          />
+          <button className="primaryButton" onClick={() => runLiveNews()} disabled={liveState.running}>
+            {liveState.running ? "Ricerca in corso..." : "Cerca news live"}
+          </button>
+        </div>
+        {liveState.message && <div className="newsLiveStatus ok">{liveState.message}</div>}
+        {liveState.error && <div className="newsLiveStatus errorState">{liveState.error}</div>}
       </div>
 
       <div className="newsFilters">
@@ -2511,7 +2571,7 @@ function NewsReports() {
       {state.error && <div className="error">{state.error}</div>}
       {state.loading && <div className="mutedBox">Carico report news salvati...</div>}
       {!state.loading && !state.error && (
-        <div className="newsGrid">
+        <div className="newsList">
           {items.length === 0 && (
             <div className="mutedBox">
               Nessun report news trovato. Le news compaiono qui dopo una ricerca live o una analisi Playwright che salva il file news del ticker.
@@ -2520,29 +2580,60 @@ function NewsReports() {
           {items.map((item) => {
             const isExpanded = Boolean(expanded[item.ticker]);
             const fullReport = cleanText(item.report);
-            const preview = cleanText(isExpanded ? item.report : item.preview);
+            const sourceText = isExpanded
+              ? fullReport
+              : (Array.isArray(item.summary_lines) && item.summary_lines.length ? item.summary_lines.join("\n") : item.preview);
+            const lines = cleanText(sourceText)
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .slice(0, isExpanded ? 140 : 10);
+            const canExpand = fullReport.length > cleanText(sourceText).length || lines.length >= 10;
             return (
               <article className={`newsCard ${item.status}`} key={`${item.ticker}-${item.updated_at}`}>
-                <div className="newsHeader">
+                <div className="newsCardHeader">
                   <div>
                     <h3>{item.ticker}</h3>
-                    <small>{formatLogDateTime(item.updated_at)}</small>
+                    <div className="newsMeta">
+                      <span>{formatLogDateTime(item.updated_at)}</span>
+                      <span>{item.path}</span>
+                    </div>
                   </div>
                   <span className={`newsBadge ${item.status}`}>{item.status_label}</span>
                 </div>
                 {item.headline && <p className="newsHeadline">{cleanText(item.headline)}</p>}
-                <p className="newsPath">File: {item.path}</p>
-                <pre className="newsPreview">{preview || "Report vuoto."}</pre>
-                {fullReport.length > cleanText(item.preview).length && (
-                  <div className="newsActions">
+                <div className="newsReadable">
+                  {lines.length === 0 && <p className="newsLine">Report vuoto.</p>}
+                  {lines.map((line, index) => {
+                    const isHeading = /REPORT|News rilevanti|Target price|Supporti|Resistenze|Sintesi|Fonti|Data/i.test(line);
+                    const isBullet = /^[-â€¢]\s*/.test(line);
+                    return (
+                      <p
+                        className={`newsLine ${isHeading ? "newsLineHeading" : ""} ${isBullet ? "newsLineBullet" : ""}`}
+                        key={`${item.ticker}-line-${index}`}
+                      >
+                        {line.replace(/^[-â€¢]\s*/, "")}
+                      </p>
+                    );
+                  })}
+                </div>
+                <div className="newsActions">
+                  <button
+                    className="iconButton compactButton"
+                    onClick={() => runLiveNews(item.ticker)}
+                    disabled={liveState.running}
+                  >
+                    Aggiorna live
+                  </button>
+                  {canExpand && (
                     <button
                       className="iconButton compactButton"
                       onClick={() => setExpanded((current) => ({ ...current, [item.ticker]: !isExpanded }))}
                     >
                       {isExpanded ? "Nascondi dettaglio" : "Mostra dettaglio"}
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </article>
             );
           })}
