@@ -2813,14 +2813,14 @@ function NewsReports() {
                   <button
                     className="iconButton compactButton"
                     onClick={() => runLiveNews(item.ticker)}
-                    disabled={liveState.running || chartState.running}
+                    disabled={newsStream.running || chartStream.running}
                   >
                     Aggiorna live
                   </button>
                   <button
                     className="iconButton compactButton"
                     onClick={() => runLiveChart(item.ticker)}
-                    disabled={liveState.running || chartState.running}
+                    disabled={newsStream.running || chartStream.running}
                   >
                     Analizza grafico
                   </button>
