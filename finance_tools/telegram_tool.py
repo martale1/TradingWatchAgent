@@ -422,14 +422,41 @@ def _condition_sort_key(item):
         return 999.0
 
 
-def _condition_brief(item):
+def _condition_operational_note(item, position_tickers=None, pending_buy_tickers=None):
+    position_tickers = position_tickers or set()
+    pending_buy_tickers = pending_buy_tickers or set()
+    ticker = str(item.get("ticker", "")).strip().upper()
+    metadata = item.get("metadata", {}) or {}
+    auto_decision = metadata.get("auto_decision")
+    auto_reason = metadata.get("auto_decision_reason")
+
+    if auto_decision:
+        return f"azione: {short_condition(auto_reason or str(auto_decision), max_len=120)}"
+    if ticker in position_tickers:
+        return "azione: gia in portafoglio; gestire con analisi posizione/uscita, non come nuovo acquisto"
+    if ticker in pending_buy_tickers:
+        return "azione: proposta buy gia pending"
+    return "azione: setup da valutare per proposta/acquisto in base alla modalita autonomia"
+
+
+def _condition_brief(item, include_details=False, position_tickers=None, pending_buy_tickers=None):
     metadata = item.get("metadata", {}) or {}
     scenario = _best_entry_scenario(item) or {}
     ticker = item.get("ticker", "n/d")
     state = metadata.get("scenario_state") or scenario.get("state") or item.get("status") or "waiting"
-    close = metadata.get("last_price") or scenario.get("last_price") or metadata.get("close")
-    trigger = scenario.get("trigger") or metadata.get("resistance_10")
-    volume_ratio = metadata.get("volume_ratio") or scenario.get("last_volume_ratio")
+    close = (
+        metadata.get("current_price")
+        or metadata.get("last_price")
+        or scenario.get("last_price")
+        or metadata.get("close")
+    )
+    trigger = metadata.get("trigger_price") or scenario.get("trigger") or metadata.get("resistance_10")
+    volume_ratio = (
+        metadata.get("volume_ratio_ma10")
+        or metadata.get("volume_ratio")
+        or scenario.get("last_volume_ratio")
+    )
+    reason = metadata.get("scenario_reason") or metadata.get("reason") or scenario.get("reason")
     distance = _condition_sort_key(item)
 
     bits = [f"- {ticker} [{state}]"]
@@ -444,7 +471,17 @@ def _condition_brief(item):
             bits.append(f"vol {format_decimal(float(volume_ratio), 2)}x MA10")
         except (TypeError, ValueError):
             pass
-    return " | ".join(bits)
+    line = " | ".join(bits)
+    if not include_details:
+        return line
+    details = [line]
+    condition_text = short_condition(item.get("condition"), max_len=110)
+    if condition_text:
+        details.append(f"  condizione: {condition_text}")
+    if reason:
+        details.append(f"  esito: {short_condition(reason, max_len=110)}")
+    details.append(f"  {_condition_operational_note(item, position_tickers, pending_buy_tickers)}")
+    return "\n".join(details)
 
 
 def _position_brief(item, perf_item=None):
@@ -500,6 +537,16 @@ def build_readable_monitoring_summary(extra_note=""):
     invalidated = [item for item in conditions if item.get("status") == "invalidated"]
     pending_buy = status.get("pending_buy_proposals", [])
     positions = status.get("positions", [])
+    position_tickers = {
+        str(item.get("ticker", "")).strip().upper()
+        for item in positions
+        if item.get("status") == "open"
+    }
+    pending_buy_tickers = {
+        str(item.get("ticker", "")).strip().upper()
+        for item in pending_buy
+        if item.get("status") == "pending"
+    }
     portfolio = load_portfolio() or {}
     recent_actions = list(reversed(portfolio.get("closed_proposals", [])))[:3]
 
@@ -527,11 +574,18 @@ def build_readable_monitoring_summary(extra_note=""):
             lines.append(f"... altre {len(positions) - max_items} posizioni")
 
     if met:
-        lines.extend(["", f"✅ Trigger scattati ({len(met)})"])
+        lines.extend(["", f"✅ Setup confermati / trigger operativi ({len(met)})"])
         for item in met[:max_items]:
-            lines.append(_condition_brief(item))
+            lines.append(
+                _condition_brief(
+                    item,
+                    include_details=True,
+                    position_tickers=position_tickers,
+                    pending_buy_tickers=pending_buy_tickers,
+                )
+            )
         if len(met) > max_items:
-            lines.append(f"... altri {len(met) - max_items} trigger scattati")
+            lines.append(f"... altri {len(met) - max_items} setup confermati")
 
     if waiting:
         lines.extend(["", f"🎯 Trigger in attesa ({len(waiting)})"])
@@ -612,98 +666,6 @@ def build_readable_performance_summary(performance=None, extra_note=""):
 
 def build_monitoring_summary(extra_note=""):
     return build_readable_monitoring_summary(extra_note=extra_note)
-
-    settings = load_telegram_settings()
-    max_items = int(settings.get("max_monitoring_items") or 5)
-    status = portfolio_status_summary()
-    performance = calculate_portfolio_performance()
-    conditions = list_monitored_conditions(status=None)
-    waiting = [item for item in conditions if item.get("status") == "waiting"]
-    met = [item for item in conditions if item.get("status") == "met"]
-    invalidated = [item for item in conditions if item.get("status") == "invalidated"]
-    pending_buy = status.get("pending_buy_proposals", [])
-    positions = status.get("positions", [])
-    portfolio = load_portfolio() or {}
-    recent_actions = list(reversed(portfolio.get("closed_proposals", [])))[:5]
-
-    position_perf = {item.get("ticker"): item for item in performance.get("positions", [])}
-    total_pnl = float(performance.get("total_pnl") or 0)
-    total_pnl_pct = float(performance.get("total_pnl_pct") or 0)
-
-    lines = [
-        "📊 Autonomous Trading Agent",
-        f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M')}",
-        "",
-        "💼 PORTAFOGLIO",
-        f"Valore  {format_money(performance.get('total_value'))}",
-        f"P/L     {format_signed_money(total_pnl)} ({format_pct(total_pnl_pct)})",
-        f"Cash    {format_money(status.get('cash'))}",
-        f"Posiz.  {len(positions)} | Pending {len(pending_buy)}",
-        "",
-        "📌 POSIZIONI",
-    ]
-
-    if positions:
-        for item in positions[:max_items]:
-            ticker = item.get("ticker", "n/d")
-            perf_item = position_perf.get(ticker, {})
-            pnl = perf_item.get("pnl")
-            pnl_pct = perf_item.get("pnl_pct")
-            daily_change_pct = perf_item.get("daily_change_pct")
-            close = perf_item.get("current_price")
-            close_text = f"px {format_number(close)}" if close is not None else "px n/d"
-            daily_text = f" oggi {format_pct(daily_change_pct)}" if daily_change_pct is not None else ""
-            lines.append(
-                f"{trend_marker(pnl)} {ticker} | {close_text} | P/L {format_pct(pnl_pct)} |{daily_text}"
-            )
-        if len(positions) > max_items:
-            lines.append(f"... altre {len(positions) - max_items} posizioni")
-    else:
-        lines.append("nessuna")
-
-    lines.append("")
-    lines.append(f"🎯 TRIGGER IN ATTESA ({len(waiting)})")
-    for item in waiting[:max_items]:
-        lines.append(f"• {item.get('ticker')}: {compact_condition(item.get('condition'))}")
-    if len(waiting) > max_items:
-        lines.append(f"... altri {len(waiting) - max_items} trigger")
-
-    if met:
-        lines.append("")
-        lines.append(f"✅ TRIGGER SCATTATI ({len(met)})")
-        for item in met[:max_items]:
-            lines.append(format_trigger_event(item))
-
-    if invalidated:
-        lines.append("")
-        lines.append(f"⚠️ TRIGGER INVALIDATI ({len(invalidated)})")
-        for item in invalidated[:max_items]:
-            lines.append(f"- {item.get('ticker')}: {short_condition(item.get('condition'))}")
-
-    if pending_buy:
-        lines.append("")
-        lines.append("📝 PROPOSTE PENDING")
-        for item in pending_buy[:max_items]:
-            amount = item.get("metadata", {}).get("amount")
-            amount_text = f" {format_money(amount)}" if amount is not None else ""
-            lines.append(f"- {item.get('id')} {item.get('ticker')}{amount_text}")
-        if len(pending_buy) > max_items:
-            lines.append(f"... altre {len(pending_buy) - max_items} proposte")
-
-    lines.append("")
-    lines.append("🧾 AZIONI RECENTI")
-    if recent_actions:
-        for item in recent_actions[:3]:
-            lines.append(format_proposal_action(item))
-    else:
-        lines.append("nessuna modifica applicata/rifiutata")
-
-    if extra_note:
-        lines.append("")
-        lines.append("ℹ️ NOTA")
-        lines.append(short_condition(extra_note, max_len=180))
-
-    return "\n".join(lines)
 
 
 def send_monitoring_summary(extra_note=""):

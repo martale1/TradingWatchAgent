@@ -41,6 +41,7 @@ from finance_tools.portfolio_store import (
     portfolio_status_summary,
     reject_proposal as reject_portfolio_proposal,
     remove_watchlist_item,
+    save_portfolio as save_portfolio_file,
     update_portfolio_capital,
     update_monitored_condition,
 )
@@ -58,6 +59,7 @@ DEFAULT_PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", "80"))
 DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30"))
 DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))
 DEFAULT_MAX_COMMODITY_ALLOCATION_PCT = float(os.getenv("MAX_COMMODITY_ALLOCATION_PCT", "20"))
+AUTO_ENTRY_DECISION_ACTION = "auto_entry_decision"
 
 
 ENTRY_SCENARIOS_GUIDE = (
@@ -117,6 +119,303 @@ def configure_stdout():
             sys.stdout = TimestampedStream(sys.stdout)
         if not getattr(sys.stderr, "_tradingwatch_timestamped", False):
             sys.stderr = TimestampedStream(sys.stderr)
+
+
+def _open_position_tickers(portfolio):
+    return {
+        str(item.get("ticker", "")).strip().upper()
+        for item in (portfolio or {}).get("positions", [])
+        if item.get("status") == "open"
+    }
+
+
+def _pending_buy_tickers(portfolio):
+    return {
+        str(item.get("ticker", "")).strip().upper()
+        for item in (portfolio or {}).get("pending_proposals", [])
+        if item.get("status") == "pending" and item.get("action") == "buy_virtual_position"
+    }
+
+
+def _condition_best_scenario(condition):
+    metadata = condition.get("metadata", {}) or {}
+    scenarios = metadata.get("entry_scenarios") or []
+    ranked_states = {
+        "BUY_CANDIDATE": 50,
+        "TRIGGER_MET": 45,
+        "CONFIRMED": 40,
+        "CONFIRMING": 35,
+        "NEAR_TRIGGER": 25,
+        "WAIT": 10,
+    }
+    if scenarios:
+        return max(
+            scenarios,
+            key=lambda item: ranked_states.get(str(item.get("state") or "").upper(), 0),
+        )
+    return {}
+
+
+def _condition_reference_values(condition):
+    metadata = condition.get("metadata", {}) or {}
+    scenario = _condition_best_scenario(condition)
+    price = (
+        metadata.get("current_price")
+        or metadata.get("last_price")
+        or scenario.get("last_price")
+        or metadata.get("close")
+    )
+    trigger = metadata.get("trigger_price") or scenario.get("trigger") or metadata.get("resistance_10")
+    volume_ratio = (
+        metadata.get("volume_ratio_ma10")
+        or metadata.get("volume_ratio")
+        or scenario.get("last_volume_ratio")
+    )
+    try:
+        price = float(price) if price is not None else None
+    except (TypeError, ValueError):
+        price = None
+    try:
+        trigger = float(trigger) if trigger is not None else None
+    except (TypeError, ValueError):
+        trigger = None
+    try:
+        volume_ratio = float(volume_ratio) if volume_ratio is not None else None
+    except (TypeError, ValueError):
+        volume_ratio = None
+    return scenario, price, trigger, volume_ratio
+
+
+def _record_auto_entry_decision(condition, decision, reason, status="logged", metadata=None):
+    portfolio = load_portfolio_file()
+    if portfolio is None:
+        return None
+    now_text = datetime.now().replace(microsecond=0).isoformat()
+    condition_id = condition.get("id")
+    ticker = str(condition.get("ticker", "")).strip().upper()
+    decision_key = f"{condition_id}:{decision}"
+    entry = {
+        "id": f"auto-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}",
+        "created_at": now_text,
+        "confirmed_at": now_text,
+        "status": status,
+        "action": AUTO_ENTRY_DECISION_ACTION,
+        "ticker": ticker,
+        "reason": reason,
+        "metadata": {
+            "condition_id": condition_id,
+            "decision": decision,
+            "decision_key": decision_key,
+            **(metadata or {}),
+        },
+    }
+    closed = portfolio.setdefault("closed_proposals", [])
+    for item in reversed(closed):
+        item_metadata = item.get("metadata", {}) or {}
+        if item.get("action") == AUTO_ENTRY_DECISION_ACTION and item_metadata.get("decision_key") == decision_key:
+            item.update(entry)
+            save_portfolio_file(portfolio)
+            return item
+    closed.append(entry)
+    save_portfolio_file(portfolio)
+    return entry
+
+
+def _format_auto_trade_amount(value):
+    try:
+        return f"EUR {float(value):.2f}"
+    except (TypeError, ValueError):
+        return "EUR n/d"
+
+
+def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_pct):
+    """Apply or audit confirmed entry conditions after the LLM cycle.
+
+    The LLM can still make richer decisions, but this deterministic pass ensures
+    every confirmed BUY_CANDIDATE leaves an operational trace: buy applied,
+    already-held skip, pending skip, cash/liquidity skip, or manual-mode skip.
+    """
+    conditions = [
+        item
+        for item in list_monitored_conditions(status="met")
+        if str((item.get("metadata") or {}).get("scenario_state") or "").upper()
+        in {"BUY_CANDIDATE", "TRIGGER_MET", "CONFIRMED"}
+    ]
+    if not conditions:
+        log_step("Post-check autonomia ingressi: nessuna condizione met/BUY_CANDIDATE da processare")
+        return []
+
+    settings = load_autonomy_settings()
+    action_mode = settings.get("portfolio_action_mode", "confirmation")
+    log_step(
+        "Post-check autonomia ingressi: "
+        f"{len(conditions)} condizioni confermate | mode={action_mode} auto_apply_virtual={auto_apply_virtual}"
+    )
+
+    decisions = []
+    for condition in conditions:
+        portfolio = load_portfolio_file()
+        if portfolio is None:
+            break
+        ticker = str(condition.get("ticker", "")).strip().upper()
+        metadata = condition.get("metadata", {}) or {}
+        scenario, price, trigger, volume_ratio = _condition_reference_values(condition)
+        state = str(metadata.get("scenario_state") or scenario.get("state") or condition.get("status")).upper()
+        condition_text = condition.get("condition", "")
+        reason_base = (
+            metadata.get("scenario_reason")
+            or metadata.get("reason")
+            or scenario.get("reason")
+            or "setup operativo confermato"
+        )
+        held = ticker in _open_position_tickers(portfolio)
+        pending = ticker in _pending_buy_tickers(portfolio)
+        cash = float(portfolio.get("cash") or 0)
+        max_amount = round(cash * max(0.0, float(max_auto_trade_pct or 0)) / 100.0, 2)
+        liquidity_ok = metadata.get("liquidity_ok", True) is not False
+        audit_metadata = {
+            "scenario_state": state,
+            "condition": condition_text,
+            "scenario_reason": reason_base,
+            "last_price": price,
+            "trigger": trigger,
+            "volume_ratio": volume_ratio,
+            "autonomy_mode": action_mode,
+            "auto_apply_virtual": auto_apply_virtual,
+        }
+
+        log_step(
+            "Post-check autonomia ingressi | "
+            f"{ticker}: state={state} price={price} trigger={trigger} vol_ratio={volume_ratio} "
+            f"held={held} pending={pending} cash={cash:.2f} max_amount={max_amount:.2f} liquidity_ok={liquidity_ok}"
+        )
+
+        if held:
+            reason = (
+                f"{ticker}: setup ingresso confermato ({reason_base}), ma il titolo e gia in portafoglio; "
+                "nessun incremento automatico da trigger di ingresso. Gestione tramite analisi posizione/uscita."
+            )
+            _record_auto_entry_decision(condition, "skip_already_in_portfolio", reason, status="skipped", metadata=audit_metadata)
+            update_monitored_condition(
+                condition_id=condition.get("id"),
+                status="bought",
+                note=reason,
+                metadata={**metadata, "auto_decision": "skip_already_in_portfolio", "auto_decision_reason": reason},
+            )
+            log_step(f"Post-check autonomia ingressi | {ticker}: skip, gia in portafoglio")
+            decisions.append({"ticker": ticker, "decision": "skip_already_in_portfolio", "reason": reason})
+            continue
+
+        if pending:
+            reason = f"{ticker}: setup ingresso confermato, ma esiste gia una proposta buy pending."
+            _record_auto_entry_decision(condition, "skip_pending_buy", reason, status="skipped", metadata=audit_metadata)
+            update_monitored_condition(
+                condition_id=condition.get("id"),
+                status="met",
+                note=reason,
+                metadata={**metadata, "auto_decision": "skip_pending_buy", "auto_decision_reason": reason},
+            )
+            log_step(f"Post-check autonomia ingressi | {ticker}: skip, proposta pending esistente")
+            decisions.append({"ticker": ticker, "decision": "skip_pending_buy", "reason": reason})
+            continue
+
+        if not liquidity_ok:
+            reason = f"{ticker}: setup ingresso confermato ma liquidita non sufficiente per operativita automatica."
+            _record_auto_entry_decision(condition, "skip_low_liquidity", reason, status="skipped", metadata=audit_metadata)
+            update_monitored_condition(
+                condition_id=condition.get("id"),
+                status="invalidated",
+                note=reason,
+                metadata={**metadata, "auto_decision": "skip_low_liquidity", "auto_decision_reason": reason},
+            )
+            log_step(f"Post-check autonomia ingressi | {ticker}: invalidato per liquidita")
+            decisions.append({"ticker": ticker, "decision": "skip_low_liquidity", "reason": reason})
+            continue
+
+        action_allowed, _ = autonomous_action_allowed("buy_virtual_position")
+        if not auto_apply_virtual or not action_allowed:
+            reason = (
+                f"{ticker}: setup ingresso confermato ({reason_base}), ma la modalita corrente non consente acquisto automatico."
+            )
+            _record_auto_entry_decision(condition, "skip_manual_mode", reason, status="skipped", metadata=audit_metadata)
+            update_monitored_condition(
+                condition_id=condition.get("id"),
+                status="met",
+                note=reason,
+                metadata={**metadata, "auto_decision": "skip_manual_mode", "auto_decision_reason": reason},
+            )
+            log_step(f"Post-check autonomia ingressi | {ticker}: skip, modalita non autonoma")
+            decisions.append({"ticker": ticker, "decision": "skip_manual_mode", "reason": reason})
+            continue
+
+        if price is None or price <= 0 or max_amount <= 0 or cash <= 0:
+            reason = (
+                f"{ticker}: setup ingresso confermato ma prezzo/cash non validi "
+                f"(price={price}, cash={cash:.2f}, max_amount={max_amount:.2f})."
+            )
+            _record_auto_entry_decision(condition, "skip_missing_price_or_cash", reason, status="skipped", metadata=audit_metadata)
+            update_monitored_condition(
+                condition_id=condition.get("id"),
+                status="met",
+                note=reason,
+                metadata={**metadata, "auto_decision": "skip_missing_price_or_cash", "auto_decision_reason": reason},
+            )
+            log_step(f"Post-check autonomia ingressi | {ticker}: skip, prezzo o cash non valido")
+            decisions.append({"ticker": ticker, "decision": "skip_missing_price_or_cash", "reason": reason})
+            continue
+
+        amount = min(cash, max_amount)
+        reason = (
+            f"BUY automatico da condizione monitorata {condition.get('id')}: {state}. "
+            f"Condizione: {condition_text}. Esito: {reason_base}. "
+            f"Prezzo {price:.4f}, trigger {trigger if trigger is not None else 'n/d'}, "
+            f"volume {volume_ratio if volume_ratio is not None else 'n/d'}x MA10."
+        )
+        proposal = add_buy_proposal(
+            ticker=ticker,
+            reason=reason,
+            amount=amount,
+            entry_price=price,
+            metadata={
+                **audit_metadata,
+                "source": "autonomous_met_entry_condition",
+                "amount": amount,
+                "entry_price": price,
+            },
+        )
+        result = confirm_portfolio_proposal(proposal["id"])
+        confirm_status = str(result.get("status") or "").lower()
+        applied = confirm_status in {"ok", "confirmed", "applied"}
+        update_monitored_condition(
+            condition_id=condition.get("id"),
+            status="bought" if applied else "met",
+            note=(
+                f"Acquisto automatico applicato: {ticker} {_format_auto_trade_amount(amount)}."
+                if applied
+                else f"Acquisto automatico non applicato: {result.get('status')}"
+            ),
+            metadata={
+                **metadata,
+                "auto_decision": "applied_buy" if applied else "failed_buy",
+                "auto_decision_reason": reason,
+                "auto_proposal_id": proposal["id"],
+                "auto_trade_amount": amount,
+            },
+        )
+        log_step(
+            "Post-check autonomia ingressi | "
+            f"{ticker}: {'BUY applicato' if applied else 'BUY fallito'} proposal_id={proposal['id']} amount={amount:.2f}"
+        )
+        decisions.append(
+            {
+                "ticker": ticker,
+                "decision": "applied_buy" if applied else "failed_buy",
+                "proposal_id": proposal["id"],
+                "amount": amount,
+                "reason": reason,
+            }
+        )
+    return decisions
 
 
 def log_step(message):
@@ -1207,6 +1506,17 @@ def run_periodic_monitor_loop(
                 suppress_auto_telegram_summary=True,
                 max_turns=periodic_max_turns,
             )
+            auto_entry_decisions = process_autonomous_met_entry_conditions(
+                auto_apply_virtual=auto_apply_virtual,
+                max_auto_trade_pct=max_auto_trade_pct,
+            )
+            if auto_entry_decisions:
+                applied_count = len([item for item in auto_entry_decisions if item.get("decision") == "applied_buy"])
+                skipped_count = len([item for item in auto_entry_decisions if str(item.get("decision", "")).startswith("skip_")])
+                log_step(
+                    "Post-check autonomia ingressi completato | "
+                    f"buy_applicati={applied_count} decisioni_skip={skipped_count}"
+                )
             after_state = monitoring_state_signature()
             log_operational_snapshot("dopo il ciclo")
             performance = calculate_portfolio_performance()
