@@ -1,8 +1,20 @@
 {
   "market": "etfs",
   "label": "ETF",
-  "updated_at": "2026-07-26T00:00:00",
+  "updated_at": "2026-07-27T11:47:11",
   "items": [
+    {
+      "ticker": "3BAL.MI",
+      "name": "banche ETF",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-27T11:47:11"
+    },
     {
       "ticker": "ROBO.MI",
       "name": "Robotics and Automation",
