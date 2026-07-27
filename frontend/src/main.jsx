@@ -155,6 +155,11 @@ function dateTime(value) {
   });
 }
 
+function yfinanceReadTime(value) {
+  if (!value) return "non letta";
+  return dateTime(value);
+}
+
 function shortDate(value) {
   const parts = String(value || "").split("-");
   if (parts.length < 3) return String(value || "");
@@ -1353,7 +1358,11 @@ function Commodities({ rows = [], monitoredRows = [], positions = [], onChart })
       universeColumns={[
         { key: "ticker", label: "Ticker" },
         { key: "name", label: "Nome" },
-        { key: "latest_quotation", label: "Ultima quotazione file" },
+        {
+          key: "last_yfinance_read_at",
+          label: "Ultima lettura yfinance",
+          render: (item) => yfinanceReadTime(item.last_yfinance_read_at || item.scan_updated_at),
+        },
       ]}
       chartCondition={(item) => `Materia prima / ETC. Trigger tecnico: chiusura sopra ${price(item.resistance_10)} con volumi; supporto ${price(item.support_10)}.`}
       onChart={onChart}

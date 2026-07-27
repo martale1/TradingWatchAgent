@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -58,6 +59,7 @@ def scan_commodity_candidates(limit=8, days=70, period="1y", universe_limit=None
             if verbose:
                 print(f"[commodity-scanner] {index}/{len(universe)} {ticker} - scarico dati e calcolo indicatori...", flush=True)
             context = generate_snapshot_context(ticker, period=period)
+            read_at = datetime.now().isoformat(timespec="seconds")
             snapshot = context["snapshot"]
             score, reasons, risks = score_snapshot(snapshot)
             score, liquidity = apply_liquidity_to_score(score, risks, snapshot, asset_class="commodity")
@@ -72,6 +74,7 @@ def scan_commodity_candidates(limit=8, days=70, period="1y", universe_limit=None
                 {
                     **item,
                     "score": score,
+                    "last_yfinance_read_at": read_at,
                     "close": snapshot["close"],
                     "change_1d_pct": snapshot["change_1d_pct"],
                     "rsi": snapshot["rsi"],

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from finance_tools.chart_tool import generate_snapshot_context
 from finance_tools.common import PROJECT_ROOT
@@ -37,6 +38,7 @@ def scan_etf_candidates(limit=8, days=70, period="1y", universe_limit=None, verb
             if verbose:
                 print(f"[etf-scanner] {index}/{len(universe)} {ticker} - scarico dati e calcolo indicatori...", flush=True)
             context = generate_snapshot_context(ticker, period=period)
+            read_at = datetime.now().isoformat(timespec="seconds")
             snapshot = context["snapshot"]
             score, reasons, risks = score_snapshot(snapshot)
             score, liquidity = apply_liquidity_to_score(score, risks, snapshot, asset_class="etf")
@@ -51,6 +53,7 @@ def scan_etf_candidates(limit=8, days=70, period="1y", universe_limit=None, verb
                 {
                     **item,
                     "score": score,
+                    "last_yfinance_read_at": read_at,
                     "close": snapshot["close"],
                     "change_1d_pct": snapshot["change_1d_pct"],
                     "rsi": snapshot["rsi"],

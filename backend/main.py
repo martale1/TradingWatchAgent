@@ -312,12 +312,15 @@ def enrich_universe_with_scan(rows, scan_filename):
         ticker = str(row.get("ticker", "")).strip().upper()
         scan_item = by_ticker.get(ticker)
         if scan_item:
-            enriched.append({
-                **scan_item,
-                **row,
-                "scan_updated_at": updated_at,
-                "score_source": scan_filename,
-            })
+            merged = {**scan_item, **row}
+            merged.update(
+                {
+                    "scan_updated_at": updated_at,
+                    "last_yfinance_read_at": scan_item.get("last_yfinance_read_at") or updated_at,
+                    "score_source": scan_filename,
+                }
+            )
+            enriched.append(merged)
         else:
             enriched.append(row)
     return enriched
@@ -653,10 +656,28 @@ def fallback_market_rows(market: str):
     return []
 
 
+def market_scan_filename(market: str):
+    key = str(market or "").lower().replace("-", "_")
+    if key in {"ftse_mib", "ftsemib", "mib30"}:
+        return "mib30_scan.json"
+    if key in {"commodities", "commodity", "materie_prime"}:
+        return "commodity_scan.json"
+    if key in {"etfs", "etf"}:
+        return "etf_scan.json"
+    return None
+
+
 @app.get("/api/markets/{market}/universe")
 def market_universe(market: str):
     try:
-        return json_safe(list_market_universe(market, fallback_rows=fallback_market_rows(market)))
+        payload = list_market_universe(market, fallback_rows=fallback_market_rows(market))
+        scan_filename = market_scan_filename(market)
+        if scan_filename:
+            payload = {
+                **payload,
+                "items": enrich_universe_with_scan(payload.get("items", []), scan_filename),
+            }
+        return json_safe(payload)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -99,6 +100,7 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
             if verbose:
                 print(f"[scanner] {index}/{len(universe)} {ticker} - scarico dati e calcolo indicatori...", flush=True)
             context = generate_snapshot_context(ticker, period=period)
+            read_at = datetime.now().isoformat(timespec="seconds")
             snapshot = context["snapshot"]
             if verbose:
                 print(f"[scanner] {ticker} - calcolo score tecnico...", flush=True)
@@ -115,6 +117,7 @@ def scan_mib30_candidates(limit=5, days=70, period="1y", create_proposals=False,
                 {
                     **item,
                     "score": score,
+                    "last_yfinance_read_at": read_at,
                     "close": snapshot["close"],
                     "change_1d_pct": snapshot["change_1d_pct"],
                     "rsi": snapshot["rsi"],
