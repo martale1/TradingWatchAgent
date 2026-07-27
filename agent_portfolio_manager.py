@@ -290,22 +290,6 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             f"held={held} pending={pending} cash={cash:.2f} max_amount={max_amount:.2f} liquidity_ok={liquidity_ok}"
         )
 
-        if held:
-            reason = (
-                f"{ticker}: setup ingresso confermato ({reason_base}), ma il titolo e gia in portafoglio; "
-                "nessun incremento automatico da trigger di ingresso. Gestione tramite analisi posizione/uscita."
-            )
-            _record_auto_entry_decision(condition, "skip_already_in_portfolio", reason, status="skipped", metadata=audit_metadata)
-            update_monitored_condition(
-                condition_id=condition.get("id"),
-                status="bought",
-                note=reason,
-                metadata={**metadata, "auto_decision": "skip_already_in_portfolio", "auto_decision_reason": reason},
-            )
-            log_step(f"Post-check autonomia ingressi | {ticker}: skip, gia in portafoglio")
-            decisions.append({"ticker": ticker, "decision": "skip_already_in_portfolio", "reason": reason})
-            continue
-
         if pending:
             reason = f"{ticker}: setup ingresso confermato, ma esiste gia una proposta buy pending."
             _record_auto_entry_decision(condition, "skip_pending_buy", reason, status="skipped", metadata=audit_metadata)
@@ -365,8 +349,11 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             continue
 
         amount = min(cash, max_amount)
+        trade_label = "INCREMENTO automatico" if held else "BUY automatico"
+        success_decision = "applied_increase" if held else "applied_buy"
+        failed_decision = "failed_increase" if held else "failed_buy"
         reason = (
-            f"BUY automatico da condizione monitorata {condition.get('id')}: {state}. "
+            f"{trade_label} da condizione monitorata {condition.get('id')}: {state}. "
             f"Condizione: {condition_text}. Esito: {reason_base}. "
             f"Prezzo {price:.4f}, trigger {trigger if trigger is not None else 'n/d'}, "
             f"volume {volume_ratio if volume_ratio is not None else 'n/d'}x MA10."
@@ -390,13 +377,13 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             condition_id=condition.get("id"),
             status="bought" if applied else "met",
             note=(
-                f"Acquisto automatico applicato: {ticker} {_format_auto_trade_amount(amount)}."
+                f"{trade_label} applicato: {ticker} {_format_auto_trade_amount(amount)}."
                 if applied
-                else f"Acquisto automatico non applicato: {result.get('status')}"
+                else f"{trade_label} non applicato: {result.get('status')}"
             ),
             metadata={
                 **metadata,
-                "auto_decision": "applied_buy" if applied else "failed_buy",
+                "auto_decision": success_decision if applied else failed_decision,
                 "auto_decision_reason": reason,
                 "auto_proposal_id": proposal["id"],
                 "auto_trade_amount": amount,
@@ -404,12 +391,13 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
         )
         log_step(
             "Post-check autonomia ingressi | "
-            f"{ticker}: {'BUY applicato' if applied else 'BUY fallito'} proposal_id={proposal['id']} amount={amount:.2f}"
+            f"{ticker}: {trade_label} {'applicato' if applied else 'fallito'} "
+            f"proposal_id={proposal['id']} amount={amount:.2f}"
         )
         decisions.append(
             {
                 "ticker": ticker,
-                "decision": "applied_buy" if applied else "failed_buy",
+                "decision": success_decision if applied else failed_decision,
                 "proposal_id": proposal["id"],
                 "amount": amount,
                 "reason": reason,

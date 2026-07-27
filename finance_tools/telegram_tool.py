@@ -433,7 +433,7 @@ def _condition_operational_note(item, position_tickers=None, pending_buy_tickers
     if auto_decision:
         return f"azione: {short_condition(auto_reason or str(auto_decision), max_len=120)}"
     if ticker in position_tickers:
-        return "azione: gia in portafoglio; gestire con analisi posizione/uscita, non come nuovo acquisto"
+        return "azione: gia in portafoglio; in autonomia completa puo diventare incremento posizione"
     if ticker in pending_buy_tickers:
         return "azione: proposta buy gia pending"
     return "azione: setup da valutare per proposta/acquisto in base alla modalita autonomia"
