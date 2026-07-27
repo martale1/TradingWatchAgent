@@ -338,6 +338,80 @@ def json_safe(value):
     return value
 
 
+NEWS_REPORTS_ROOT = ROOT / "output" / "stock_ai"
+NEWS_NO_RELEVANT_PATTERNS = (
+    "nessuna news rilevante",
+    "nessun report",
+    "cache non presente",
+    "news non disponibile",
+    "nessun aggiornamento recente",
+    "non risultano notizie",
+    "nessuna nuova comunicazione",
+)
+
+
+def compact_news_preview(text, max_chars=900):
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    preview = "\n".join(lines[:12]).strip()
+    if len(preview) > max_chars:
+        preview = preview[:max_chars].rstrip() + "..."
+    return preview
+
+
+def classify_news_report(text):
+    stripped = str(text or "").strip()
+    if not stripped:
+        return "empty", "Report vuoto"
+    lower = stripped.lower()
+    if any(pattern in lower for pattern in NEWS_NO_RELEVANT_PATTERNS):
+        return "no_relevant", "Nessuna news rilevante"
+    return "relevant", "News disponibili"
+
+
+def read_saved_news_reports(limit=200, query="", relevant_only=False):
+    if not NEWS_REPORTS_ROOT.exists():
+        return []
+    files = sorted(
+        NEWS_REPORTS_ROOT.glob("*/*_news.txt"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )
+    items = []
+    q = str(query or "").strip().lower()
+    for path in files:
+        try:
+            stat = path.stat()
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        ticker = path.name[: -len("_news.txt")].upper()
+        status, label = classify_news_report(text)
+        haystack = f"{ticker} {text}".lower()
+        if relevant_only and status != "relevant":
+            continue
+        if q and q not in haystack:
+            continue
+        updated_at = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        items.append(
+            {
+                "ticker": ticker,
+                "updated_at": updated_at,
+                "path": str(path.relative_to(ROOT)),
+                "bytes": stat.st_size,
+                "status": status,
+                "status_label": label,
+                "has_relevant_news": status == "relevant",
+                "headline": (lines[0] if lines else "")[:180],
+                "preview": compact_news_preview(text),
+                "report": text,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
 def save_last_deep_analysis_report(report):
     payload = {
         **report,
@@ -643,6 +717,23 @@ def dashboard():
         "commodities": enrich_universe_with_scan(load_commodity_tickers(), "commodity_scan.json"),
         "etfs": enrich_universe_with_scan(load_etf_tickers(), "etf_scan.json"),
     })
+
+
+@app.get("/api/news/reports")
+def news_reports(limit: int = 200, query: str = "", relevant_only: bool = False):
+    safe_limit = max(1, min(int(limit or 200), 500))
+    items = read_saved_news_reports(safe_limit, query, relevant_only)
+    return json_safe(
+        {
+            "items": items,
+            "count": len(items),
+            "relevant_count": sum(1 for item in items if item["status"] == "relevant"),
+            "no_relevant_count": sum(1 for item in items if item["status"] == "no_relevant"),
+            "empty_count": sum(1 for item in items if item["status"] == "empty"),
+            "latest_updated_at": items[0]["updated_at"] if items else None,
+            "root": str(NEWS_REPORTS_ROOT.relative_to(ROOT)),
+        }
+    )
 
 
 def fallback_market_rows(market: str):

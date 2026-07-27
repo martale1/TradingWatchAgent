@@ -1552,6 +1552,128 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   stroke: white;
   stroke-width: 1.5;
 }
+.newsPage .sectionHeader h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.newsFilters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+.newsSearch {
+  flex: 1;
+  min-width: 280px;
+  max-width: 560px;
+}
+.checkInline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-weight: 800;
+}
+.checkInline input {
+  width: auto;
+}
+.newsOverview .marketKpi strong {
+  font-size: 23px;
+}
+.newsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.newsCard {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dbe4f0;
+  border-left: 4px solid #64748b;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+.newsCard.relevant { border-left-color: #16a34a; }
+.newsCard.no_relevant { border-left-color: #f59e0b; }
+.newsCard.empty {
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+}
+.newsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.newsHeader h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.newsHeader small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+}
+.newsBadge {
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.newsBadge.relevant {
+  color: #166534;
+  background: #dcfce7;
+}
+.newsBadge.no_relevant {
+  color: #92400e;
+  background: #fef3c7;
+}
+.newsBadge.empty {
+  color: #475569;
+  background: #e2e8f0;
+}
+.newsHeadline {
+  margin: 0;
+  color: #1f2937;
+  font-weight: 800;
+}
+.newsPath {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.newsPreview {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e5e7eb;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.newsActions {
+  display: flex;
+  justify-content: flex-end;
+}
+.compactButton {
+  padding: 8px 10px;
+}
+.mutedBox {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 16px;
+}
 
 @media (max-width: 900px) {
   main { padding: 18px; }

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, Bot, LineChart, MessageSquare, RefreshCw, Send, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
+import { Activity, Bot, LineChart, MessageSquare, Newspaper, RefreshCw, Send, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import "./styles.css";
 
 const API = "http://127.0.0.1:8000";
@@ -2428,6 +2428,130 @@ function Controls({ reload }) {
   );
 }
 
+function NewsReports() {
+  const [state, setState] = useState({ loading: true, error: "", data: null });
+  const [query, setQuery] = useState("");
+  const [onlyRelevant, setOnlyRelevant] = useState(false);
+  const [expanded, setExpanded] = useState({});
+
+  async function loadNews(options = {}) {
+    const silent = Boolean(options.silent);
+    if (!silent) setState((current) => ({ ...current, loading: true, error: "" }));
+    const params = new URLSearchParams({ limit: "200" });
+    if (query.trim()) params.set("query", query.trim());
+    if (onlyRelevant) params.set("relevant_only", "true");
+    try {
+      const data = await api(`/api/news/reports?${params.toString()}`, { timeoutMs: 60000 });
+      setState({ loading: false, error: "", data });
+    } catch (error) {
+      setState({ loading: false, error: error.message, data: null });
+    }
+  }
+
+  useEffect(() => { loadNews(); }, [onlyRelevant]);
+
+  const data = state.data || {};
+  const items = data.items || [];
+
+  return (
+    <section className="panel newsPage">
+      <div className="sectionHeader">
+        <div>
+          <h2><Newspaper size={22} /> News cercate</h2>
+          <span>Archivio dei report news salvati dalle ricerche Playwright/ChatGPT. Questa pagina non avvia nuove ricerche live.</span>
+        </div>
+        <div className="sectionActions">
+          <button className="iconButton" onClick={() => loadNews()} disabled={state.loading}>
+            <RefreshCw size={16} /> {state.loading ? "Aggiorno..." : "Aggiorna news"}
+          </button>
+        </div>
+      </div>
+
+      <div className="newsFilters">
+        <input
+          className="newsSearch"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") loadNews();
+          }}
+          placeholder="Cerca ticker o testo nel report..."
+        />
+        <label className="checkInline">
+          <input type="checkbox" checked={onlyRelevant} onChange={(event) => setOnlyRelevant(event.target.checked)} />
+          Solo news rilevanti
+        </label>
+      </div>
+
+      {state.data && (
+        <div className="marketOverview newsOverview">
+          <div className="marketKpi">
+            <span>Report salvati</span>
+            <strong>{data.count || 0}</strong>
+            <small>Letti da {data.root || "output/stock_ai"}</small>
+          </div>
+          <div className="marketKpi highlight">
+            <span>News rilevanti</span>
+            <strong>{data.relevant_count || 0}</strong>
+            <small>Report con notizie potenzialmente utili.</small>
+          </div>
+          <div className="marketKpi">
+            <span>Senza novita</span>
+            <strong>{data.no_relevant_count || 0}</strong>
+            <small>Report che dichiarano nessuna news rilevante.</small>
+          </div>
+          <div className="marketKpi">
+            <span>Ultimo aggiornamento</span>
+            <strong>{data.latest_updated_at ? formatLogDateTime(data.latest_updated_at) : "n/d"}</strong>
+            <small>Data di modifica del file news piu recente.</small>
+          </div>
+        </div>
+      )}
+
+      {state.error && <div className="error">{state.error}</div>}
+      {state.loading && <div className="mutedBox">Carico report news salvati...</div>}
+      {!state.loading && !state.error && (
+        <div className="newsGrid">
+          {items.length === 0 && (
+            <div className="mutedBox">
+              Nessun report news trovato. Le news compaiono qui dopo una ricerca live o una analisi Playwright che salva il file news del ticker.
+            </div>
+          )}
+          {items.map((item) => {
+            const isExpanded = Boolean(expanded[item.ticker]);
+            const fullReport = cleanText(item.report);
+            const preview = cleanText(isExpanded ? item.report : item.preview);
+            return (
+              <article className={`newsCard ${item.status}`} key={`${item.ticker}-${item.updated_at}`}>
+                <div className="newsHeader">
+                  <div>
+                    <h3>{item.ticker}</h3>
+                    <small>{formatLogDateTime(item.updated_at)}</small>
+                  </div>
+                  <span className={`newsBadge ${item.status}`}>{item.status_label}</span>
+                </div>
+                {item.headline && <p className="newsHeadline">{cleanText(item.headline)}</p>}
+                <p className="newsPath">File: {item.path}</p>
+                <pre className="newsPreview">{preview || "Report vuoto."}</pre>
+                {fullReport.length > cleanText(item.preview).length && (
+                  <div className="newsActions">
+                    <button
+                      className="iconButton compactButton"
+                      onClick={() => setExpanded((current) => ({ ...current, [item.ticker]: !isExpanded }))}
+                    >
+                      {isExpanded ? "Nascondi dettaglio" : "Mostra dettaglio"}
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function safeLogText(value) {
   return String(value || "")
     .replace(/\u0000/g, "")
@@ -2621,6 +2745,7 @@ function App() {
     ["ftse-mib", "FTSE MIB"],
     ["commodities", "Materie prime"],
     ["etfs", "ETF"],
+    ["news", "News"],
     ["chat", "Chat"],
     ["watchlist", "Watchlist"],
     ["actions", "Azioni"],
@@ -2652,7 +2777,8 @@ function App() {
 
       {!data && tab === "logs" && <RunLogs />}
       {!data && tab === "controls" && <Controls reload={load} />}
-      {!data && !["logs", "controls"].includes(tab) && (
+      {!data && tab === "news" && <NewsReports />}
+      {!data && !["logs", "controls", "news"].includes(tab) && (
         <section className="panel dashboardLoading">
           <strong>Caricamento dashboard in corso...</strong>
           <p>Sto aggiornando prezzi, performance e condizioni monitorate. Se il backend sta interrogando Yahoo Finance puo impiegare anche 20-60 secondi.</p>
@@ -2691,6 +2817,7 @@ function App() {
           {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
           {tab === "commodities" && <Commodities rows={data.commodities || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
           {tab === "etfs" && <Etfs rows={data.etfs || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
+          {tab === "news" && <NewsReports />}
           {tab === "chat" && <Chat />}
           {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
           {tab === "actions" && <Actions rows={data.recent_actions || []} />}

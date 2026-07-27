@@ -617,6 +617,27 @@ Deve includere:
 
 Il messaggio Telegram puo essere una sintesi; la GUI deve contenere il report esteso.
 
+## News Salvate
+
+La GUI deve avere una pagina `News` dedicata alle news gia cercate.
+
+La pagina deve:
+
+- leggere i report salvati in `output/stock_ai/*/*_news.txt`;
+- mostrare ticker, data/ora ultimo file news, stato della news, file sorgente, preview e dettaglio espandibile;
+- distinguere report con news rilevanti, report senza novita rilevanti e report vuoti;
+- permettere filtro testuale per ticker o contenuto;
+- permettere filtro `solo news rilevanti`;
+- chiarire che sta mostrando l'archivio delle ricerche gia fatte, non una ricerca live.
+
+La pagina `News` non deve:
+
+- lanciare Playwright;
+- consumare token OpenAI;
+- sostituire una ricerca live quando l'utente chiede esplicitamente news aggiornate.
+
+Le ricerche live restano responsabilita dei tool Playwright/ChatGPT e aggiornano questi file quando vengono eseguite.
+
 ## Branch LangGraph
 
 Esiste un branch dedicato alla revisione architetturale LangGraph.
