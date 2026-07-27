@@ -11,7 +11,8 @@ from queue import Empty, Queue
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -845,6 +846,161 @@ def analyze_chart_live(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Analisi grafica Playwright fallita per {ticker}: {exc}") from exc
     finally:
         CHART_LIVE_LOCK.release()
+
+
+def _sse_line(event: str, data: str) -> str:
+    """Format a single SSE message."""
+    safe = data.replace("\n", " ").replace("\r", "")
+    return f"event: {event}\ndata: {safe}\n\n"
+
+
+def _run_subprocess_stream(cmd: list, label: str, timeout_seconds: int = 360):
+    """Generator that yields SSE lines while running a subprocess."""
+    import queue as _queue
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(ROOT),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env={**dict(os.environ), "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+    )
+    q: _queue.Queue = _queue.Queue()
+
+    def _reader():
+        try:
+            for line in process.stdout:
+                q.put(("log", line.rstrip()))
+        finally:
+            q.put(("_done", ""))
+
+    threading.Thread(target=_reader, daemon=True).start()
+    deadline = time.monotonic() + timeout_seconds
+    done = False
+    while not done:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            process.kill()
+            yield _sse_line("error", f"Timeout dopo {timeout_seconds}s: processo terminato.")
+            break
+        try:
+            kind, text = q.get(timeout=min(0.5, remaining))
+        except _queue.Empty:
+            yield _sse_line("heartbeat", "...")
+            continue
+        if kind == "_done":
+            done = True
+            break
+        yield _sse_line("log", text)
+    process.wait()
+    rc = process.returncode
+    yield _sse_line("done", json.dumps({"returncode": rc, "label": label}))
+
+
+@app.get("/api/news/live-stream")
+def news_live_stream(ticker: str, force: str = "1"):
+    """SSE endpoint: streams live Playwright news progress for a ticker."""
+    try:
+        clean = normalize_news_ticker(ticker)
+    except HTTPException as exc:
+        def _err():
+            yield _sse_line("error", exc.detail)
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    if not NEWS_LIVE_LOCK.acquire(blocking=False):
+        def _busy():
+            yield _sse_line("error", "Una ricerca news live e gia in corso. Riprova tra poco.")
+        return StreamingResponse(_busy(), media_type="text/event-stream")
+
+    from finance_tools.news_tool import ticker_info as _ticker_info
+    info = _ticker_info(clean)
+
+    cmd = [
+        str(sys.executable),
+        str(ROOT / "chatgpt_playwright_demo.py"),
+        "--no-telegram",
+        "--ticker", info["ticker"],
+        "--company", info["company"],
+        "--market", info["market"],
+    ]
+
+    output_path = ROOT / "output" / "stock_ai" / clean.replace("/", "_") / f"{clean}_news.txt"
+
+    def _generate():
+        try:
+            yield _sse_line("phase", f"Avvio ricerca news live per {clean} via Playwright/ChatGPT")
+            all_lines = []
+            for chunk in _run_subprocess_stream(cmd, f"news-live {clean}", timeout_seconds=300):
+                if chunk.startswith("event: log"):
+                    line_text = chunk.split("data: ", 1)[-1].strip()
+                    all_lines.append(line_text)
+                yield chunk
+            # Extract and save the report
+            combined = "\n".join(all_lines)
+            marker = "--- Risposta ChatGPT ---"
+            report = combined.split(marker, 1)[1].strip() if marker in combined else ""
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(report, encoding="utf-8")
+            yield _sse_line("report", report[:4000] if report else "")
+            yield _sse_line("saved", str(output_path.relative_to(ROOT)))
+        except Exception as exc:
+            yield _sse_line("error", str(exc))
+        finally:
+            NEWS_LIVE_LOCK.release()
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/charts/live-stream")
+def charts_live_stream(ticker: str, force: str = "1"):
+    """SSE endpoint: streams live Playwright chart analysis progress for a ticker."""
+    try:
+        clean = normalize_news_ticker(ticker)
+    except HTTPException as exc:
+        def _err():
+            yield _sse_line("error", exc.detail)
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    if not CHART_LIVE_LOCK.acquire(blocking=False):
+        def _busy():
+            yield _sse_line("error", "Una analisi grafica Playwright e gia in corso. Riprova tra poco.")
+        return StreamingResponse(_busy(), media_type="text/event-stream")
+
+    cmd = [
+        str(sys.executable),
+        str(ROOT / "stock_chart_ai_analysis.py"),
+        "--stocks", clean,
+        "--no-telegram",
+    ]
+
+    analysis_path = ROOT / "output" / "stock_ai" / clean.replace("/", "_") / f"{clean}_analysis.txt"
+
+    def _generate():
+        try:
+            yield _sse_line("phase", f"Avvio analisi grafica per {clean} via Playwright/ChatGPT")
+            for chunk in _run_subprocess_stream(cmd, f"chart-ai {clean}", timeout_seconds=420):
+                yield chunk
+            report = ""
+            if analysis_path.exists():
+                report = analysis_path.read_text(encoding="utf-8", errors="replace")
+            yield _sse_line("report", report[:4000] if report else "")
+            yield _sse_line("saved", str(analysis_path.relative_to(ROOT)) if analysis_path.exists() else "")
+        except Exception as exc:
+            yield _sse_line("error", str(exc))
+        finally:
+            CHART_LIVE_LOCK.release()
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def fallback_market_rows(market: str):

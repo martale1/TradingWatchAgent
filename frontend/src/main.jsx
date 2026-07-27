@@ -2436,64 +2436,202 @@ function NewsReports() {
   const [onlyRelevant, setOnlyRelevant] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [liveTicker, setLiveTicker] = useState("");
-  const [liveState, setLiveState] = useState({ running: false, ticker: "", message: "", error: "", startedAt: "" });
-  const [chartState, setChartState] = useState({ running: false, ticker: "", message: "", error: "", preview: "", file: "", startedAt: "" });
+  // SSE streaming state for news
+  const [newsStream, setNewsStream] = useState({
+    running: false, ticker: "", phase: "", logs: [], report: "", savedFile: "", error: "", startedAt: "",
+  });
+  // SSE streaming state for charts
+  const [chartStream, setChartStream] = useState({
+    running: false, ticker: "", phase: "", logs: [], report: "", savedFile: "", error: "", startedAt: "",
+  });
+  const newsEsRef = React.useRef(null);
+  const chartEsRef = React.useRef(null);
+  const newsLogRef = React.useRef(null);
+  const chartLogRef = React.useRef(null);
 
-  function buildDemandSteps(kind, request) {
-    const tickerLabel = request.ticker || "ticker";
-    const failed = Boolean(request.error);
-    const running = Boolean(request.running);
-    const completed = Boolean(request.message && !running && !failed);
-    const steps = kind === "news"
-      ? [
-          `Validazione ticker ${tickerLabel}`,
-          "Avvio Playwright/ChatGPT",
-          "Attesa risposta e salvataggio report",
-          "Ricarica archivio news",
-        ]
-      : [
-          `Validazione ticker ${tickerLabel}`,
-          "Generazione grafici tecnici",
-          "Upload grafici su ChatGPT via Playwright",
-          "Lettura e salvataggio analisi visuale",
-        ];
-    return steps.map((label, index) => {
-      let status = "waiting";
-      if (completed) status = "done";
-      else if (failed) status = index <= 1 ? "error" : "waiting";
-      else if (running) status = index < 2 ? "done" : index === 2 ? "running" : "waiting";
-      return { label, status };
-    });
+  // Scroll log boxes to bottom on new content
+  React.useEffect(() => {
+    if (newsLogRef.current) newsLogRef.current.scrollTop = newsLogRef.current.scrollHeight;
+  }, [newsStream.logs]);
+  React.useEffect(() => {
+    if (chartLogRef.current) chartLogRef.current.scrollTop = chartLogRef.current.scrollHeight;
+  }, [chartStream.logs]);
+
+  function classifyLog(line) {
+    const l = line.toLowerCase();
+    if (!line.trim()) return "logEmpty";
+    if (l.includes("errore") || l.includes("error") || l.includes("timeout") || l.includes("traceback")) return "logError";
+    if (l.includes("risposta chatgpt") || l.includes("risposta in corso") || l.includes("report salvato") || l.includes("analisi completata")) return "logSuccess";
+    if (l.includes("attendo") || l.includes("in corso") || l.includes("avvio") || l.includes("preparo") || l.includes("genero") || l.includes("scarico")) return "logActive";
+    if (l.includes("campo prompt") || l.includes("prompt inserito") || l.includes("allego") || l.includes("invio")) return "logSend";
+    return "logNeutral";
   }
 
-  function renderDemandStatus(title, request, kind) {
-    if (!request.message && !request.error && !request.preview) return null;
-    const started = request.startedAt ? formatLogDateTime(request.startedAt) : "";
+  function inferPhase(logs, kind) {
+    const combined = logs.join(" ").toLowerCase();
+    if (kind === "news") {
+      if (combined.includes("risposta chatgpt") || combined.includes("report salvato")) return { step: 3, label: "Report salvato ✓" };
+      if (combined.includes("risposta in corso") || combined.includes("attendo la risposta")) return { step: 2, label: "ChatGPT sta rispondendo..." };
+      if (combined.includes("prompt inserito") || combined.includes("campo prompt")) return { step: 1, label: "Prompt inviato a ChatGPT" };
+      if (combined.includes("avvio") || combined.includes("connett") || combined.includes("subprocess")) return { step: 0, label: "Connessione a Chrome in corso..." };
+      return { step: 0, label: "Inizializzazione..." };
+    } else {
+      if (combined.includes("report news salvato") || combined.includes("analisi completata") || combined.includes("analysis saved")) return { step: 3, label: "Analisi salvata ✓" };
+      if (combined.includes("risposta in corso") || combined.includes("attendo risposta chatgpt")) return { step: 2, label: "ChatGPT analizza i grafici..." };
+      if (combined.includes("allego immagini") || combined.includes("prompt inserito")) return { step: 1, label: "Grafici inviati a ChatGPT" };
+      if (combined.includes("genero grafici") || combined.includes("grafici creati") || combined.includes("subprocess")) return { step: 0, label: "Generazione grafici tecnici..." };
+      return { step: 0, label: "Inizializzazione..." };
+    }
+  }
+
+  const NEWS_STEPS = ["Connessione Chrome", "Invio prompt ChatGPT", "Attesa risposta", "Report salvato"];
+  const CHART_STEPS = ["Generazione grafici", "Upload su ChatGPT", "Analisi visuale", "Analisi salvata"];
+
+  function renderLiveStream(stream, kind, logRef) {
+    if (!stream.running && !stream.error && !stream.report && stream.logs.length === 0) return null;
+    const steps = kind === "news" ? NEWS_STEPS : CHART_STEPS;
+    const { step: currentStep, label: phaseLabel } = inferPhase(stream.logs, kind);
+    const isDone = !stream.running && !stream.error && stream.logs.length > 0;
+    const hasError = Boolean(stream.error);
+    const panelClass = hasError ? "streamPanel error" : isDone ? "streamPanel done" : "streamPanel running";
+
     return (
-      <div className={`onDemandStatus ${request.error ? "error" : request.running ? "running" : "done"}`}>
-        <div className="onDemandHeader">
-          <strong>{title}{request.ticker ? ` ${request.ticker}` : ""}</strong>
-          {started && <span>avvio {started}</span>}
+      <div className={panelClass}>
+        <div className="streamHeader">
+          <div className="streamTitle">
+            {stream.running && <span className="streamSpinner" />}
+            {hasError && <span className="streamIcon error">✗</span>}
+            {isDone && !hasError && <span className="streamIcon done">✓</span>}
+            <strong>{kind === "news" ? "News live" : "Analisi grafico"} {stream.ticker}</strong>
+            {stream.startedAt && <span className="streamTime">{formatLogDateTime(stream.startedAt)}</span>}
+          </div>
+          <div className="streamSteps">
+            {steps.map((label, i) => (
+              <span
+                key={label}
+                className={`streamStep ${
+                  isDone || i < currentStep ? "done" : i === currentStep && stream.running ? "active" : "waiting"
+                }`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
         </div>
-        <p>{request.error || request.message}</p>
-        <div className="onDemandSteps">
-          {buildDemandSteps(kind, request).map((step) => (
-            <span className={`onDemandStep ${step.status}`} key={`${title}-${step.label}`}>
-              {step.label}
-            </span>
-          ))}
-        </div>
-        {request.preview && (
-          <div className="chartAnalysisPreview compact">
-            <div className="chartAnalysisHeader">
-              <strong>Report grafico</strong>
-              {request.file && <span>{request.file}</span>}
+
+        {stream.phase && stream.running && (
+          <p className="streamPhase">{stream.phase}</p>
+        )}
+        {hasError && <p className="streamError">{stream.error}</p>}
+
+        {stream.logs.length > 0 && (
+          <div className="streamLogBox" ref={logRef}>
+            {stream.logs.map((line, i) => (
+              <div key={i} className={`streamLogLine ${classifyLog(line)}`}>{line || "\u00a0"}</div>
+            ))}
+          </div>
+        )}
+
+        {stream.report && (
+          <div className="streamReport">
+            <div className="streamReportHeader">
+              <strong>📄 Report {kind === "news" ? "news" : "analisi tecnica"}</strong>
+              {stream.savedFile && <span className="streamSavedFile">{stream.savedFile}</span>}
             </div>
-            <pre>{request.preview}</pre>
+            <pre className="streamReportText">{stream.report}</pre>
           </div>
         )}
       </div>
     );
+  }
+
+  function runLiveNews(tickerArg = "") {
+    const ticker = String(tickerArg || liveTicker || "").trim().toUpperCase();
+    if (!ticker) {
+      setNewsStream((s) => ({ ...s, error: "Inserisci un ticker, es. VOD.L o CPR.MI.", running: false }));
+      return;
+    }
+    // Close any previous SSE connection
+    if (newsEsRef.current) { newsEsRef.current.close(); newsEsRef.current = null; }
+    setLiveTicker(ticker);
+    setQuery(ticker);
+    setNewsStream({ running: true, ticker, phase: "Avvio ricerca...", logs: [], report: "", savedFile: "", error: "", startedAt: new Date().toISOString() });
+
+    const url = `${API}/api/news/live-stream?ticker=${encodeURIComponent(ticker)}&force=1`;
+    const es = new EventSource(url);
+    newsEsRef.current = es;
+
+    es.addEventListener("phase", (ev) => {
+      setNewsStream((s) => ({ ...s, phase: ev.data }));
+    });
+    es.addEventListener("log", (ev) => {
+      setNewsStream((s) => ({ ...s, logs: [...s.logs, ev.data] }));
+    });
+    es.addEventListener("heartbeat", () => {}); // keep-alive, ignore
+    es.addEventListener("report", (ev) => {
+      setNewsStream((s) => ({ ...s, report: ev.data }));
+    });
+    es.addEventListener("saved", (ev) => {
+      setNewsStream((s) => ({ ...s, savedFile: ev.data }));
+    });
+    es.addEventListener("done", () => {
+      setNewsStream((s) => ({ ...s, running: false, phase: "" }));
+      es.close(); newsEsRef.current = null;
+      loadNews({ queryOverride: ticker });
+    });
+    es.addEventListener("error", (ev) => {
+      const msg = ev.data || "Errore durante la ricerca news. Verifica che Chrome sia aperto con debug remoto (porta 9222).";
+      setNewsStream((s) => ({ ...s, running: false, phase: "", error: msg }));
+      es.close(); newsEsRef.current = null;
+    });
+    es.onerror = () => {
+      // SSE connection closed or error without explicit event
+      setNewsStream((s) => s.running ? { ...s, running: false, phase: "", error: s.error || "Connessione SSE interrotta." } : s);
+      es.close(); newsEsRef.current = null;
+    };
+  }
+
+  function runLiveChart(tickerArg = "") {
+    const ticker = String(tickerArg || liveTicker || "").trim().toUpperCase();
+    if (!ticker) {
+      setChartStream((s) => ({ ...s, error: "Inserisci un ticker, es. VOD.L, A2A.MI.", running: false }));
+      return;
+    }
+    if (chartEsRef.current) { chartEsRef.current.close(); chartEsRef.current = null; }
+    setLiveTicker(ticker);
+    setQuery(ticker);
+    setChartStream({ running: true, ticker, phase: "Avvio analisi grafico...", logs: [], report: "", savedFile: "", error: "", startedAt: new Date().toISOString() });
+
+    const url = `${API}/api/charts/live-stream?ticker=${encodeURIComponent(ticker)}&force=1`;
+    const es = new EventSource(url);
+    chartEsRef.current = es;
+
+    es.addEventListener("phase", (ev) => {
+      setChartStream((s) => ({ ...s, phase: ev.data }));
+    });
+    es.addEventListener("log", (ev) => {
+      setChartStream((s) => ({ ...s, logs: [...s.logs, ev.data] }));
+    });
+    es.addEventListener("heartbeat", () => {});
+    es.addEventListener("report", (ev) => {
+      setChartStream((s) => ({ ...s, report: ev.data }));
+    });
+    es.addEventListener("saved", (ev) => {
+      setChartStream((s) => ({ ...s, savedFile: ev.data }));
+    });
+    es.addEventListener("done", () => {
+      setChartStream((s) => ({ ...s, running: false, phase: "" }));
+      es.close(); chartEsRef.current = null;
+    });
+    es.addEventListener("error", (ev) => {
+      const msg = ev.data || "Errore durante l'analisi grafico. Verifica che Chrome sia aperto (porta 9222).";
+      setChartStream((s) => ({ ...s, running: false, phase: "", error: msg }));
+      es.close(); chartEsRef.current = null;
+    });
+    es.onerror = () => {
+      setChartStream((s) => s.running ? { ...s, running: false, phase: "", error: s.error || "Connessione SSE interrotta." } : s);
+      es.close(); chartEsRef.current = null;
+    };
   }
 
   async function loadNews(options = {}) {
@@ -2526,96 +2664,8 @@ function NewsReports() {
     }
   }
 
-  async function runLiveNews(tickerArg = "") {
-    const ticker = String(tickerArg || liveTicker || query || "").trim().toUpperCase();
-    if (!ticker) {
-      setLiveState({ running: false, ticker: "", message: "Inserisci un ticker, ad esempio CPR.MI o VOD.L.", error: "", startedAt: "" });
-      return;
-    }
-    const startedAt = new Date().toISOString();
-    setLiveTicker(ticker);
-    setQuery(ticker);
-    setLiveState({
-      running: true,
-      ticker,
-      message: `Cerco news live per ${ticker} con Playwright/ChatGPT. Chrome deve essere aperto con debug remoto.`,
-      error: "",
-      startedAt,
-    });
-    try {
-      const result = await api("/api/news/live", {
-        method: "POST",
-        body: JSON.stringify({ ticker }),
-        timeoutMs: 360000,
-      });
-      setLiveState({
-        running: false,
-        ticker,
-        message: `News live aggiornate per ${ticker} in ${result.duration_sec || "n/d"}s.`,
-        error: "",
-        startedAt,
-      });
-      await loadNews({ queryOverride: ticker });
-    } catch (error) {
-      setLiveState({ running: false, ticker, message: "", error: friendlyNewsError(error, `News live ${ticker}`), startedAt });
-    }
-  }
-
-  async function runLiveChart(tickerArg = "") {
-    const ticker = String(tickerArg || liveTicker || query || "").trim().toUpperCase();
-    if (!ticker) {
-      setChartState({
-        running: false,
-        ticker: "",
-        message: "Inserisci un ticker, ad esempio CPR.MI, A2A.MI o ROBO.MI.",
-        error: "",
-        preview: "",
-        file: "",
-        startedAt: "",
-      });
-      return;
-    }
-    const startedAt = new Date().toISOString();
-    setLiveTicker(ticker);
-    setQuery(ticker);
-    setChartState({
-      running: true,
-      ticker,
-      message: `Analizzo il grafico di ${ticker} con Playwright/ChatGPT. Allego prezzo, momentum e ADX nel browser.`,
-      error: "",
-      preview: "",
-      file: "",
-      startedAt,
-    });
-    try {
-      const result = await api("/api/charts/live", {
-        method: "POST",
-        body: JSON.stringify({ ticker, force: true, no_telegram: true }),
-        timeoutMs: 480000,
-      });
-      setChartState({
-        running: false,
-        ticker,
-        message: `Analisi grafico aggiornata per ${ticker} in ${result.duration_sec || "n/d"}s.`,
-        error: "",
-        preview: cleanText(result.preview || result.report || "Analisi completata, ma il report e vuoto."),
-        file: result.analysis_file || "",
-        startedAt,
-      });
-    } catch (error) {
-      setChartState({
-        running: false,
-        ticker,
-        message: "",
-        error: friendlyNewsError(error, `Analisi grafico ${ticker}`),
-        preview: "",
-        file: "",
-        startedAt,
-      });
-    }
-  }
-
   useEffect(() => { loadNews(); }, [onlyRelevant]);
+
 
   const data = state.data || {};
   const items = data.items || [];
@@ -2644,7 +2694,8 @@ function NewsReports() {
         <div className="newsLiveCopy">
           <strong>Analisi on demand via Playwright</strong>
           <span>
-            Avvia news live o lettura visuale del grafico per un singolo ticker usando ChatGPT nel browser. Non usare per scan massivi.
+            Avvia news live o lettura visuale del grafico per un singolo ticker usando ChatGPT nel browser.
+            Ogni azione mostra il progresso in tempo reale linea per linea. Assicurarsi che Chrome sia aperto su ChatGPT.
           </span>
         </div>
         <div className="newsLiveForm">
@@ -2655,17 +2706,17 @@ function NewsReports() {
               if (event.key === "Enter") runLiveNews();
             }}
             placeholder="Ticker, es. CPR.MI, VOD.L, ROBO.MI"
-            disabled={liveState.running || chartState.running}
+            disabled={newsStream.running || chartStream.running}
           />
-          <button className="primaryButton" onClick={() => runLiveNews()} disabled={liveState.running || chartState.running}>
-            {liveState.running ? "Ricerca in corso..." : "Cerca news live"}
+          <button className="primaryButton" onClick={() => runLiveNews()} disabled={newsStream.running || chartStream.running}>
+            {newsStream.running ? <><span className="btnSpinner" /> Ricerca in corso...</> : "🔍 Cerca news live"}
           </button>
-          <button className="iconButton" onClick={() => runLiveChart()} disabled={liveState.running || chartState.running}>
-            {chartState.running ? "Grafico in corso..." : "Analizza grafico live"}
+          <button className="iconButton" onClick={() => runLiveChart()} disabled={newsStream.running || chartStream.running}>
+            {chartStream.running ? <><span className="btnSpinner" /> Grafico in corso...</> : "📈 Analizza grafico live"}
           </button>
         </div>
-        {renderDemandStatus("News live", liveState, "news")}
-        {renderDemandStatus("Grafico live", chartState, "chart")}
+        {renderLiveStream(newsStream, "news", newsLogRef)}
+        {renderLiveStream(chartStream, "chart", chartLogRef)}
       </div>
 
       <div className="newsFilters">

@@ -1855,3 +1855,163 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   .segmented { flex-wrap: wrap; }
   .message { max-width: 100%; }
 }
+
+/* ─── SSE Live Streaming Panel ──────────────────────────────────────── */
+@keyframes streamPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.streamPanel {
+  margin-top: 14px;
+  border-radius: 12px;
+  border: 1.5px solid #d1d5db;
+  background: #f9fafb;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.streamPanel.running {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  animation: streamPulse 2s infinite;
+}
+.streamPanel.done { border-color: #22c55e; background: #f0fdf4; }
+.streamPanel.error { border-color: #ef4444; background: #fef2f2; }
+
+.streamHeader {
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.streamTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.streamTitle strong { color: #111827; font-size: 15px; }
+.streamSpinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid #3b82f6;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.btnSpinner {
+  display: inline-block;
+  width: 13px; height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.streamIcon { font-size: 16px; font-weight: 700; }
+.streamIcon.done { color: #16a34a; }
+.streamIcon.error { color: #dc2626; }
+.streamTime { margin-left: auto; font-size: 12px; color: #6b7280; }
+
+/* Step progress bar */
+.streamSteps {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.streamStep {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  transition: all 0.2s;
+}
+.streamStep.waiting { background: #e5e7eb; color: #9ca3af; }
+.streamStep.active {
+  background: #3b82f6;
+  color: white;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.25);
+  animation: streamPulse 1.5s infinite;
+}
+.streamStep.done { background: #dcfce7; color: #15803d; }
+
+/* Phase label */
+.streamPhase {
+  margin: 8px 16px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+}
+.streamError {
+  margin: 8px 16px;
+  font-size: 13px;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* Scrollable log box */
+.streamLogBox {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px 14px;
+  font-family: 'JetBrains Mono', 'Fira Mono', monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  background: #0f172a;
+  color: #cbd5e1;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  scroll-behavior: smooth;
+}
+.streamLogLine { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+.streamLogLine.logError  { color: #f87171; }
+.streamLogLine.logSuccess { color: #4ade80; font-weight: 600; }
+.streamLogLine.logActive { color: #60a5fa; }
+.streamLogLine.logSend   { color: #facc15; }
+.streamLogLine.logNeutral { color: #94a3b8; }
+.streamLogLine.logEmpty  { opacity: 0; height: 4px; }
+
+/* Report box */
+.streamReport {
+  margin: 12px 14px 14px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #f0fdf4;
+  overflow: hidden;
+}
+.streamPanel.error .streamReport {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+.streamReportHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.03);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  font-size: 13px;
+}
+.streamReportHeader strong { color: #15803d; }
+.streamSavedFile {
+  margin-left: auto;
+  font-size: 11px;
+  color: #6b7280;
+  font-family: monospace;
+}
+.streamReportText {
+  margin: 0;
+  padding: 12px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #1f2937;
+  max-height: 380px;
+  overflow-y: auto;
+}
