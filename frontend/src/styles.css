@@ -1621,6 +1621,11 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #dcfce7;
   color: #166534;
 }
+.newsLiveStatus.infoState {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
 .newsLiveStatus.errorState {
   background: #fee2e2;
   color: #991b1b;

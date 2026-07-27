@@ -2430,6 +2430,7 @@ function Controls({ reload }) {
 
 function NewsReports() {
   const [state, setState] = useState({ loading: true, error: "", data: null });
+  const [archiveState, setArchiveState] = useState({ message: "", error: "" });
   const [query, setQuery] = useState("");
   const [onlyRelevant, setOnlyRelevant] = useState(false);
   const [expanded, setExpanded] = useState({});
@@ -2440,15 +2441,30 @@ function NewsReports() {
   async function loadNews(options = {}) {
     const silent = Boolean(options.silent);
     const effectiveQuery = options.queryOverride ?? query;
-    if (!silent) setState((current) => ({ ...current, loading: true, error: "" }));
+    if (!silent) {
+      setState((current) => ({ ...current, loading: true, error: "" }));
+      setArchiveState({
+        message: "Rileggo i report news gia salvati in output/stock_ai. Questa azione non apre Playwright.",
+        error: "",
+      });
+    }
     const params = new URLSearchParams({ limit: "200" });
     if (effectiveQuery.trim()) params.set("query", effectiveQuery.trim());
     if (onlyRelevant) params.set("relevant_only", "true");
     try {
       const data = await api(`/api/news/reports?${params.toString()}`, { timeoutMs: 60000 });
       setState({ loading: false, error: "", data });
+      if (!silent) {
+        const count = data.count || 0;
+        const latest = data.latest_updated_at ? formatLogDateTime(data.latest_updated_at) : "n/d";
+        setArchiveState({
+          message: `Archivio ricaricato: ${count} report salvati letti. Ultimo aggiornamento file: ${latest}.`,
+          error: "",
+        });
+      }
     } catch (error) {
-      setState({ loading: false, error: error.message, data: null });
+      setState({ loading: false, error: "", data: null });
+      setArchiveState({ message: "", error: friendlyNewsError(error, "Ricarica archivio news") });
     }
   }
 
@@ -2480,7 +2496,7 @@ function NewsReports() {
       });
       await loadNews({ queryOverride: ticker });
     } catch (error) {
-      setLiveState({ running: false, ticker, message: "", error: error.message });
+      setLiveState({ running: false, ticker, message: "", error: friendlyNewsError(error, `News live ${ticker}`) });
     }
   }
 
@@ -2522,7 +2538,14 @@ function NewsReports() {
         file: result.analysis_file || "",
       });
     } catch (error) {
-      setChartState({ running: false, ticker, message: "", error: error.message, preview: "", file: "" });
+      setChartState({
+        running: false,
+        ticker,
+        message: "",
+        error: friendlyNewsError(error, `Analisi grafico ${ticker}`),
+        preview: "",
+        file: "",
+      });
     }
   }
 
@@ -2540,10 +2563,16 @@ function NewsReports() {
         </div>
         <div className="sectionActions">
           <button className="iconButton" onClick={() => loadNews()} disabled={state.loading}>
-            <RefreshCw size={16} /> {state.loading ? "Aggiorno..." : "Aggiorna news"}
+            <RefreshCw size={16} /> {state.loading ? "Rileggo archivio..." : "Ricarica archivio"}
           </button>
         </div>
       </div>
+      {(archiveState.message || archiveState.error) && (
+        <div className={`newsLiveStatus ${archiveState.error ? "errorState" : "infoState"}`}>
+          <strong>{archiveState.error ? "Archivio news:" : "Archivio news"}</strong>{" "}
+          {archiveState.error || archiveState.message}
+        </div>
+      )}
 
       <div className="newsLivePanel">
         <div className="newsLiveCopy">
@@ -2569,10 +2598,10 @@ function NewsReports() {
             {chartState.running ? "Grafico in corso..." : "Analizza grafico live"}
           </button>
         </div>
-        {liveState.message && <div className="newsLiveStatus ok">{liveState.message}</div>}
-        {liveState.error && <div className="newsLiveStatus errorState">{liveState.error}</div>}
-        {chartState.message && <div className="newsLiveStatus ok">{chartState.message}</div>}
-        {chartState.error && <div className="newsLiveStatus errorState">{chartState.error}</div>}
+        {liveState.message && <div className="newsLiveStatus ok"><strong>News live:</strong> {liveState.message}</div>}
+        {liveState.error && <div className="newsLiveStatus errorState"><strong>News live:</strong> {liveState.error}</div>}
+        {chartState.message && <div className="newsLiveStatus ok"><strong>Grafico live:</strong> {chartState.message}</div>}
+        {chartState.error && <div className="newsLiveStatus errorState"><strong>Grafico live:</strong> {chartState.error}</div>}
         {chartState.preview && (
           <div className="chartAnalysisPreview">
             <div className="chartAnalysisHeader">
@@ -2705,6 +2734,21 @@ function NewsReports() {
       )}
     </section>
   );
+}
+
+function friendlyNewsError(error, action) {
+  const raw = cleanText(error?.message || String(error || ""));
+  const lower = raw.toLowerCase();
+  if (raw === "Not Found" || lower.includes("errore http 404") || lower.includes("not found")) {
+    return `${action}: endpoint backend non trovato. Probabilmente il frontend sta parlando con un backend FastAPI non aggiornato: riavvia il backend e poi ricarica la pagina.`;
+  }
+  if (lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("load failed")) {
+    return `${action}: backend non raggiungibile su ${API}. Verifica che FastAPI sia avviato.`;
+  }
+  if (lower.includes("aborted") || lower.includes("timeout")) {
+    return `${action}: timeout. Playwright/ChatGPT potrebbe essere ancora in attesa nel browser; controlla Chrome e il tab Run log.`;
+  }
+  return `${action}: ${raw || "errore non specificato"}`;
 }
 
 function safeLogText(value) {
