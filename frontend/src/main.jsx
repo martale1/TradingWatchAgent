@@ -4,10 +4,11 @@ import { Activity, Bot, LineChart, MessageSquare, Newspaper, RefreshCw, Send, Tr
 import "./styles.css";
 
 const API = "http://127.0.0.1:8000";
+const EURO = "\u20ac";
 
 function eur(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/d";
-  return `${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} â‚¬`;
+  return `${Number(value).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${EURO}`;
 }
 
 function pct(value, signed = true) {
@@ -37,7 +38,7 @@ function parseLevel(value) {
 function levelsFromCondition(condition = "") {
   const text = cleanText(condition).toLowerCase();
   const number = "([0-9]+(?:[,.][0-9]+)?)";
-  const unit = "\\s*(?:eur|euro|gbp|p|â‚¬)?";
+  const unit = "\\s*(?:eur|euro|gbp|p|\\u20ac)?";
   const triggerPatterns = [
     new RegExp(`(?:chiusura\\s+)?(?:sopra|oltre|superamento|breakout)\\s*(?:a|di)?${unit}${number}`, "i"),
     new RegExp(`(?:ingresso|trigger)\\s*(?:solo\\s+)?(?:su|a|sopra|oltre)?\\s*(?:chiusura\\s+)?(?:sopra|oltre)?${unit}${number}`, "i"),
@@ -65,15 +66,15 @@ function levelsFromCondition(condition = "") {
 
 function cleanText(value) {
   return String(value || "")
-    .replaceAll("Ã¢â€šÂ¬", "â‚¬")
-    .replaceAll("Ã¢â€šÂ¬", "â‚¬")
-    .replaceAll("ÃƒÂ¨", "Ã¨")
-    .replaceAll("ÃƒÂ©", "Ã©")
-    .replaceAll("Ãƒ ", "Ã ")
-    .replaceAll("ÃƒÂ²", "Ã²")
-    .replaceAll("ÃƒÂ¹", "Ã¹")
-    .replaceAll("ÃƒÂ¬", "Ã¬")
-    .replaceAll("Ã‚Â°", "Â°");
+    .replaceAll("Ã¢â€šÂ¬", EURO)
+    .replaceAll("â‚¬", EURO)
+    .replaceAll("Ã¨", "e")
+    .replaceAll("Ã©", "e")
+    .replaceAll("Ã ", "a")
+    .replaceAll("Ã²", "o")
+    .replaceAll("Ã¹", "u")
+    .replaceAll("Ã¬", "i")
+    .replaceAll("Â°", "deg");
 }
 
 function compactErrorMessage(value) {
@@ -433,7 +434,7 @@ function PortfolioPerformanceChart({ data = {} }) {
           {ticks.map((tick) => (
             <g key={tick} className="gridLine">
               <line x1={pad.left} x2={pad.left + plotW} y1={y(tick)} y2={y(tick)} />
-              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace(" â‚¬", "")}</text>
+              <text x={pad.left - 12} y={y(tick) + 4} textAnchor="end">{eur(tick).replace(` ${EURO}`, "")}</text>
             </g>
           ))}
           {dateTicks.map((tick) => (
@@ -2307,15 +2308,15 @@ function Controls({ reload }) {
         <div>
           <h3>Autonomia sul portafoglio virtuale</h3>
           <p>
-            Stabilisce cosa puÃ² fare l'agente su tutto il portafoglio virtuale: nuovi acquisti,
+            Stabilisce cosa puo fare l'agente su tutto il portafoglio virtuale: nuovi acquisti,
             incrementi, riduzioni, vendite e ribilanciamenti. Ogni decisione viene registrata nei log.
           </p>
         </div>
         <div className="autonomyModes">
           {[
-            ["confirmation", "Conferma sempre", "Ogni acquisto, incremento, riduzione, vendita o ribilanciamento resta pending finchÃ© l'utente non conferma."],
-            ["protective", "Protezione automatica", "PuÃ² ridurre o vendere automaticamente su rischio confermato. Nuovi ingressi e incrementi richiedono conferma."],
-            ["full_auto", "Autonomia completa", "PuÃ² comprare, incrementare, ridurre, vendere e ribilanciare automaticamente il portafoglio virtuale."],
+            ["confirmation", "Conferma sempre", "Ogni acquisto, incremento, riduzione, vendita o ribilanciamento resta pending finche l'utente non conferma."],
+            ["protective", "Protezione automatica", "Puo ridurre o vendere automaticamente su rischio confermato. Nuovi ingressi e incrementi richiedono conferma."],
+            ["full_auto", "Autonomia completa", "Puo comprare, incrementare, ridurre, vendere e ribilanciare automaticamente il portafoglio virtuale."],
           ].map(([value, label, description]) => (
             <button
               key={value}
@@ -2692,13 +2693,13 @@ function NewsReports() {
                   {lines.length === 0 && <p className="newsLine">Report vuoto.</p>}
                   {lines.map((line, index) => {
                     const isHeading = /REPORT|News rilevanti|Target price|Supporti|Resistenze|Sintesi|Fonti|Data/i.test(line);
-                    const isBullet = /^[-â€¢]\s*/.test(line);
+                    const isBullet = /^[-\u2022]\s*/.test(line);
                     return (
                       <p
                         className={`newsLine ${isHeading ? "newsLineHeading" : ""} ${isBullet ? "newsLineBullet" : ""}`}
                         key={`${item.ticker}-line-${index}`}
                       >
-                        {line.replace(/^[-â€¢]\s*/, "")}
+                        {line.replace(/^[-\u2022]\s*/, "")}
                       </p>
                     );
                   })}

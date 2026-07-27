@@ -56,7 +56,9 @@ import yfinance as yf  # noqa: E402
 
 
 load_env_file()
-SDK_MODEL = "gpt-5-mini"
+SDK_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-mini")
+PERIODIC_MODEL = os.getenv("OPENAI_PERIODIC_MODEL", "gpt-5")
+PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", "80"))
 
 app = FastAPI(title="Autonomous Trading Agent API")
 app.add_middleware(
@@ -1164,12 +1166,13 @@ def run_once(request: RunMonitorRequest):
     append_agent_logs(
         "===== RUN MANUALE DA GUI: avvio monitor autonomo "
         f"universo=FTSE MIB completo + MateriePrime.xlsx completo + watchlist + trigger; "
-        f"top_candidati={int(request.scan_limit)} max_auto_trade_pct={float(request.max_auto_trade_pct)} ====="
+        f"top_candidati={int(request.scan_limit)} max_auto_trade_pct={float(request.max_auto_trade_pct)} "
+        f"model={PERIODIC_MODEL} max_turns={PERIODIC_MAX_TURNS} ====="
     )
     output = run_agent_command(
         [
             "--model",
-            SDK_MODEL,
+            PERIODIC_MODEL,
             "--autonomous-monitor",
             "--once",
             "--scan-limit",
@@ -1177,6 +1180,8 @@ def run_once(request: RunMonitorRequest):
             "--universe-limit",
             "0",
             "--periodic-live-news",
+            "--periodic-max-turns",
+            str(PERIODIC_MAX_TURNS),
             "--max-auto-trade-pct",
             str(float(request.max_auto_trade_pct)),
         ]

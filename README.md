@@ -456,6 +456,7 @@ Variabili principali:
 OPENAI_API_KEY=your_openai_api_key_for_agent_only
 OPENAI_AGENT_MODEL=gpt-5-mini
 OPENAI_AGENT_MAX_TURNS=35
+OPENAI_PERIODIC_MODEL=gpt-5
 OPENAI_PERIODIC_MAX_TURNS=80
 
 MONITOR_INTERVAL_MINUTES=30
@@ -478,8 +479,10 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_RECEIVER_ID=your_telegram_chat_id
 ```
 
+`OPENAI_AGENT_MODEL` vale per chat e richieste normali.
+`OPENAI_PERIODIC_MODEL` vale per il monitor periodico/schedulato, che usa piu contesto e piu tool.
 `OPENAI_AGENT_MAX_TURNS` vale per chat e richieste normali.
-`OPENAI_PERIODIC_MAX_TURNS` vale per il monitor periodico, che usa piu tool.
+`OPENAI_PERIODIC_MAX_TURNS` vale per il monitor periodico.
 
 ## Chrome con debug remoto
 
@@ -629,7 +632,7 @@ scripts\run_autonomous_monitor_once.bat
 Il batch avvia:
 
 ```text
-agent_portfolio_manager.py --model gpt-5-mini --autonomous-monitor --once --monitor-interval-minutes 30 --periodic-live-news --periodic-max-turns 80 --scan-limit 5 --deep-confirm-limit 2 --max-auto-trade-pct 25
+agent_portfolio_manager.py --model %OPENAI_PERIODIC_MODEL% --autonomous-monitor --once --monitor-interval-minutes 30 --periodic-live-news --periodic-max-turns %OPENAI_PERIODIC_MAX_TURNS% --scan-limit 5 --deep-confirm-limit 2 --max-auto-trade-pct 25
 ```
 
 La finestra operativa e:

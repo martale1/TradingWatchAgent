@@ -9,6 +9,8 @@ set LOCK_DIR=%LOG_DIR%\monitor.lock
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 set TRADINGWATCH_TIMESTAMP_LOGS=1
+if "%OPENAI_PERIODIC_MODEL%"=="" set OPENAI_PERIODIC_MODEL=gpt-5
+if "%OPENAI_PERIODIC_MAX_TURNS%"=="" set OPENAI_PERIODIC_MAX_TURNS=80
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
@@ -37,7 +39,7 @@ echo ===== %DATE% %TIME% START scheduled monitor ===== >> "%LOG_DIR%\scheduled-m
 echo. >> "%LOG_DIR%\run-journal.log"
 echo ===== %DATE% %TIME% START scheduled monitor ===== >> "%LOG_DIR%\run-journal.log"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& '%PYTHON_EXE%' '%PROJECT_DIR%\agent_portfolio_manager.py' --model gpt-5-mini --autonomous-monitor --once --monitor-interval-minutes 30 --periodic-live-news --periodic-max-turns 80 --scan-limit 5 --deep-confirm-limit 2 --max-auto-trade-pct 25 2>&1 | Tee-Object -FilePath '%LOG_DIR%\scheduled-monitor.log' -Append | Tee-Object -FilePath '%LOG_DIR%\run-journal.log' -Append; exit $LASTEXITCODE"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& '%PYTHON_EXE%' '%PROJECT_DIR%\agent_portfolio_manager.py' --model '%OPENAI_PERIODIC_MODEL%' --autonomous-monitor --once --monitor-interval-minutes 30 --periodic-live-news --periodic-max-turns %OPENAI_PERIODIC_MAX_TURNS% --scan-limit 5 --deep-confirm-limit 2 --max-auto-trade-pct 25 2>&1 | Tee-Object -FilePath '%LOG_DIR%\scheduled-monitor.log' -Append | Tee-Object -FilePath '%LOG_DIR%\run-journal.log' -Append; exit $LASTEXITCODE"
 
 echo ===== %DATE% %TIME% END scheduled monitor exit=%ERRORLEVEL% ===== >> "%LOG_DIR%\scheduled-monitor.log"
 echo ===== %DATE% %TIME% END scheduled monitor exit=%ERRORLEVEL% ===== >> "%LOG_DIR%\run-journal.log"
