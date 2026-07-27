@@ -390,8 +390,15 @@ def send_telegram_message(text_message):
     last_error = None
     for attempt in range(1, TELEGRAM_SEND_RETRIES + 1):
         try:
-            bot.sendMessage(receiver_id, text_message)
-            return {"status": "ok", "receiver_id": receiver_id, "attempt": attempt}
+            chunks = split_telegram_message(text_message)
+            for chunk in chunks:
+                bot.sendMessage(receiver_id, chunk)
+            return {
+                "status": "ok",
+                "receiver_id": receiver_id,
+                "attempt": attempt,
+                "chunks": len(chunks),
+            }
         except Exception as exc:
             last_error = exc
             if not is_transient_telegram_error(exc) or attempt >= TELEGRAM_SEND_RETRIES:
@@ -403,6 +410,35 @@ def send_telegram_message(text_message):
         "receiver_id": receiver_id,
         "message": str(last_error),
     }
+
+
+def split_telegram_message(text_message, limit=3900):
+    text = str(text_message or "")
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    current = []
+    current_len = 0
+    for line in text.splitlines():
+        addition = len(line) + 1
+        if current and current_len + addition > limit:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        if addition > limit:
+            for start in range(0, len(line), limit):
+                part = line[start : start + limit]
+                if current:
+                    chunks.append("\n".join(current))
+                    current = []
+                    current_len = 0
+                chunks.append(part)
+            continue
+        current.append(line)
+        current_len += addition
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
 
 def _condition_sort_key(item):
@@ -520,6 +556,72 @@ def _recent_action_brief(item):
     return f"- {ticker}: {action}{amount_text} ({when_text})"
 
 
+def _action_timestamp(item):
+    when = item.get("confirmed_at") or item.get("rejected_at") or item.get("created_at")
+    try:
+        return datetime.fromisoformat(str(when))
+    except (TypeError, ValueError):
+        return None
+
+
+def _last_run_actions(actions, window_seconds=180):
+    stamped = []
+    for item in actions:
+        when = _action_timestamp(item)
+        if when:
+            stamped.append((when, item))
+    if not stamped:
+        return []
+    stamped.sort(key=lambda pair: pair[0])
+    latest = stamped[-1][0]
+    lower_bound = latest - timedelta(seconds=window_seconds)
+    return [item for when, item in stamped if when >= lower_bound]
+
+
+def _action_effect_brief(item):
+    status = item.get("status", "n/d")
+    action = item.get("action", "azione")
+    ticker = item.get("ticker", "n/d")
+    metadata = item.get("metadata", {}) or {}
+    amount = metadata.get("amount")
+    entry_price = metadata.get("entry_price")
+    scenario_state = metadata.get("scenario_state")
+    condition = metadata.get("condition")
+    reason = item.get("reason") or metadata.get("scenario_reason")
+
+    if status == "confirmed":
+        if action == "buy_virtual_position":
+            head = f"- {ticker}: BUY applicato"
+            if amount is not None:
+                head += f" {format_money(amount)}"
+            if entry_price is not None:
+                head += f" @ {format_number(entry_price)}"
+        elif action in {"sell_virtual_position", "reduce_virtual_position"}:
+            head = f"- {ticker}: SELL/RIDUZIONE applicata"
+            if amount is not None:
+                head += f" {format_money(amount)}"
+        else:
+            head = f"- {ticker}: {str(action).replace('_', ' ')} applicata"
+    elif status == "skipped":
+        decision = str(metadata.get("decision") or "nessuna modifica").replace("_", " ")
+        head = f"- {ticker}: nessuna modifica ({decision})"
+    elif status == "rejected":
+        head = f"- {ticker}: proposta rifiutata"
+    else:
+        head = f"- {ticker}: {str(action).replace('_', ' ')} [{status}]"
+
+    details = [head]
+    if scenario_state:
+        details.append(f"  stato: {scenario_state}")
+    if condition:
+        details.append(f"  trigger: {short_condition(condition, max_len=135)}")
+    elif reason:
+        details.append(f"  motivo: {short_condition(reason, max_len=135)}")
+    if reason and condition:
+        details.append(f"  motivo: {short_condition(reason, max_len=135)}")
+    return "\n".join(details)
+
+
 def build_readable_monitoring_summary(extra_note=""):
     settings = load_telegram_settings()
     max_items = int(settings.get("max_monitoring_items") or 5)
@@ -548,7 +650,8 @@ def build_readable_monitoring_summary(extra_note=""):
         if item.get("status") == "pending"
     }
     portfolio = load_portfolio() or {}
-    recent_actions = list(reversed(portfolio.get("closed_proposals", [])))[:3]
+    last_run_actions = _last_run_actions(portfolio.get("closed_proposals", []))
+    recent_actions = []
 
     position_perf = {item.get("ticker"): item for item in performance.get("positions", [])}
     total_pnl = float(performance.get("total_pnl") or 0)
@@ -567,11 +670,16 @@ def build_readable_monitoring_summary(extra_note=""):
 
     if positions:
         lines.extend(["", "📌 Posizioni"])
-        for item in positions[:max_items]:
+        for item in positions:
             ticker = item.get("ticker", "n/d")
             lines.append(_position_brief(item, position_perf.get(ticker)))
-        if len(positions) > max_items:
-            lines.append(f"... altre {len(positions) - max_items} posizioni")
+
+    if last_run_actions:
+        lines.extend(["", f"Effetti ultimo run ({len(last_run_actions)})"])
+        for item in last_run_actions:
+            lines.append(_action_effect_brief(item))
+    else:
+        lines.extend(["", "Effetti ultimo run", "Nessuna modifica al portafoglio registrata nell'ultimo ciclo."])
 
     if met:
         lines.extend(["", f"✅ Setup confermati / trigger operativi ({len(met)})"])
