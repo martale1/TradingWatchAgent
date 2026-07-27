@@ -1625,6 +1625,33 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #fee2e2;
   color: #991b1b;
 }
+.chartAnalysisPreview {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+}
+.chartAnalysisHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.chartAnalysisHeader span {
+  color: #64748b;
+  font-size: 12px;
+}
+.chartAnalysisPreview pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #0f172a;
+}
 .newsList {
   display: grid;
   gap: 12px;

@@ -2435,6 +2435,7 @@ function NewsReports() {
   const [expanded, setExpanded] = useState({});
   const [liveTicker, setLiveTicker] = useState("");
   const [liveState, setLiveState] = useState({ running: false, ticker: "", message: "", error: "" });
+  const [chartState, setChartState] = useState({ running: false, ticker: "", message: "", error: "", preview: "", file: "" });
 
   async function loadNews(options = {}) {
     const silent = Boolean(options.silent);
@@ -2483,6 +2484,48 @@ function NewsReports() {
     }
   }
 
+  async function runLiveChart(tickerArg = "") {
+    const ticker = String(tickerArg || liveTicker || query || "").trim().toUpperCase();
+    if (!ticker) {
+      setChartState({
+        running: false,
+        ticker: "",
+        message: "Inserisci un ticker, ad esempio CPR.MI, A2A.MI o ROBO.MI.",
+        error: "",
+        preview: "",
+        file: "",
+      });
+      return;
+    }
+    setLiveTicker(ticker);
+    setQuery(ticker);
+    setChartState({
+      running: true,
+      ticker,
+      message: `Analizzo il grafico di ${ticker} con Playwright/ChatGPT. Allego prezzo, momentum e ADX nel browser.`,
+      error: "",
+      preview: "",
+      file: "",
+    });
+    try {
+      const result = await api("/api/charts/analyze-live", {
+        method: "POST",
+        body: JSON.stringify({ ticker, force: true, no_telegram: true }),
+        timeoutMs: 480000,
+      });
+      setChartState({
+        running: false,
+        ticker,
+        message: `Analisi grafico aggiornata per ${ticker} in ${result.duration_sec || "n/d"}s.`,
+        error: "",
+        preview: cleanText(result.preview || result.report || "Analisi completata, ma il report e vuoto."),
+        file: result.analysis_file || "",
+      });
+    } catch (error) {
+      setChartState({ running: false, ticker, message: "", error: error.message, preview: "", file: "" });
+    }
+  }
+
   useEffect(() => { loadNews(); }, [onlyRelevant]);
 
   const data = state.data || {};
@@ -2504,9 +2547,9 @@ function NewsReports() {
 
       <div className="newsLivePanel">
         <div className="newsLiveCopy">
-          <strong>Cerca news live on demand</strong>
+          <strong>Analisi on demand via Playwright</strong>
           <span>
-            Avvia una ricerca per ticker usando ChatGPT nel browser tramite Playwright. Non usa la OpenAI API per cercare le news.
+            Avvia news live o lettura visuale del grafico per un singolo ticker usando ChatGPT nel browser. Non usare per scan massivi.
           </span>
         </div>
         <div className="newsLiveForm">
@@ -2517,14 +2560,28 @@ function NewsReports() {
               if (event.key === "Enter") runLiveNews();
             }}
             placeholder="Ticker, es. CPR.MI, VOD.L, ROBO.MI"
-            disabled={liveState.running}
+            disabled={liveState.running || chartState.running}
           />
-          <button className="primaryButton" onClick={() => runLiveNews()} disabled={liveState.running}>
+          <button className="primaryButton" onClick={() => runLiveNews()} disabled={liveState.running || chartState.running}>
             {liveState.running ? "Ricerca in corso..." : "Cerca news live"}
+          </button>
+          <button className="iconButton" onClick={() => runLiveChart()} disabled={liveState.running || chartState.running}>
+            {chartState.running ? "Grafico in corso..." : "Analizza grafico live"}
           </button>
         </div>
         {liveState.message && <div className="newsLiveStatus ok">{liveState.message}</div>}
         {liveState.error && <div className="newsLiveStatus errorState">{liveState.error}</div>}
+        {chartState.message && <div className="newsLiveStatus ok">{chartState.message}</div>}
+        {chartState.error && <div className="newsLiveStatus errorState">{chartState.error}</div>}
+        {chartState.preview && (
+          <div className="chartAnalysisPreview">
+            <div className="chartAnalysisHeader">
+              <strong>Ultima analisi grafico {chartState.ticker}</strong>
+              {chartState.file && <span>{chartState.file}</span>}
+            </div>
+            <pre>{chartState.preview}</pre>
+          </div>
+        )}
       </div>
 
       <div className="newsFilters">
@@ -2621,9 +2678,16 @@ function NewsReports() {
                   <button
                     className="iconButton compactButton"
                     onClick={() => runLiveNews(item.ticker)}
-                    disabled={liveState.running}
+                    disabled={liveState.running || chartState.running}
                   >
                     Aggiorna live
+                  </button>
+                  <button
+                    className="iconButton compactButton"
+                    onClick={() => runLiveChart(item.ticker)}
+                    disabled={liveState.running || chartState.running}
+                  >
+                    Analizza grafico
                   </button>
                   {canExpand && (
                     <button

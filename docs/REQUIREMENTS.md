@@ -148,6 +148,20 @@ Esempio:
 - corretto: `CPR.MI grafico+news via Playwright per posizione in portafoglio`;
 - non corretto: due subprocess paralleli o consecutivi per `CPR.MI` senza motivo tracciato.
 
+### Analisi Grafico On Demand
+
+La GUI deve permettere di avviare una analisi grafica on demand via Playwright/ChatGPT per un singolo ticker.
+
+Requisiti:
+
+- l'utente inserisce un ticker o clicca su un report esistente;
+- il backend genera/aggiorna grafici prezzo, momentum e ADX;
+- i grafici vengono allegati a ChatGPT tramite Playwright;
+- il report viene salvato in `output/stock_ai/<ticker>/<ticker>_analysis.txt`;
+- la GUI mostra stato, durata, file generato e anteprima del report;
+- la richiesta deve essere serializzata con lock/coda per evitare due sessioni Playwright contemporanee;
+- non deve essere usata per scan massivi: e una funzione puntuale, su richiesta utente.
+
 Se Playwright resta appeso, il log deve dire:
 
 - ticker;

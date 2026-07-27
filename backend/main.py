@@ -37,6 +37,7 @@ from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E
 from finance_tools.news_tool import get_news_report  # noqa: E402
 from finance_tools.performance_tool import build_performance_history_view, calculate_portfolio_performance  # noqa: E402
 from finance_tools.portfolio_deep_analysis import run_deep_portfolio_analysis  # noqa: E402
+from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai  # noqa: E402
 from finance_tools.portfolio_store import (  # noqa: E402
     add_watchlist_item,
     list_watchlist,
@@ -341,6 +342,7 @@ def json_safe(value):
 
 NEWS_REPORTS_ROOT = ROOT / "output" / "stock_ai"
 NEWS_LIVE_LOCK = threading.Lock()
+CHART_LIVE_LOCK = threading.Lock()
 NEWS_TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{0,24}$")
 NEWS_NO_RELEVANT_PATTERNS = (
     "nessuna news rilevante",
@@ -790,6 +792,46 @@ def search_news_live(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Ricerca news live fallita per {ticker}: {exc}") from exc
     finally:
         NEWS_LIVE_LOCK.release()
+
+
+@app.post("/api/charts/analyze-live")
+def analyze_chart_live(payload: dict = Body(...)):
+    ticker = normalize_news_ticker(payload.get("ticker") if isinstance(payload, dict) else "")
+    force = bool(payload.get("force", True)) if isinstance(payload, dict) else True
+    no_telegram = bool(payload.get("no_telegram", True)) if isinstance(payload, dict) else True
+    if not CHART_LIVE_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="Una analisi grafica Playwright e gia in corso. Riprova tra poco.",
+        )
+    started_at = datetime.now().isoformat(timespec="seconds")
+    started = time.time()
+    try:
+        result = confirm_candidate_with_chart_ai(
+            ticker=ticker,
+            no_telegram=no_telegram,
+            cache_minutes=30,
+            force=force,
+        )
+        report = str(result.get("report") or "")
+        return json_safe(
+            {
+                "ticker": ticker,
+                "started_at": started_at,
+                "duration_sec": round(time.time() - started, 1),
+                "status": result.get("status"),
+                "source": result.get("source"),
+                "analysis_file": result.get("analysis_file"),
+                "report": report,
+                "preview": "\n".join(line.strip() for line in report.splitlines() if line.strip())[:2400],
+                "stdout_tail": result.get("stdout_tail"),
+                "stderr": result.get("stderr"),
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Analisi grafica Playwright fallita per {ticker}: {exc}") from exc
+    finally:
+        CHART_LIVE_LOCK.release()
 
 
 def fallback_market_rows(market: str):
