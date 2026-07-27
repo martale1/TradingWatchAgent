@@ -2436,8 +2436,65 @@ function NewsReports() {
   const [onlyRelevant, setOnlyRelevant] = useState(false);
   const [expanded, setExpanded] = useState({});
   const [liveTicker, setLiveTicker] = useState("");
-  const [liveState, setLiveState] = useState({ running: false, ticker: "", message: "", error: "" });
-  const [chartState, setChartState] = useState({ running: false, ticker: "", message: "", error: "", preview: "", file: "" });
+  const [liveState, setLiveState] = useState({ running: false, ticker: "", message: "", error: "", startedAt: "" });
+  const [chartState, setChartState] = useState({ running: false, ticker: "", message: "", error: "", preview: "", file: "", startedAt: "" });
+
+  function buildDemandSteps(kind, request) {
+    const tickerLabel = request.ticker || "ticker";
+    const failed = Boolean(request.error);
+    const running = Boolean(request.running);
+    const completed = Boolean(request.message && !running && !failed);
+    const steps = kind === "news"
+      ? [
+          `Validazione ticker ${tickerLabel}`,
+          "Avvio Playwright/ChatGPT",
+          "Attesa risposta e salvataggio report",
+          "Ricarica archivio news",
+        ]
+      : [
+          `Validazione ticker ${tickerLabel}`,
+          "Generazione grafici tecnici",
+          "Upload grafici su ChatGPT via Playwright",
+          "Lettura e salvataggio analisi visuale",
+        ];
+    return steps.map((label, index) => {
+      let status = "waiting";
+      if (completed) status = "done";
+      else if (failed) status = index <= 1 ? "error" : "waiting";
+      else if (running) status = index < 2 ? "done" : index === 2 ? "running" : "waiting";
+      return { label, status };
+    });
+  }
+
+  function renderDemandStatus(title, request, kind) {
+    if (!request.message && !request.error && !request.preview) return null;
+    const started = request.startedAt ? formatLogDateTime(request.startedAt) : "";
+    return (
+      <div className={`onDemandStatus ${request.error ? "error" : request.running ? "running" : "done"}`}>
+        <div className="onDemandHeader">
+          <strong>{title}{request.ticker ? ` ${request.ticker}` : ""}</strong>
+          {started && <span>avvio {started}</span>}
+        </div>
+        <p>{request.error || request.message}</p>
+        <div className="onDemandSteps">
+          {buildDemandSteps(kind, request).map((step) => (
+            <span className={`onDemandStep ${step.status}`} key={`${title}-${step.label}`}>
+              {step.label}
+            </span>
+          ))}
+        </div>
+        {request.preview && (
+          <div className="chartAnalysisPreview compact">
+            <div className="chartAnalysisHeader">
+              <strong>Report grafico</strong>
+              {request.file && <span>{request.file}</span>}
+            </div>
+            <pre>{request.preview}</pre>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   async function loadNews(options = {}) {
     const silent = Boolean(options.silent);
@@ -2472,9 +2529,10 @@ function NewsReports() {
   async function runLiveNews(tickerArg = "") {
     const ticker = String(tickerArg || liveTicker || query || "").trim().toUpperCase();
     if (!ticker) {
-      setLiveState({ running: false, ticker: "", message: "Inserisci un ticker, ad esempio CPR.MI o VOD.L.", error: "" });
+      setLiveState({ running: false, ticker: "", message: "Inserisci un ticker, ad esempio CPR.MI o VOD.L.", error: "", startedAt: "" });
       return;
     }
+    const startedAt = new Date().toISOString();
     setLiveTicker(ticker);
     setQuery(ticker);
     setLiveState({
@@ -2482,9 +2540,10 @@ function NewsReports() {
       ticker,
       message: `Cerco news live per ${ticker} con Playwright/ChatGPT. Chrome deve essere aperto con debug remoto.`,
       error: "",
+      startedAt,
     });
     try {
-      const result = await api("/api/news/search", {
+      const result = await api("/api/news/live", {
         method: "POST",
         body: JSON.stringify({ ticker }),
         timeoutMs: 360000,
@@ -2494,10 +2553,11 @@ function NewsReports() {
         ticker,
         message: `News live aggiornate per ${ticker} in ${result.duration_sec || "n/d"}s.`,
         error: "",
+        startedAt,
       });
       await loadNews({ queryOverride: ticker });
     } catch (error) {
-      setLiveState({ running: false, ticker, message: "", error: friendlyNewsError(error, `News live ${ticker}`) });
+      setLiveState({ running: false, ticker, message: "", error: friendlyNewsError(error, `News live ${ticker}`), startedAt });
     }
   }
 
@@ -2511,9 +2571,11 @@ function NewsReports() {
         error: "",
         preview: "",
         file: "",
+        startedAt: "",
       });
       return;
     }
+    const startedAt = new Date().toISOString();
     setLiveTicker(ticker);
     setQuery(ticker);
     setChartState({
@@ -2523,9 +2585,10 @@ function NewsReports() {
       error: "",
       preview: "",
       file: "",
+      startedAt,
     });
     try {
-      const result = await api("/api/charts/analyze-live", {
+      const result = await api("/api/charts/live", {
         method: "POST",
         body: JSON.stringify({ ticker, force: true, no_telegram: true }),
         timeoutMs: 480000,
@@ -2537,6 +2600,7 @@ function NewsReports() {
         error: "",
         preview: cleanText(result.preview || result.report || "Analisi completata, ma il report e vuoto."),
         file: result.analysis_file || "",
+        startedAt,
       });
     } catch (error) {
       setChartState({
@@ -2546,6 +2610,7 @@ function NewsReports() {
         error: friendlyNewsError(error, `Analisi grafico ${ticker}`),
         preview: "",
         file: "",
+        startedAt,
       });
     }
   }
@@ -2599,19 +2664,8 @@ function NewsReports() {
             {chartState.running ? "Grafico in corso..." : "Analizza grafico live"}
           </button>
         </div>
-        {liveState.message && <div className="newsLiveStatus ok"><strong>News live:</strong> {liveState.message}</div>}
-        {liveState.error && <div className="newsLiveStatus errorState"><strong>News live:</strong> {liveState.error}</div>}
-        {chartState.message && <div className="newsLiveStatus ok"><strong>Grafico live:</strong> {chartState.message}</div>}
-        {chartState.error && <div className="newsLiveStatus errorState"><strong>Grafico live:</strong> {chartState.error}</div>}
-        {chartState.preview && (
-          <div className="chartAnalysisPreview">
-            <div className="chartAnalysisHeader">
-              <strong>Ultima analisi grafico {chartState.ticker}</strong>
-              {chartState.file && <span>{chartState.file}</span>}
-            </div>
-            <pre>{chartState.preview}</pre>
-          </div>
-        )}
+        {renderDemandStatus("News live", liveState, "news")}
+        {renderDemandStatus("Grafico live", chartState, "chart")}
       </div>
 
       <div className="newsFilters">

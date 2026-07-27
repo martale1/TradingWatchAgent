@@ -771,9 +771,18 @@ def news_reports(limit: int = 200, query: str = "", relevant_only: bool = False)
     )
 
 
-@app.post("/api/news/search")
-def search_news_live(payload: dict = Body(...)):
+def ticker_from_payload(payload: dict, action_label: str) -> str:
     ticker = normalize_news_ticker(payload.get("ticker") if isinstance(payload, dict) else "")
+    if not ticker:
+        raise HTTPException(status_code=400, detail=f"Inserisci un ticker valido per {action_label}.")
+    return ticker
+
+
+@app.post("/api/news/search")
+@app.post("/api/news/live")
+@app.post("/api/news/search-live")
+def search_news_live(payload: dict = Body(...)):
+    ticker = ticker_from_payload(payload, "ricerca news live")
     if not NEWS_LIVE_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="Una ricerca news live e gia in corso. Riprova tra poco.")
     started_at = datetime.now().isoformat(timespec="seconds")
@@ -797,8 +806,10 @@ def search_news_live(payload: dict = Body(...)):
 
 
 @app.post("/api/charts/analyze-live")
+@app.post("/api/charts/live")
+@app.post("/api/charts/analyze")
 def analyze_chart_live(payload: dict = Body(...)):
-    ticker = normalize_news_ticker(payload.get("ticker") if isinstance(payload, dict) else "")
+    ticker = ticker_from_payload(payload, "analisi grafica live")
     force = bool(payload.get("force", True)) if isinstance(payload, dict) else True
     no_telegram = bool(payload.get("no_telegram", True)) if isinstance(payload, dict) else True
     if not CHART_LIVE_LOCK.acquire(blocking=False):

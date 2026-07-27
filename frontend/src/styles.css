@@ -1630,11 +1630,78 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #fee2e2;
   color: #991b1b;
 }
+.onDemandStatus {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.onDemandStatus.done {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.onDemandStatus.running {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.onDemandStatus.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+.onDemandHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+.onDemandHeader span {
+  color: #64748b;
+  font-size: 12px;
+}
+.onDemandStatus p {
+  margin: 0;
+  color: #1f2937;
+  font-weight: 800;
+}
+.onDemandSteps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.onDemandStep {
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.onDemandStep.done {
+  background: #dcfce7;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+.onDemandStep.running {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+.onDemandStep.error {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
 .chartAnalysisPreview {
   border: 1px solid #bfdbfe;
   border-radius: 10px;
   background: #fff;
   padding: 12px;
+}
+.chartAnalysisPreview.compact {
+  border-color: #dbe4f0;
 }
 .chartAnalysisHeader {
   display: flex;
