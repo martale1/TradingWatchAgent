@@ -540,7 +540,7 @@ function TokenUsagePanel({ usage = {} }) {
   );
 }
 
-function Positions({ rows = [], onChart }) {
+function Positions({ rows = [], onChart, totalValue = 0 }) {
   return (
     <section className="panel">
       <h2>Portafoglio</h2>
@@ -551,6 +551,7 @@ function Positions({ rows = [], onChart }) {
               <th>Ticker</th>
               <th>Investito</th>
               <th>Valore attuale</th>
+              <th>Peso portafoglio</th>
               <th>P/L</th>
               <th>P/L %</th>
               <th>Entry</th>
@@ -571,6 +572,14 @@ function Positions({ rows = [], onChart }) {
                 </td>
                 <td>{eur(row.invested_amount)}</td>
                 <td>{eur(row.market_value)}</td>
+                <td>
+                  <span
+                    className={`pill ${totalValue > 0 && (Number(row.market_value) / Number(totalValue)) * 100 > 12 ? "negative" : "neutral"}`}
+                    title="Valore corrente della posizione diviso per il patrimonio totale, cash incluso"
+                  >
+                    {totalValue > 0 ? pct((Number(row.market_value) / Number(totalValue)) * 100, false) : "n/d"}
+                  </span>
+                </td>
                 <td className={signedClass(row.pnl)}>{eur(row.pnl)}</td>
                 <td><span className={`pill ${signedClass(row.pnl_pct)}`}>{pct(row.pnl_pct)}</span></td>
                 <td>{price(row.entry_price)}</td>
@@ -2593,6 +2602,7 @@ function Controls({ reload }) {
           {[
             ["always", "Invia sempre", "Riepilogo a ogni run schedulato."],
             ["changes", "Solo variazioni", "Invia se cambiano condizioni, proposte o portafoglio."],
+            ["portfolio_changes", "Solo portafoglio", "Invia solo se entra o esce un titolo oppure cambia la quantita di una posizione."],
             ["alerts", "Solo alert", "Invia solo se ci sono alert di performance o trigger."],
             ["disabled", "Disattivato", "Nessun riepilogo automatico, manuale ancora disponibile."],
           ].map(([value, label, description]) => (
@@ -3417,7 +3427,7 @@ function App() {
             <>
               <TokenUsagePanel usage={data.token_usage || {}} />
               <PortfolioPerformanceChart data={data.performance_history || {}} />
-              <Positions rows={perf.positions || []} onChart={setChartItem} />
+              <Positions rows={perf.positions || []} onChart={setChartItem} totalValue={perf.total_value || 0} />
               <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
               <Monitoring rows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />
             </>

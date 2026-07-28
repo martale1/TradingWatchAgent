@@ -17,7 +17,7 @@ TELEGRAM_TOKEN_FALLBACK_ENV = "TELEGRAM_BOT_TOKEN_CH1"
 TELEGRAM_RECEIVER_ENV = "TELEGRAM_RECEIVER_ID"
 TELEGRAM_NOTIFICATION_STATE = PROJECT_ROOT / "telegram_notification_state.json"
 TELEGRAM_SETTINGS_FILE = PROJECT_ROOT / "telegram_settings.json"
-TELEGRAM_MODES = {"always", "changes", "alerts", "disabled"}
+TELEGRAM_MODES = {"always", "changes", "portfolio_changes", "alerts", "disabled"}
 TELEGRAM_SEND_RETRIES = 2
 TELEGRAM_SEND_RETRY_DELAY_SECONDS = 5
 
@@ -97,7 +97,12 @@ def save_telegram_settings(settings):
     return merged
 
 
-def should_send_monitoring_summary(reason="manual", changed=False, has_alerts=False):
+def should_send_monitoring_summary(
+    reason="manual",
+    changed=False,
+    portfolio_changed=False,
+    has_alerts=False,
+):
     settings = load_telegram_settings()
     mode = settings.get("monitoring_mode", "always")
     if reason == "manual":
@@ -108,6 +113,14 @@ def should_send_monitoring_summary(reason="manual", changed=False, has_alerts=Fa
         return True, "modalita invia sempre", settings
     if mode == "changes":
         return bool(changed), "variazioni rilevate" if changed else "nessuna variazione rilevata", settings
+    if mode == "portfolio_changes":
+        return (
+            bool(portfolio_changed),
+            "composizione o quantita portafoglio variata"
+            if portfolio_changed
+            else "nessuna variazione a titoli o quantita del portafoglio",
+            settings,
+        )
     if mode == "alerts":
         return bool(has_alerts), "alert rilevante" if has_alerts else "nessun alert rilevante", settings
     return False, "modalita non gestita", settings

@@ -53,6 +53,7 @@ from finance_tools.telegram_tool import (
     should_send_monitoring_summary,
 )
 from finance_tools.token_usage import record_token_usage
+from finance_tools.risk_manager import execution_key
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-mini")
@@ -286,6 +287,7 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             "volume_ratio": volume_ratio,
             "autonomy_mode": action_mode,
             "auto_apply_virtual": auto_apply_virtual,
+            "execution_key": execution_key(ticker, condition.get("id"), state),
         }
 
         log_step(
@@ -370,6 +372,7 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             metadata={
                 **audit_metadata,
                 "source": "autonomous_met_entry_condition",
+                "execution_key": audit_metadata["execution_key"],
                 "amount": amount,
                 "entry_price": price,
             },
@@ -1610,6 +1613,7 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
         "Le righe successive 'Tool ... chiamato' indicano quali strumenti usa davvero e su quali ticker."
     )
     before_state = monitoring_state_signature()
+    before_portfolio_state = portfolio_content_signature()
     final_output = ""
     try:
         result = Runner.run_sync(agent, request, max_turns=run_max_turns)
@@ -1640,8 +1644,16 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
         result = SimpleNamespace(final_output=final_output)
         result.interrupted_error = final_output
     after_state = monitoring_state_signature()
+    after_portfolio_state = portfolio_content_signature()
     if not suppress_auto_telegram_summary:
-        maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state)
+        maybe_send_automatic_monitoring_summary(
+            request,
+            final_output,
+            before_state,
+            after_state,
+            before_portfolio_state,
+            after_portfolio_state,
+        )
     return result
 
 
@@ -1791,6 +1803,7 @@ def run_periodic_monitor_loop(
         )
         try:
             before_state = monitoring_state_signature()
+            before_portfolio_state = portfolio_content_signature()
             result = run_agent_once(
                 agent,
                 request,
@@ -1818,12 +1831,14 @@ def run_periodic_monitor_loop(
             elif news_notifications.get("status") == "partial_error":
                 log_step(f"Invio news Telegram parziale | errori={news_notifications.get('errors')}")
             after_state = monitoring_state_signature()
+            after_portfolio_state = portfolio_content_signature()
             log_operational_snapshot("dopo il ciclo")
             performance = calculate_portfolio_performance()
             has_alerts = bool(performance.get("alerts"))
             should_send, reason, telegram_settings = should_send_monitoring_summary(
                 reason="scheduled",
                 changed=before_state != after_state,
+                portfolio_changed=before_portfolio_state != after_portfolio_state,
                 has_alerts=has_alerts,
             )
             if should_send:
@@ -1918,11 +1933,38 @@ def monitoring_state_signature():
     return json.dumps(relevant_state, ensure_ascii=False, sort_keys=True)
 
 
-def maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state):
+def portfolio_content_signature():
+    status = portfolio_status_summary()
+    positions = sorted(
+        [
+            {
+                "ticker": str(item.get("ticker") or "").strip().upper(),
+                "status": item.get("status"),
+                "virtual_quantity": item.get("virtual_quantity"),
+                "allocated_amount": item.get("allocated_amount"),
+            }
+            for item in status.get("positions", [])
+            if item.get("status") == "open"
+        ],
+        key=lambda item: item["ticker"],
+    )
+    return json.dumps(positions, ensure_ascii=False, sort_keys=True)
+
+
+def maybe_send_automatic_monitoring_summary(
+    request,
+    final_output,
+    before_state,
+    after_state,
+    before_portfolio_state,
+    after_portfolio_state,
+):
     changed = before_state != after_state
+    portfolio_changed = before_portfolio_state != after_portfolio_state
     should_send, reason, telegram_settings = should_send_monitoring_summary(
         reason="automatic",
         changed=changed,
+        portfolio_changed=portfolio_changed,
         has_alerts=False,
     )
     if not should_send:
@@ -2094,6 +2136,7 @@ def handle_local_interactive_command(user_text):
         should_send, telegram_reason, telegram_settings = should_send_monitoring_summary(
             reason="automatic",
             changed=True,
+            portfolio_changed=False,
             has_alerts=False,
         )
         if should_send:

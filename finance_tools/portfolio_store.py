@@ -126,7 +126,7 @@ def add_proposal(action, ticker, reason, metadata=None, path=PORTFOLIO_FILE):
     portfolio = load_portfolio(path)
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
-    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     proposal = {
         "id": proposal_id,
         "created_at": now_iso(),
@@ -145,7 +145,7 @@ def add_allocation_proposal(capital, allocations, reason, metadata=None, path=PO
     portfolio = load_portfolio(path)
     if portfolio is None:
         portfolio = default_portfolio(capital)
-    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     proposal = {
         "id": proposal_id,
         "created_at": now_iso(),
@@ -172,7 +172,7 @@ def add_buy_proposal(ticker, reason, amount=None, entry_price=None, metadata=Non
     portfolio = load_portfolio(path)
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
-    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     proposal = {
         "id": proposal_id,
         "created_at": now_iso(),
@@ -207,7 +207,7 @@ def add_position_action_proposal(
     if action_type not in {"sell", "reduce"}:
         raise ValueError("action_type deve essere sell oppure reduce.")
     percent = max(0.0, min(100.0, float(percent)))
-    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     proposal = {
         "id": proposal_id,
         "created_at": now_iso(),
@@ -471,6 +471,28 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
     match = next((item for item in pending if item["id"] == proposal_id), None)
     if not match:
         return {"status": "missing", "proposal_id": proposal_id}
+
+    if match.get("action") == "buy_virtual_position":
+        from finance_tools.risk_manager import prepare_buy
+
+        metadata = match.setdefault("metadata", {})
+        risk = prepare_buy(
+            portfolio,
+            match.get("ticker"),
+            metadata.get("amount"),
+            metadata.get("execution_key", ""),
+            metadata.get("sector", ""),
+        )
+        metadata["risk_validation"] = risk
+        if not risk.get("allowed"):
+            pending.remove(match)
+            match["status"] = "blocked"
+            match["blocked_at"] = now_iso()
+            match["failure_reason"] = risk.get("reason")
+            portfolio.setdefault("closed_proposals", []).append(match)
+            save_portfolio(portfolio, path)
+            return {"status": "blocked", "reason": risk.get("reason"), "proposal": match, "portfolio": portfolio}
+        metadata["amount"] = risk["amount"]
 
     pending.remove(match)
     match["status"] = "confirmed"
