@@ -239,8 +239,20 @@ def _evaluate_breakout(scenario, snapshot, liquidity):
         return SCENARIO_WAIT, "dati prezzo/trigger incompleti"
     if support is not None and close < support:
         return SCENARIO_INVALIDATED, f"close sotto supporto {support:.4f}"
+    if close >= trigger and not snapshot.get("daily_bar_complete", False):
+        return (
+            SCENARIO_NEAR_TRIGGER,
+            "prezzo sopra trigger intraday; attendo chiusura e volume finali della seduta",
+        )
     if close >= trigger and (volume_ratio is None or volume_ratio >= MIN_CONFIRM_VOLUME_RATIO):
         return SCENARIO_CONFIRMING, "breakout numerico verificato, serve conferma Playwright/news"
+    if close >= trigger:
+        return (
+            SCENARIO_NEAR_TRIGGER,
+            f"chiusura sopra trigger ma volume finale insufficiente ({volume_ratio:.2f}x MA10)"
+            if volume_ratio is not None
+            else "chiusura sopra trigger ma volume finale non disponibile",
+        )
     if close >= trigger * (1 - BREAKOUT_NEAR_PCT / 100.0):
         return SCENARIO_NEAR_TRIGGER, "prezzo vicino al trigger breakout"
     return SCENARIO_WAIT, "breakout non ancora vicino"
@@ -264,6 +276,11 @@ def _evaluate_pullback(scenario, snapshot, liquidity):
     in_entry_area = entry_max is not None and support <= close <= entry_max
     momentum_ok = rsi is None or 35 <= rsi <= 68
     volume_ok = volume_ratio is None or volume_ratio >= MIN_CONFIRM_VOLUME_RATIO
+    if in_entry_area and not snapshot.get("daily_bar_complete", False):
+        return (
+            SCENARIO_NEAR_TRIGGER,
+            "prezzo in area pullback intraday; attendo chiusura e volume finali della seduta",
+        )
     if in_entry_area and momentum_ok and volume_ok:
         return SCENARIO_CONFIRMING, "pullback su supporto in area utile, serve conferma Playwright/news"
     if in_entry_area:
@@ -295,6 +312,7 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         "[scenario] VALUTO TRIGGER "
         f"{ticker} | mercato={asset_class} close={snapshot.get('close')} "
         f"oggi={snapshot.get('change_1d_pct')}% volume_ratio={_volume_ratio(snapshot)} "
+        f"daily_bar_complete={snapshot.get('daily_bar_complete')} "
         f"liquidita_ok={liquidity.get('liquidity_ok')} | condizione={item.get('condition')}",
         flush=True,
     )
@@ -381,6 +399,10 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         "volume": snapshot.get("volume"),
         "volume_ma10": snapshot.get("volume_ma10"),
         "volume_ratio": _volume_ratio(snapshot),
+        "daily_bar_complete": snapshot.get("daily_bar_complete"),
+        "market_close_at": snapshot.get("market_close_at"),
+        "volume_finalized_at": snapshot.get("volume_finalized_at"),
+        "market_session_reason": snapshot.get("reason"),
         "support_10": snapshot.get("support_10"),
         "resistance_10": snapshot.get("resistance_10"),
         "liquidity_ok": liquidity.get("liquidity_ok"),

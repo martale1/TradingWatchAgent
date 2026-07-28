@@ -256,18 +256,158 @@ function normalizeData(value) {
   return value;
 }
 
-function Metric({ label, value, delta, icon, valueTone }) {
+function Metric({ label, value, delta, icon, valueTone, subtitle, emphasis = "" }) {
   const valueToneClass = valueTone ? `metricValue${valueTone[0].toUpperCase()}${valueTone.slice(1)}` : "";
   return (
-    <div className="metric">
+    <div className={`metric ${emphasis ? `metric-${emphasis}` : ""}`.trim()}>
       <div className="metricLabel">{icon}{label}</div>
       <div className={`metricValue ${valueToneClass}`.trim()}>{value}</div>
       {delta !== undefined && <div className={`metricDelta ${signedClass(delta)}`}>{pct(delta)}</div>}
+      {subtitle && <div className="metricSubtitle">{subtitle}</div>}
     </div>
   );
 }
 
-function AgentRunStatus({ state = {}, stats = {} }) {
+function NewsButton({ ticker, compact = false }) {
+  const symbol = String(ticker || "").trim().toUpperCase();
+  if (!symbol) return null;
+  return (
+    <button
+      className={`miniButton newsTickerButton ${compact ? "compactNewsButton" : ""}`.trim()}
+      onClick={(event) => {
+        event.stopPropagation();
+        window.dispatchEvent(new CustomEvent("open-ticker-news", { detail: { ticker: symbol } }));
+      }}
+      title={`Ultime news salvate o ricerca live per ${symbol}`}
+    >
+      <Newspaper size={15} /> {compact ? "" : "News"}
+    </button>
+  );
+}
+
+function QuickNewsPanel({ ticker, onClose }) {
+  const [state, setState] = useState({ loading: true, error: "", items: [] });
+  const [stream, setStream] = useState({ running: false, phase: "", logs: [], report: "", error: "" });
+  const eventSourceRef = useRef(null);
+
+  async function loadSaved() {
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const params = new URLSearchParams({ limit: "20", query: ticker });
+      const data = await api(`/api/news/reports?${params.toString()}`, { timeoutMs: 60000 });
+      const exactItems = (data.items || []).filter(
+        (item) => String(item.ticker || "").trim().toUpperCase() === ticker,
+      );
+      setState({ loading: false, error: "", items: exactItems });
+    } catch (error) {
+      setState({ loading: false, error: friendlyNewsError(error, `News salvate ${ticker}`), items: [] });
+    }
+  }
+
+  function runLive() {
+    if (eventSourceRef.current) eventSourceRef.current.close();
+    setStream({ running: true, phase: "Avvio ricerca news...", logs: [], report: "", error: "" });
+    const es = new EventSource(`${API}/api/news/live-stream?ticker=${encodeURIComponent(ticker)}&force=1`);
+    eventSourceRef.current = es;
+    es.addEventListener("phase", (event) => {
+      setStream((current) => ({ ...current, phase: event.data }));
+    });
+    es.addEventListener("log", (event) => {
+      setStream((current) => ({ ...current, logs: [...current.logs, event.data].slice(-12) }));
+    });
+    es.addEventListener("report", (event) => {
+      setStream((current) => ({ ...current, report: event.data }));
+    });
+    es.addEventListener("done", () => {
+      setStream((current) => ({ ...current, running: false, phase: "Ricerca completata." }));
+      es.close();
+      eventSourceRef.current = null;
+      loadSaved();
+    });
+    es.addEventListener("error", (event) => {
+      const message = event.data || "Ricerca interrotta. Controlla Chrome/ChatGPT e riprova.";
+      setStream((current) => ({ ...current, running: false, error: message }));
+      es.close();
+      eventSourceRef.current = null;
+    });
+    es.onerror = () => {
+      setStream((current) => current.running
+        ? { ...current, running: false, error: current.error || "Connessione alla ricerca news interrotta." }
+        : current);
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }
+
+  useEffect(() => {
+    loadSaved();
+    return () => {
+      if (eventSourceRef.current) eventSourceRef.current.close();
+    };
+  }, [ticker]);
+
+  const latest = state.items[0];
+  const report = cleanText(stream.report || latest?.report || "");
+  return (
+    <div className="modalBackdrop" onMouseDown={onClose}>
+      <section className="quickNewsPanel" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="quickNewsHeader">
+          <div>
+            <span>News del titolo</span>
+            <h2><Newspaper size={22} /> {ticker}</h2>
+          </div>
+          <button className="iconButton" onClick={onClose}><X size={18} /> Chiudi</button>
+        </div>
+        <div className="quickNewsActions">
+          <button className="primaryButton" onClick={runLive} disabled={stream.running}>
+            {stream.running ? "Ricerca in corso..." : "Cerca news ora"}
+          </button>
+          <button className="iconButton" onClick={loadSaved} disabled={state.loading}>
+            <RefreshCw size={16} /> Ricarica salvate
+          </button>
+        </div>
+        {stream.phase && <div className="newsLiveStatus infoState">{stream.phase}</div>}
+        {stream.error && <div className="error">{stream.error}</div>}
+        {state.error && <div className="error">{state.error}</div>}
+        {stream.logs.length > 0 && (
+          <div className="quickNewsProgress">
+            {stream.logs.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+          </div>
+        )}
+        {state.loading && <div className="mutedBox">Recupero le ultime news salvate per {ticker}...</div>}
+        {!state.loading && !latest && !stream.report && (
+          <div className="mutedBox">
+            Nessuna news salvata per {ticker}. Premi <b>Cerca news ora</b> per crearne una.
+          </div>
+        )}
+        {(latest || stream.report) && (
+          <article className={`newsCard ${latest?.status || ""}`}>
+            <div className="newsCardHeader">
+              <div>
+                <h3>Ultimo report disponibile</h3>
+                <div className="newsMeta">
+                  <span>{latest?.updated_at ? formatLogDateTime(latest.updated_at) : "appena cercato"}</span>
+                  {latest?.path && <span>{latest.path}</span>}
+                </div>
+              </div>
+              {latest?.status_label && <span className={`newsBadge ${latest.status}`}>{latest.status_label}</span>}
+            </div>
+            <div className="quickNewsReport">
+              {report || "Report ricevuto ma privo di testo."}
+            </div>
+          </article>
+        )}
+        {state.items.length > 1 && (
+          <div className="quickNewsArchiveNote">
+            Altri {state.items.length - 1} report salvati sono disponibili nella pagina News.
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AgentRunStatus({ state = {}, stats = {}, tokenUsage = {} }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" || status === "stale" ? "negative" : "neutral";
   const statusLabel = status === "never_run" ? "mai eseguito" : status === "stale" ? "run appesa" : status;
@@ -334,7 +474,68 @@ function AgentRunStatus({ state = {}, stats = {} }) {
       </div>
       <div><span>Ultimo ciclo agente completato</span><b>{dateTime(state.last_completed_at)}</b></div>
       <div><span>Modalita</span><b>{state.last_mode || "n/d"}</b></div>
+      <div className="tokenUsageStatus">
+        <span>Token OpenAI oggi</span>
+        <b>{Number(tokenUsage.today?.total_tokens || 0).toLocaleString("it-IT")}</b>
+        <small className="agentScheduleDetail">
+          Input {Number(tokenUsage.today?.input_tokens || 0).toLocaleString("it-IT")} ·
+          Output {Number(tokenUsage.today?.output_tokens || 0).toLocaleString("it-IT")} ·
+          {Number(tokenUsage.today?.runs || 0).toLocaleString("it-IT")} run
+        </small>
+        {tokenUsage.today?.cached_input_tokens > 0 && (
+          <small className="agentScheduleDetail">
+            Di cui input in cache: {Number(tokenUsage.today.cached_input_tokens).toLocaleString("it-IT")}
+          </small>
+        )}
+      </div>
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
+    </section>
+  );
+}
+
+function TokenUsagePanel({ usage = {} }) {
+  const rows = usage.daily || [];
+  return (
+    <section className="panel tokenUsagePanel">
+      <div className="sectionHeader">
+        <div>
+          <h2>Consumo token OpenAI</h2>
+          <p>Conteggio effettivo dell’Agents SDK, suddiviso per giorno.</p>
+        </div>
+        <span>{usage.tracking_started_at ? `Attivo dal ${dateTime(usage.tracking_started_at)}` : "Parte dalla prossima run"}</span>
+      </div>
+      {!rows.length ? (
+        <div className="emptyState">Nessun consumo registrato dopo l’attivazione del contatore.</div>
+      ) : (
+        <div className="tokenUsageTableWrap">
+          <table className="tokenUsageTable">
+            <thead>
+              <tr>
+                <th>Giorno</th>
+                <th>Run</th>
+                <th>Richieste</th>
+                <th>Input</th>
+                <th>Cache</th>
+                <th>Output</th>
+                <th>Totale</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 7).map((row) => (
+                <tr key={row.date}>
+                  <td>{new Date(`${row.date}T12:00:00`).toLocaleDateString("it-IT")}</td>
+                  <td>{Number(row.runs || 0).toLocaleString("it-IT")}</td>
+                  <td>{Number(row.requests || 0).toLocaleString("it-IT")}</td>
+                  <td>{Number(row.input_tokens || 0).toLocaleString("it-IT")}</td>
+                  <td>{Number(row.cached_input_tokens || 0).toLocaleString("it-IT")}</td>
+                  <td>{Number(row.output_tokens || 0).toLocaleString("it-IT")}</td>
+                  <td><strong>{Number(row.total_tokens || 0).toLocaleString("it-IT")}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
@@ -362,7 +563,12 @@ function Positions({ rows = [], onChart }) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.ticker}>
-                <td className="ticker">{row.ticker}</td>
+                <td>
+                  <div className="tickerWithAction">
+                    <span className="ticker">{row.ticker}</span>
+                    <NewsButton ticker={row.ticker} compact />
+                  </div>
+                </td>
                 <td>{eur(row.invested_amount)}</td>
                 <td>{eur(row.market_value)}</td>
                 <td className={signedClass(row.pnl)}>{eur(row.pnl)}</td>
@@ -371,7 +577,9 @@ function Positions({ rows = [], onChart }) {
                 <td>{price(row.current_price)}</td>
                 <td><span className={`pill ${signedClass(row.daily_change_pct)}`}>{pct(row.daily_change_pct)}</span></td>
                 <td>{price(row.virtual_quantity)}</td>
-                <td><button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, trigger_level: row.entry_price, support_level: null, condition: "Prezzo di ingresso posizione" })}><LineChart size={15} /> Grafico</button></td>
+                <td className="rowActions">
+                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, trigger_level: row.entry_price, support_level: null, condition: "Prezzo di ingresso posizione" })}><LineChart size={15} /> Grafico</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -495,19 +703,22 @@ function ExitConditions({ rows = [], onChart }) {
             <p className="exitAction">{row.primary_action}</p>
             <p className="condition">{row.explanation}</p>
             <div className="sourceLine">Fonte: {row.source}</div>
-            <button
-              className="chartButton"
-              onClick={() => onChart({
-                ticker: row.ticker,
-                current_price: row.current_price,
-                trigger_level: row.take_profit_level,
-                support_level: row.stop_level,
-                trigger_distance_pct: row.distance_to_take_profit_pct,
-                condition: `Uscita: stop ${price(row.stop_level)} / take profit ${price(row.take_profit_level)}. ${row.primary_action}`,
-              })}
-            >
-              <LineChart size={16} /> Grafico uscita
-            </button>
+            <div className="cardActions">
+              <button
+                className="chartButton"
+                onClick={() => onChart({
+                  ticker: row.ticker,
+                  current_price: row.current_price,
+                  trigger_level: row.take_profit_level,
+                  support_level: row.stop_level,
+                  trigger_distance_pct: row.distance_to_take_profit_pct,
+                  condition: `Uscita: stop ${price(row.stop_level)} / take profit ${price(row.take_profit_level)}. ${row.primary_action}`,
+                })}
+              >
+                <LineChart size={16} /> Grafico uscita
+              </button>
+              <NewsButton ticker={row.ticker} />
+            </div>
           </div>
         ))}
       </div>
@@ -520,6 +731,9 @@ function TriggerCard({ item, onChart, isInPortfolio = false }) {
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
   const triggerLabel = isInPortfolio ? "Trigger incremento" : "Trigger ingresso";
   const actionLabel = isInPortfolio ? "Incremento/ribilanciamento" : "Ingresso";
+  const expectedAction = isInPortfolio
+    ? "INCREMENTO / RIBILANCIAMENTO se confermato"
+    : "ACQUISTO se confermato";
   const scenarioKind = item.scenario_state === "BUY_CANDIDATE"
     ? "positive"
     : item.scenario_state === "CONFIRMING" || item.scenario_state === "NEAR_TRIGGER"
@@ -544,6 +758,11 @@ function TriggerCard({ item, onChart, isInPortfolio = false }) {
           {item.volume_ratio !== null && item.volume_ratio !== undefined && <em>Vol/MA10 {item.volume_ratio}x</em>}
         </div>
       )}
+      {item.daily_bar_complete === false && (
+        <div className="positionContext">
+          Seduta in corso: prezzo e volume giornaliero sono provvisori. La conferma viene effettuata dopo la chiusura.
+        </div>
+      )}
       <div className="triggerGrid">
         <div><span>Prezzo attuale</span><b>{price(item.current_price)}</b></div>
         <div><span>Oggi</span><b className={signedClass(item.daily_change_pct)}>{pct(item.daily_change_pct)}</b></div>
@@ -560,9 +779,17 @@ function TriggerCard({ item, onChart, isInPortfolio = false }) {
             ? `Mancano ${pct(missing, false)} al trigger di ${actionLabel.toLowerCase()}.`
             : "Distanza dal trigger non disponibile."}
       </p>
+      <div className="triggerAction">
+        <span>Azione prevista</span>
+        <strong>{expectedAction}</strong>
+        {item.action_if_met && <small>{item.action_if_met}</small>}
+      </div>
       <p className="condition">{item.condition}</p>
       {item.scenario_reason && <p className="small scenarioReason">{item.scenario_reason}</p>}
-      <button className="chartButton" onClick={() => onChart(item)}><LineChart size={16} /> Apri grafico trigger</button>
+      <div className="cardActions">
+        <button className="chartButton" onClick={() => onChart(item)}><LineChart size={16} /> Apri grafico trigger</button>
+        <NewsButton ticker={item.ticker} />
+      </div>
     </div>
   );
 }
@@ -818,6 +1045,7 @@ function Watchlist({ rows = [], reload, onChart }) {
                   <td>{dateTime(row.added_at)}</td>
                   <td className="rowActions">
                     <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, condition: row.entry_condition || row.reason || "Watchlist manuale" })}><LineChart size={15} /> Grafico</button>
+                    <NewsButton ticker={row.ticker} />
                     <button className="miniButton" onClick={() => removeItem(row.ticker)} disabled={busy === row.ticker}><X size={15} /> Rimuovi</button>
                   </td>
                 </tr>
@@ -1108,6 +1336,7 @@ function MarketScanner({
                   <span>{item.ticker}</span>
                 </label>
                 <em>{item.name || item.description || "n/d"}</em>
+                <NewsButton ticker={item.ticker} compact />
                 {universeRows.length > 0 && <button className="miniButton" onClick={() => removeInstrument(item)}>Rimuovi</button>}
               </div>
             ))}
@@ -1170,10 +1399,13 @@ function MarketScanner({
                   <p><strong>Ragioni:</strong> {(item.reasons || []).join("; ") || "n/d"}</p>
                   <p><strong>Rischi:</strong> {(item.risks || []).join("; ") || "n/d"}</p>
                 </div>
-                <button className="chartButton" onClick={() => onChart({
-                  ticker: item.ticker,
-                  condition: chartCondition(item),
-                })}><LineChart size={16} /> Grafico</button>
+                <div className="cardActions">
+                  <button className="chartButton" onClick={() => onChart({
+                    ticker: item.ticker,
+                    condition: chartCondition(item),
+                  })}><LineChart size={16} /> Grafico</button>
+                  <NewsButton ticker={item.ticker} />
+                </div>
               </div>
             ))}
           </div>
@@ -1299,11 +1531,12 @@ function MarketScanner({
                         <span>Da valutare con scanner</span>
                       )}
                     </td>
-                    <td>
+                    <td className="rowActions">
                       <button className="miniButton" onClick={() => onChart({
                         ticker: row.ticker,
                         condition: monitored?.condition || chartCondition(row) || row.name || title,
                       })}><LineChart size={15} /> Grafico</button>
+                      <NewsButton ticker={row.ticker} />
                     </td>
                   </tr>
                 );
@@ -1852,7 +2085,12 @@ function Actions({ rows = [] }) {
                 <td>{row.confirmed_at || row.rejected_at || row.created_at}</td>
                 <td><span className={`pill ${row.status === "confirmed" ? "positive" : "neutral"}`}>{row.status}</span></td>
                 <td>{row.action}</td>
-                <td className="ticker">{row.ticker}</td>
+                <td>
+                  <div className="tickerWithAction">
+                    <span className="ticker">{row.ticker}</span>
+                    <NewsButton ticker={row.ticker} compact />
+                  </div>
+                </td>
                 <td className="reason">{row.reason}</td>
               </tr>
             ))}
@@ -2886,15 +3124,23 @@ function RunLogs() {
   const [state, setState] = useState({ loading: true, error: "", data: null });
   const [lines, setLines] = useState(300);
   const [clearing, setClearing] = useState(false);
+  const loadingRef = useRef(false);
 
   async function loadLogs(options = {}) {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     const silent = Boolean(options.silent);
     if (!silent) setState((current) => ({ ...current, loading: true, error: "" }));
     try {
       const data = await api(`/api/run-logs?lines=${lines}`);
       setState({ loading: false, error: "", data });
     } catch (error) {
-      setState({ loading: false, error: error.message, data: null });
+      const message = error.name === "AbortError"
+        ? "Timeout nel caricamento dei log. Il backend sta impiegando troppo tempo a rispondere."
+        : error.message;
+      setState((current) => ({ loading: false, error: message, data: current.data }));
+    } finally {
+      loadingRef.current = false;
     }
   }
 
@@ -2996,9 +3242,11 @@ function App() {
   const [error, setError] = useState("");
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [chartItem, setChartItem] = useState(null);
+  const [newsTicker, setNewsTicker] = useState("");
   const [runNowBusy, setRunNowBusy] = useState(false);
   const [runNowMessage, setRunNowMessage] = useState("");
   const loadingRef = useRef(false);
+  const agentStatusLoadingRef = useRef(false);
 
   async function load(options = {}) {
     const silent = Boolean(options.silent);
@@ -3023,6 +3271,39 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => load({ silent: true }), 15000);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    async function loadAgentStatus() {
+      if (agentStatusLoadingRef.current) return;
+      agentStatusLoadingRef.current = true;
+      try {
+        const state = await api("/api/agent/status", { timeoutMs: 5000 });
+        setData((current) => current
+          ? {
+              ...current,
+              agent_run_state: {
+                ...(current.agent_run_state || {}),
+                ...state,
+              },
+            }
+          : current);
+      } catch {
+        // Keep the last known state; the full dashboard refresh reports backend errors.
+      } finally {
+        agentStatusLoadingRef.current = false;
+      }
+    }
+    loadAgentStatus();
+    const timer = window.setInterval(loadAgentStatus, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    function openTickerNews(event) {
+      const ticker = String(event.detail?.ticker || "").trim().toUpperCase();
+      if (ticker) setNewsTicker(ticker);
+    }
+    window.addEventListener("open-ticker-news", openTickerNews);
+    return () => window.removeEventListener("open-ticker-news", openTickerNews);
   }, []);
   const perf = data?.performance || {};
   const portfolio = data?.portfolio || {};
@@ -3096,6 +3377,7 @@ function App() {
           <div className="metrics">
             <AgentRunStatus
               state={data.agent_run_state || {}}
+              tokenUsage={data.token_usage || {}}
               stats={{
                 positionsCount: (perf.positions || []).length,
                 monitoredCount: (data.monitored || []).length,
@@ -3104,15 +3386,36 @@ function App() {
                 etfCount: (data.etfs || []).length,
               }}
             />
-            <Metric label="Capitale" value={eur(portfolio.initial_capital)} icon={<Wallet size={16} />} />
-            <Metric label="Valore portafoglio" value={eur(perf.total_value)} delta={perf.total_pnl_pct} icon={<Activity size={16} />} />
+            <Metric label="Capitale iniziale" value={eur(portfolio.initial_capital)} icon={<Wallet size={16} />} />
+            <Metric
+              label="Patrimonio totale"
+              value={eur(perf.total_value)}
+              delta={perf.total_pnl_pct}
+              icon={<Activity size={16} />}
+              subtitle="Cash + valore corrente dei titoli"
+              emphasis="total"
+            />
+            <Metric
+              label="Valore titoli"
+              value={eur(perf.positions_value)}
+              icon={<TrendingUp size={16} />}
+              subtitle={`${pct(perf.exposure_pct, false)} del patrimonio`}
+              emphasis="positions"
+            />
+            <Metric
+              label="Cash disponibile"
+              value={eur(perf.cash)}
+              icon={<Wallet size={16} />}
+              subtitle={`${pct(perf.cash_pct, false)} del patrimonio`}
+              emphasis="cash"
+            />
             <Metric label="P/L totale" value={eur(perf.total_pnl)} valueTone={signedClass(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />
-            <Metric label="Cash" value={eur(portfolio.cash)} icon={<Wallet size={16} />} />
           </div>
           {runNowMessage && <div className={`manualRunBanner ${runNowBusy ? "running" : ""}`}>{runNowMessage}</div>}
 
           {tab === "dashboard" && (
             <>
+              <TokenUsagePanel usage={data.token_usage || {}} />
               <PortfolioPerformanceChart data={data.performance_history || {}} />
               <Positions rows={perf.positions || []} onChart={setChartItem} />
               <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
@@ -3131,6 +3434,7 @@ function App() {
         </>
       )}
       <ChartModal item={chartItem} onClose={() => setChartItem(null)} />
+      {newsTicker && <QuickNewsPanel ticker={newsTicker} onClose={() => setNewsTicker("")} />}
     </main>
   );
 }

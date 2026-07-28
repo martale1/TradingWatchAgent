@@ -70,7 +70,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 18px;
 }
@@ -87,6 +87,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .metricValueNegative { color: #b42318; }
 .metricValueNeutral { color: #475467; }
 .metricDelta { display: inline-block; margin-top: 8px; border-radius: 999px; padding: 3px 8px; font-size: 13px; }
+.metricSubtitle { margin-top: 7px; color: #667085; font-size: 12px; line-height: 1.35; }
+.metric-total { border-color: #93c5fd; background: #eff6ff; }
+.metric-positions { border-color: #c4b5fd; background: #f5f3ff; }
+.metric-cash { border-color: #86efac; background: #f0fdf4; }
+.metric-total .metricLabel, .metric-total .metricValue { color: #1d4ed8; }
+.metric-positions .metricLabel, .metric-positions .metricValue { color: #6d28d9; }
+.metric-cash .metricLabel, .metric-cash .metricValue { color: #15803d; }
 .agentStatus {
   grid-column: 1 / -1;
   display: grid;
@@ -403,8 +410,18 @@ table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; color: #64748b; background: #f8fafc; }
 td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
 .ticker { font-weight: 800; color: #0f172a; }
+.tickerWithAction { display: inline-flex; align-items: center; gap: 7px; }
 .reason { max-width: 560px; color: #4b5563; }
 .rowActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cardActions { display: flex; align-items: stretch; gap: 8px; margin-top: 10px; }
+.cardActions .chartButton { margin-top: 0; flex: 1; }
+.newsTickerButton {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.newsTickerButton:hover { border-color: #60a5fa; background: #dbeafe; }
+.compactNewsButton { width: 30px; height: 30px; padding: 0; }
 .statusStack {
   display: flex;
   flex-wrap: wrap;
@@ -604,7 +621,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 }
 .universeSelectionRow {
   display: grid;
-  grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   border: 1px solid #e2e8f0;
@@ -880,6 +897,35 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .runEventLog strong { color: #93c5fd; }
 .runEventLog .eventError { color: #fecaca; }
 .small { font-size: 13px; color: #64748b; }
+.triggerAction {
+  margin: 10px 0;
+  border-left: 4px solid #2563eb;
+  border-radius: 6px;
+  background: #eff6ff;
+  padding: 9px 11px;
+}
+.triggerAction span,
+.triggerAction small {
+  display: block;
+}
+.triggerAction span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.triggerAction strong {
+  display: block;
+  margin-top: 2px;
+  color: #1e3a8a;
+  font-size: 13px;
+}
+.triggerAction small {
+  margin-top: 4px;
+  color: #475569;
+  line-height: 1.35;
+}
 .condition { font-size: 13px; color: #374151; min-height: 38px; }
 .scenarioReason {
   margin-top: -4px;
@@ -891,6 +937,37 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   padding: 18px;
   color: #64748b;
   background: #f8fafc;
+}
+.tokenUsagePanel {
+  margin-bottom: 16px;
+}
+.tokenUsageTableWrap {
+  overflow-x: auto;
+}
+.tokenUsageTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tokenUsageTable th,
+.tokenUsageTable td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 9px 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+.tokenUsageTable th:first-child,
+.tokenUsageTable td:first-child {
+  text-align: left;
+}
+.tokenUsageTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+.tokenUsageTable tbody tr:first-child {
+  background: #eff6ff;
+}
+.tokenUsageStatus b {
+  color: #1d4ed8;
 }
 .exitGrid {
   display: grid;
@@ -1310,6 +1387,48 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   box-shadow: 0 24px 70px rgba(15, 23, 42, .26);
   padding: 18px;
 }
+.quickNewsPanel {
+  width: min(880px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  background: white;
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .26);
+  padding: 20px;
+}
+.quickNewsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.quickNewsHeader span { color: #64748b; font-size: 12px; }
+.quickNewsHeader h2 { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; }
+.quickNewsActions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.quickNewsProgress {
+  max-height: 150px;
+  overflow: auto;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #dbeafe;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.quickNewsReport {
+  max-height: 48vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: #1f2937;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+}
+.quickNewsArchiveNote { margin-top: 10px; color: #64748b; font-size: 12px; }
 .modalHeader {
   display: flex;
   align-items: flex-start;

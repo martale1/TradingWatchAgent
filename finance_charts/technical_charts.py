@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from finance_tools.market_session import market_close_status
 
 
 def download_history(ticker, period="1y"):
@@ -220,7 +221,7 @@ def plot_adx_dashboard(df, ticker, output_path, days=70):
     return _save(fig, output_path)
 
 
-def latest_snapshot(df):
+def latest_snapshot(df, ticker=""):
     last = df.dropna(subset=["Close"]).iloc[-1]
     previous = df.dropna(subset=["Close"]).iloc[-2]
     recent_10 = df.dropna(subset=["High", "Low", "Close"]).tail(10)
@@ -234,7 +235,7 @@ def latest_snapshot(df):
     def pct_distance(level):
         return float((level / close - 1) * 100)
 
-    return {
+    snapshot = {
         "date": str(last.name.date()),
         "close": close,
         "change_1d_pct": float((last["Close"] / previous["Close"] - 1) * 100),
@@ -259,6 +260,8 @@ def latest_snapshot(df):
         "resistance_30": resistance_30,
         "resistance_30_dist_pct": pct_distance(resistance_30),
     }
+    snapshot.update(market_close_status(ticker, snapshot_date=snapshot["date"]))
+    return snapshot
 
 
 def create_chart_bundle(ticker, output_dir, period="1y", days=70, chart_type="candlestick"):
@@ -270,9 +273,9 @@ def create_chart_bundle(ticker, output_dir, period="1y", days=70, chart_type="ca
         plot_momentum_dashboard(df, ticker, output_dir / f"{safe_ticker}_momentum.png", days),
         plot_adx_dashboard(df, ticker, output_dir / f"{safe_ticker}_adx.png", days),
     ]
-    return {"ticker": ticker, "files": files, "snapshot": latest_snapshot(df)}
+    return {"ticker": ticker, "files": files, "snapshot": latest_snapshot(df, ticker=ticker)}
 
 
 def create_snapshot_bundle(ticker, period="1y"):
     df = add_indicators(download_history(ticker, period=period))
-    return {"ticker": ticker, "files": [], "snapshot": latest_snapshot(df)}
+    return {"ticker": ticker, "files": [], "snapshot": latest_snapshot(df, ticker=ticker)}

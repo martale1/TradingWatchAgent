@@ -1,7 +1,7 @@
 {
   "market": "etfs",
   "label": "ETF",
-  "updated_at": "2026-07-27T11:47:11",
+  "updated_at": "2026-07-28T14:23:22",
   "items": [
     {
       "ticker": "3BAL.MI",
@@ -16,6 +16,42 @@
       "updated_at": "2026-07-27T11:47:11"
     },
     {
+      "ticker": "3CFL.MI",
+      "name": "Cofee 3X",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-28T14:21:54"
+    },
+    {
+      "ticker": "3WHL.MI",
+      "name": "WHEAT 3X",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-28T14:22:49"
+    },
+    {
+      "ticker": "LCOC.MI",
+      "name": "Cocoa x2",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-28T14:22:04"
+    },
+    {
       "ticker": "ROBO.MI",
       "name": "Robotics and Automation",
       "description": "Robotics and Automation",
@@ -26,6 +62,42 @@
       "asset_class": "etf",
       "active": true,
       "updated_at": "2026-07-26T00:00:00"
+    },
+    {
+      "ticker": "SOIL.MI",
+      "name": "Short OIL",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-28T14:21:38"
+    },
+    {
+      "ticker": "WEAT.MI",
+      "name": "Grano",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-28T14:23:22"
+    },
+    {
+      "ticker": "WTAI.MI",
+      "name": "ETF AI",
+      "description": "",
+      "sector": "",
+      "industry": "",
+      "latest_quotation": "",
+      "market": "ETF",
+      "asset_class": "etf",
+      "active": true,
+      "updated_at": "2026-07-28T14:22:34"
     }
   ]
 }

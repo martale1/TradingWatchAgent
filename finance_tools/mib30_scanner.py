@@ -69,11 +69,14 @@ def score_snapshot(snapshot):
         score += 1
         reasons.append("Stocastico positivo")
 
-    if snapshot["volume"] > snapshot["volume_ma10"]:
-        score += 1
-        reasons.append("volume sopra MA10")
+    if snapshot.get("daily_bar_complete"):
+        if snapshot["volume"] > snapshot["volume_ma10"]:
+            score += 1
+            reasons.append("volume finale sopra MA10")
+        else:
+            risks.append("volume finale sotto MA10")
     else:
-        risks.append("volume sotto MA10")
+        reasons.append("volume giornaliero provvisorio: verifica rimandata a fine seduta")
 
     if 0 <= snapshot["resistance_10_dist_pct"] <= 6:
         score += 1

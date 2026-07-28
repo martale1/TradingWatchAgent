@@ -23,6 +23,7 @@ from finance_tools.monitoring_rules import (
     invalidate_illiquid_monitored_conditions,
 )
 from finance_tools.news_tool import get_news_report
+from finance_tools.news_notifications import send_relevant_news_alerts
 from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.performance_tool import calculate_portfolio_performance_json
 from finance_tools.portfolio_deep_analysis import run_deep_portfolio_analysis_json
@@ -51,11 +52,14 @@ from finance_tools.telegram_tool import (
     send_performance_summary,
     should_send_monitoring_summary,
 )
+from finance_tools.token_usage import record_token_usage
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-mini")
-DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "35"))
-DEFAULT_PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", "80"))
+DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", "24"))
+DEFAULT_PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", "24"))
+DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_AGENT_MAX_OUTPUT_TOKENS", "6000"))
+DEFAULT_PERIODIC_CONDITION_LIMIT = int(os.getenv("OPENAI_PERIODIC_CONDITION_LIMIT", "8"))
 DEFAULT_MONITOR_INTERVAL_MINUTES = int(os.getenv("MONITOR_INTERVAL_MINUTES", "30"))
 DEFAULT_MAX_AUTO_TRADE_PCT = float(os.getenv("MAX_AUTO_TRADE_PCT", "25"))
 DEFAULT_MAX_COMMODITY_ALLOCATION_PCT = float(os.getenv("MAX_COMMODITY_ALLOCATION_PCT", "20"))
@@ -498,16 +502,24 @@ def log_monitor_plan(
     deep_confirm_limit,
     auto_apply_virtual,
     max_auto_trade_pct,
+    condition_limit=DEFAULT_PERIODIC_CONDITION_LIMIT,
+    run_market_scanners=True,
 ):
     universe_label = f"primi {universe_limit} strumenti" if universe_limit else "universo completo"
     mode_label = "applica operazioni virtuali autonome" if auto_apply_virtual else "solo proposte pending"
     log_step("Piano ciclo monitor:")
     log_step("  1) Leggo portafoglio, cash, performance, posizioni aperte e alert.")
-    log_step("  2) Rivaluto trigger salvati e watchlist; prima filtri numerici, poi eventuale conferma.")
     log_step(
-        "  3) Scanner locale FTSE MIB e Materie prime: "
-        f"top={scan_limit}, universo={universe_label}. Questo step usa dati Yahoo/indicatori, non Playwright."
+        f"  2) Rivaluto i {condition_limit} trigger attivi a priorita piu alta e la watchlist; "
+        "prima filtri numerici, poi eventuale conferma."
     )
+    if run_market_scanners:
+        log_step(
+            "  3) Scanner orario locale FTSE MIB, Materie prime ed ETF: "
+            f"top={scan_limit}, universo={universe_label}. Questo step usa dati Yahoo/indicatori, non Playwright."
+        )
+    else:
+        log_step("  3) Ciclo intermedio: scanner saltati; uso le condizioni gia salvate.")
     if live_news:
         log_step(
             "  4) Playwright/ChatGPT viene usato solo dopo filtro numerico: "
@@ -532,6 +544,224 @@ def compact_report_payload(payload, report_key="report", limit=1800):
         compact["report_truncated"] = True
         compact["full_report_file"] = compact.get("file") or compact.get("analysis_file")
     return compact
+
+
+def _short_text(value, limit=320):
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
+
+
+def _condition_priority(item):
+    metadata = item.get("metadata", {}) or {}
+    state = str(metadata.get("scenario_state") or item.get("status") or "").upper()
+    state_rank = {
+        "BUY_CANDIDATE": 60,
+        "TRIGGER_MET": 55,
+        "CONFIRMED": 50,
+        "CONFIRMING": 45,
+        "NEAR_TRIGGER": 35,
+        "WAIT": 10,
+        "WAITING": 10,
+    }.get(state, 0)
+    try:
+        price = float(metadata.get("last_price"))
+        trigger = float(metadata.get("trigger_price") or metadata.get("resistance_10"))
+        gap = abs(price - trigger) / trigger if trigger else 99.0
+    except (TypeError, ValueError):
+        gap = 99.0
+    liquidity_rank = 1 if metadata.get("liquidity_ok", True) is not False else 0
+    return state_rank, liquidity_rank, -gap, str(item.get("updated_at") or item.get("created_at") or "")
+
+
+def select_priority_conditions(status="waiting", limit=DEFAULT_PERIODIC_CONDITION_LIMIT):
+    conditions = list_monitored_conditions(status=status or None)
+    if not status or status in {"waiting", "met"}:
+        conditions = [
+            item
+            for item in conditions
+            if item.get("status") in {"waiting", "met"}
+        ]
+    conditions.sort(key=_condition_priority, reverse=True)
+    return conditions[:max(1, int(limit))]
+
+
+def compact_condition(item):
+    metadata = item.get("metadata", {}) or {}
+    compact_metadata = {
+        key: metadata.get(key)
+        for key in (
+            "scenario_state",
+            "last_entry_scenario_eval_at",
+            "last_price",
+            "change_1d_pct",
+            "volume_ratio",
+            "support_10",
+            "resistance_10",
+            "trigger_price",
+            "liquidity_ok",
+            "asset_class",
+            "auto_decision",
+            "daily_bar_complete",
+            "market_close_at",
+            "volume_finalized_at",
+            "market_session_reason",
+        )
+        if metadata.get(key) is not None
+    }
+    if metadata.get("scenario_reason"):
+        compact_metadata["scenario_reason"] = _short_text(metadata["scenario_reason"], 260)
+    scenarios = []
+    for scenario in (metadata.get("entry_scenarios") or [])[:2]:
+        scenarios.append(
+            {
+                key: scenario.get(key)
+                for key in ("name", "state", "trigger", "support", "last_price", "last_volume_ratio")
+                if scenario.get(key) is not None
+            }
+        )
+        if scenario.get("reason"):
+            scenarios[-1]["reason"] = _short_text(scenario["reason"], 220)
+    if scenarios:
+        compact_metadata["entry_scenarios"] = scenarios
+    return {
+        "id": item.get("id"),
+        "ticker": item.get("ticker"),
+        "status": item.get("status"),
+        "condition": _short_text(item.get("condition"), 360),
+        "reason": _short_text(item.get("reason"), 240),
+        "action_if_met": _short_text(item.get("action_if_met"), 220),
+        "updated_at": item.get("updated_at"),
+        "metadata": compact_metadata,
+    }
+
+
+def compact_operating_status(condition_limit=DEFAULT_PERIODIC_CONDITION_LIMIT):
+    status = portfolio_status_summary()
+    conditions = select_priority_conditions(limit=condition_limit)
+    positions = []
+    for item in status.get("positions", []):
+        positions.append(
+            {
+                key: item.get(key)
+                for key in (
+                    "ticker",
+                    "name",
+                    "market",
+                    "entry_price",
+                    "virtual_quantity",
+                    "allocated_amount",
+                    "opened_at",
+                    "status",
+                )
+                if item.get(key) is not None
+            }
+        )
+    watchlist = [
+        {
+            "ticker": item.get("ticker"),
+            "priority": item.get("priority"),
+            "reason": _short_text(item.get("reason"), 220),
+            "entry_condition": _short_text(item.get("entry_condition"), 300),
+        }
+        for item in status.get("watchlist", [])
+    ]
+    return {
+        "status": status.get("status"),
+        "updated_at": status.get("updated_at"),
+        "initial_capital": status.get("initial_capital"),
+        "cash": status.get("cash"),
+        "positions": positions,
+        "pending_buy_proposals": status.get("pending_buy_proposals", []),
+        "pending_other_proposals": status.get("pending_other_proposals", []),
+        "priority_conditions": [compact_condition(item) for item in conditions],
+        "priority_conditions_count": len(conditions),
+        "active_conditions_total": len(
+            [
+                item
+                for item in status.get("monitored_conditions", [])
+                if item.get("status") in {"waiting", "met"}
+            ]
+        ),
+        "watchlist": watchlist,
+    }
+
+
+def compact_scan_payload(payload, limit):
+    compact = {
+        key: payload.get(key)
+        for key in ("status", "market", "scanned", "errors", "file")
+        if payload.get(key) is not None
+    }
+    candidates = []
+    for item in (payload.get("candidates") or [])[:max(1, int(limit))]:
+        candidate = {
+            key: item.get(key)
+            for key in (
+                "ticker",
+                "name",
+                "market",
+                "sector",
+                "score",
+                "close",
+                "change_1d_pct",
+                "volume_ratio",
+                "support_10",
+                "resistance_10",
+                "liquidity_ok",
+            )
+            if item.get(key) is not None
+        }
+        if item.get("reasons"):
+            candidate["reasons"] = [_short_text(reason, 180) for reason in item["reasons"][:4]]
+        if item.get("risks"):
+            candidate["risks"] = [_short_text(risk, 180) for risk in item["risks"][:3]]
+        candidates.append(candidate)
+    compact["candidates"] = candidates
+    compact["monitored_conditions_created"] = [
+        compact_condition(item)
+        for item in (payload.get("monitored_conditions_created") or [])[:max(1, int(limit))]
+    ]
+    return compact
+
+
+def compact_scenario_evaluation(payload):
+    compact_results = []
+    for item in payload.get("results", []):
+        result = {
+            key: item.get(key)
+            for key in (
+                "status",
+                "ticker",
+                "condition_id",
+                "scenario_state",
+                "last_price",
+                "trigger",
+                "support",
+                "volume_ratio",
+                "liquidity_ok",
+                "playwright_used",
+            )
+            if item.get(key) is not None
+        }
+        if item.get("reason"):
+            result["reason"] = _short_text(item["reason"], 300)
+        scenarios = item.get("scenarios") or []
+        if scenarios:
+            result["scenarios"] = [
+                {
+                    key: scenario.get(key)
+                    for key in ("name", "state", "trigger", "support", "last_price", "last_volume_ratio")
+                    if scenario.get(key) is not None
+                }
+                for scenario in scenarios[:2]
+            ]
+        compact_results.append(result)
+    return {
+        "status": payload.get("status"),
+        "evaluated": payload.get("evaluated"),
+        "playwright_used": payload.get("playwright_used"),
+        "results": compact_results,
+    }
 
 
 @function_tool
@@ -573,6 +803,7 @@ def evaluate_entry_scenarios(
     use_playwright: bool = True,
     live_news: bool = True,
     max_playwright: int = 2,
+    limit: int = DEFAULT_PERIODIC_CONDITION_LIMIT,
 ) -> str:
     """Evaluate monitored entry scenarios and confirm only near-decision tickers with Playwright.
 
@@ -581,21 +812,30 @@ def evaluate_entry_scenarios(
         use_playwright: If true, use Playwright chart/news only when numeric checks reach confirmation state.
         live_news: If true, live news confirmation uses Playwright/ChatGPT.
         max_playwright: Maximum number of tickers to confirm visually/news-live in this call.
+        limit: Maximum number of priority conditions to evaluate when tickers is empty.
     """
     selected = [item.strip().upper() for item in tickers.split(",") if item.strip()]
+    if not selected:
+        selected = [
+            str(item.get("ticker", "")).strip().upper()
+            for item in select_priority_conditions(limit=limit)
+            if item.get("ticker")
+        ]
     log_step(
         "Tool evaluate_entry_scenarios chiamato | "
-        f"tickers={selected or 'all'} use_playwright={use_playwright} live_news={live_news} max_playwright={max_playwright}"
+        f"tickers={selected} limit={limit} use_playwright={use_playwright} "
+        f"live_news={live_news} max_playwright={max_playwright}"
+    )
+    payload = evaluate_monitored_entry_scenarios(
+        tickers=selected,
+        use_playwright=use_playwright,
+        live_news=live_news,
+        max_playwright=max_playwright,
     )
     return json.dumps(
-        evaluate_monitored_entry_scenarios(
-            tickers=selected,
-            use_playwright=use_playwright,
-            live_news=live_news,
-            max_playwright=max_playwright,
-        ),
+        compact_scenario_evaluation(payload),
         ensure_ascii=False,
-        indent=2,
+        separators=(",", ":"),
     )
 
 
@@ -727,7 +967,7 @@ def scan_mib30_for_candidates(limit: int = 5, create_proposals: bool = False, un
     payload["monitored_conditions_created"] = created
     if created:
         log_step(f"Scanner FTSE MIB: create {len(created)} condizioni monitorate automatiche")
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(compact_scan_payload(payload, limit), ensure_ascii=False, separators=(",", ":"))
 
 
 @function_tool
@@ -757,7 +997,7 @@ def scan_commodities_for_candidates(limit: int = 8, universe_limit: int = 0) -> 
     payload["monitored_conditions_created"] = created
     if created:
         log_step(f"Scanner materie prime: create {len(created)} condizioni monitorate automatiche")
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(compact_scan_payload(payload, limit), ensure_ascii=False, separators=(",", ":"))
 
 
 @function_tool
@@ -787,7 +1027,7 @@ def scan_etf_for_candidates(limit: int = 8, universe_limit: int = 0) -> str:
     payload["monitored_conditions_created"] = created
     if created:
         log_step(f"Scanner ETF: create {len(created)} condizioni monitorate automatiche")
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(compact_scan_payload(payload, limit), ensure_ascii=False, separators=(",", ":"))
 
 
 @function_tool
@@ -825,10 +1065,20 @@ def list_portfolio_proposals() -> str:
 
 
 @function_tool
-def get_portfolio_operating_status() -> str:
-    """Return one operational view: open positions, pending buys, monitored conditions and watchlist."""
-    log_step("Tool get_portfolio_operating_status chiamato")
-    return json.dumps(portfolio_status_summary(), ensure_ascii=False, indent=2)
+def get_portfolio_operating_status(
+    condition_limit: int = DEFAULT_PERIODIC_CONDITION_LIMIT,
+) -> str:
+    """Return a compact operational view with all positions and only priority conditions.
+
+    Args:
+        condition_limit: Maximum number of active priority conditions to include.
+    """
+    log_step(f"Tool get_portfolio_operating_status chiamato | condition_limit={condition_limit}")
+    return json.dumps(
+        compact_operating_status(condition_limit=condition_limit),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 @function_tool
@@ -876,18 +1126,27 @@ def record_monitored_condition(
 
 
 @function_tool
-def list_conditions_to_monitor(status: str = "waiting") -> str:
-    """List conditions that the agent has saved for later monitoring.
+def list_conditions_to_monitor(
+    status: str = "waiting",
+    limit: int = DEFAULT_PERIODIC_CONDITION_LIMIT,
+) -> str:
+    """List a compact, prioritized subset of saved monitoring conditions.
 
     Args:
         status: Optional status filter, for example waiting. Empty string returns all conditions.
+        limit: Maximum number of conditions returned.
     """
     clean_status = status or None
-    log_step(f"Tool list_conditions_to_monitor chiamato | status={clean_status}")
+    selected = select_priority_conditions(status=clean_status, limit=limit)
+    log_step(f"Tool list_conditions_to_monitor chiamato | status={clean_status} limit={limit}")
     return json.dumps(
-        {"status": "ok", "conditions": list_monitored_conditions(status=clean_status)},
+        {
+            "status": "ok",
+            "returned": len(selected),
+            "conditions": [compact_condition(item) for item in selected],
+        },
         ensure_ascii=False,
-        indent=2,
+        separators=(",", ":"),
     )
 
 
@@ -1042,7 +1301,15 @@ def confirm_portfolio_proposal_tool(proposal_id: str) -> str:
         proposal_id: The proposal id to confirm.
     """
     log_step(f"Tool confirm_portfolio_proposal_tool chiamato | proposal_id={proposal_id}")
-    return json.dumps(confirm_portfolio_proposal(proposal_id), ensure_ascii=False, indent=2)
+    result = confirm_portfolio_proposal(proposal_id)
+    proposal = result.get("proposal") or {}
+    if result.get("status") == "ok" and proposal.get("action") in {
+        "buy_virtual_position",
+        "sell_virtual_position",
+        "reduce_virtual_position",
+    }:
+        result["news_telegram"] = send_relevant_news_alerts([proposal.get("ticker")])
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 @function_tool
@@ -1124,6 +1391,9 @@ def auto_apply_virtual_proposal_tool(proposal_id: str, max_trade_pct: float = DE
         )
 
     result = confirm_portfolio_proposal(proposal_id)
+    applied = result.get("proposal") or {}
+    if result.get("status") == "ok":
+        result["news_telegram"] = send_relevant_news_alerts([applied.get("ticker")])
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
@@ -1143,7 +1413,7 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
     mode = "AUTO-VIRTUAL" if auto_apply_virtual and autonomy_mode != "confirmation" else "CONFIRMATION"
     log_step(
         "Creo agente Portfolio Monitor Agent | "
-        f"model={model} | parallel_tool_calls=False | mode={mode}"
+        f"model={model} | parallel_tool_calls=False | max_output_tokens={DEFAULT_MAX_OUTPUT_TOKENS} | mode={mode}"
     )
     if auto_apply_virtual and autonomy_mode != "confirmation":
         autonomy_scope = (
@@ -1321,7 +1591,11 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Le opzioni devono essere coerenti con lo stato attuale: se non ci sono proposte pending non proporre conferma proposta; "
             "se ci sono condizioni waiting proponi rivalutazione; se il capitale e assente proponi aggiornamento capitale."
         ),
-        model_settings=ModelSettings(parallel_tool_calls=False),
+        model_settings=ModelSettings(
+            parallel_tool_calls=False,
+            max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+            verbosity="low",
+        ),
         tools=tools,
     )
 
@@ -1339,6 +1613,20 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
     final_output = ""
     try:
         result = Runner.run_sync(agent, request, max_turns=run_max_turns)
+        usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
+        usage_event = record_token_usage(
+            usage,
+            model=getattr(agent, "model", DEFAULT_MODEL),
+            mode="periodic" if suppress_auto_telegram_summary else "interactive",
+            label=display_request or request,
+        )
+        if usage_event:
+            log_step(
+                "Consumo token OpenAI SDK | "
+                f"requests={usage_event['requests']} input={usage_event['input_tokens']} "
+                f"cached={usage_event['cached_input_tokens']} output={usage_event['output_tokens']} "
+                f"totale={usage_event['total_tokens']}"
+            )
         final_output = str(result.final_output).strip()
         log_step("Risposta finale agente ricevuta")
         print("\n" + final_output + "\n", flush=True)
@@ -1364,6 +1652,8 @@ def build_periodic_monitor_request(
     deep_confirm_limit=3,
     auto_apply_virtual=False,
     max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT,
+    condition_limit=DEFAULT_PERIODIC_CONDITION_LIMIT,
+    run_market_scanners=True,
 ):
     live_news_hint = (
         "usa news live via Playwright solo per titoli con trigger, rischio rilevante o possibile operazione"
@@ -1388,6 +1678,16 @@ def build_periodic_monitor_request(
         )
     else:
         operation_hint = "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
+    scanner_hint = (
+        f"Infine esegui gli scanner orari: FTSE MIB con scan_mib30_for_candidates limit={scan_limit}, "
+        f"create_proposals=False, {universe_hint}; materie prime con scan_commodities_for_candidates "
+        f"limit={scan_limit}, {universe_hint}; ETF con scan_etf_for_candidates limit={scan_limit}, {universe_hint}. "
+        "Usa soltanto le short-list compatte restituite e non richiedere gli universi completi. "
+        if run_market_scanners
+        else
+        "In questo ciclo intermedio non eseguire scanner FTSE MIB, materie prime o ETF: "
+        "usa le condizioni già salvate. Gli scanner vengono eseguiti nel ciclo orario. "
+    )
     return (
         "Esegui un ciclo periodico di monitoraggio operativo. "
         "Obiettivo: controllare posizioni aperte, proposte pending, condizioni monitorate e nuove opportunita da FTSE MIB e materie prime. "
@@ -1400,7 +1700,8 @@ def build_periodic_monitor_request(
         f"e {'confirm_candidate_chart_with_playwright solo su titoli in portafoglio con decisione operativa concreta o segnale di uscita/riduzione/protezione' if live_news else 'non usare conferma grafica Playwright; resta su analisi tecnica locale/cache'}. "
         "Poi crea una proposta pending "
         "con create_position_action_proposal e applicala se la modalita autonoma virtuale e abilitata. "
-        "Poi rivaluta tutte le condizioni waiting con evaluate_entry_scenarios, "
+        f"Poi rivaluta soltanto le {condition_limit} condizioni waiting a priorita piu alta con "
+        f"evaluate_entry_scenarios limit={condition_limit}, "
         f"usando use_playwright={str(bool(live_news))}, live_news={str(bool(live_news))} "
         f"e max_playwright={deep_confirm_limit}. Questo tool fa prima filtri numerici e usa Playwright solo per scenari CONFIRMING. "
         "Se una condizione diventa met/BUY_CANDIDATE, decidi autonomamente se creare una proposta pending motivata e applicarla "
@@ -1412,11 +1713,8 @@ def build_periodic_monitor_request(
         "usando esplicitamente scenario BREAKOUT oppure PULLBACK_SUPPORTO. "
         + ENTRY_SCENARIOS_GUIDE +
         "Se un titolo in watchlist diventa interessante, crea una condizione monitorata concreta o una proposta motivata. "
-        f"Infine scannerizza il FTSE MIB con scan_mib30_for_candidates limit={scan_limit}, create_proposals=False, {universe_hint}. "
-        "Se il file MateriePrime.xlsx e disponibile, scannerizza anche le materie prime con scan_commodities_for_candidates "
-        f"limit={scan_limit}, {universe_hint}. "
-        f"Scannerizza anche il mercato ETF configurato con scan_etf_for_candidates limit={scan_limit}, {universe_hint}. "
-        "Dopo gli scanner costruisci una short-list unica di candidati interessanti, distinguendo mercato FTSE MIB, materie prime ed ETF. "
+        + scanner_hint +
+        "Se hai eseguito gli scanner, costruisci una short-list unica e molto breve, distinguendo FTSE MIB, materie prime ed ETF. "
         f"{'Non usare Playwright sui candidati appena usciti dallo scanner. Prima salva o aggiorna condizioni monitorate concrete; Playwright verra usato solo dalla rivalutazione trigger quando lo stato numerico diventa CONFIRMING/BUY_CANDIDATE.' if live_news else 'Non usare Playwright in questo ciclo: limita la valutazione dei candidati a scanner locale, condizioni salvate e cache news.'} "
         "Per le commodity agisci con prudenza: se un candidato e interessante ma non ancora confermato, preferisci salvare un trigger monitorato "
         "con scenario BREAKOUT o PULLBACK_SUPPORTO; crea e applica una proposta solo se tecnica, volumi e news disponibili non sono contrari. "
@@ -1451,10 +1749,12 @@ def run_periodic_monitor_loop(
     interval_seconds = max(1, int(interval_minutes * 60))
     cycle = 1
     while True:
+        run_market_scanners = datetime.now().minute < 15
         log_step(
             "Ciclo monitor periodico "
             f"#{cycle} | interval_minutes={interval_minutes} scan_limit={scan_limit} "
-            f"universe_limit={universe_limit} live_news={live_news} auto_apply_virtual={auto_apply_virtual}"
+            f"universe_limit={universe_limit} live_news={live_news} auto_apply_virtual={auto_apply_virtual} "
+            f"condition_limit={DEFAULT_PERIODIC_CONDITION_LIMIT} scanners={'on' if run_market_scanners else 'off'}"
         )
         log_monitor_plan(
             scan_limit=scan_limit,
@@ -1463,6 +1763,8 @@ def run_periodic_monitor_loop(
             deep_confirm_limit=deep_confirm_limit,
             auto_apply_virtual=auto_apply_virtual,
             max_auto_trade_pct=max_auto_trade_pct,
+            condition_limit=DEFAULT_PERIODIC_CONDITION_LIMIT,
+            run_market_scanners=run_market_scanners,
         )
         log_operational_snapshot("prima del ciclo")
         invalidated_liquidity = invalidate_illiquid_monitored_conditions()
@@ -1484,6 +1786,8 @@ def run_periodic_monitor_loop(
             deep_confirm_limit=deep_confirm_limit,
             auto_apply_virtual=auto_apply_virtual,
             max_auto_trade_pct=max_auto_trade_pct,
+            condition_limit=DEFAULT_PERIODIC_CONDITION_LIMIT,
+            run_market_scanners=run_market_scanners,
         )
         try:
             before_state = monitoring_state_signature()
@@ -1505,6 +1809,14 @@ def run_periodic_monitor_loop(
                     "Post-check autonomia ingressi completato | "
                     f"buy_applicati={applied_count} decisioni_skip={skipped_count}"
                 )
+            news_notifications = send_relevant_news_alerts()
+            if news_notifications.get("sent"):
+                log_step(
+                    "News rilevanti inviate via Telegram | "
+                    f"ticker={','.join(news_notifications['sent'])}"
+                )
+            elif news_notifications.get("status") == "partial_error":
+                log_step(f"Invio news Telegram parziale | errori={news_notifications.get('errors')}")
             after_state = monitoring_state_signature()
             log_operational_snapshot("dopo il ciclo")
             performance = calculate_portfolio_performance()
@@ -1607,7 +1919,17 @@ def monitoring_state_signature():
 
 
 def maybe_send_automatic_monitoring_summary(request, final_output, before_state, after_state):
-    if before_state == after_state:
+    changed = before_state != after_state
+    should_send, reason, telegram_settings = should_send_monitoring_summary(
+        reason="automatic",
+        changed=changed,
+        has_alerts=False,
+    )
+    if not should_send:
+        log_step(
+            "Riepilogo Telegram automatico saltato | "
+            f"modalita={telegram_settings.get('monitoring_mode')} motivo={reason}"
+        )
         return
 
     combined = f"{request}\n{final_output}".lower()
@@ -1625,8 +1947,16 @@ def maybe_send_automatic_monitoring_summary(request, final_output, before_state,
     if not any(word in combined for word in trigger_words):
         return
 
-    log_step("Cambio monitoraggio/proposte rilevato: invio riepilogo Telegram automatico")
-    result = send_monitoring_summary(extra_note="Riepilogo automatico dopo aggiornamento monitoraggio/proposte.")
+    log_step(
+        "Cambio monitoraggio/proposte rilevato: invio riepilogo Telegram automatico | "
+        f"modalita={telegram_settings.get('monitoring_mode')} motivo={reason}"
+    )
+    result = send_monitoring_summary(
+        extra_note=(
+            "Riepilogo automatico dopo aggiornamento monitoraggio/proposte. "
+            f"Criterio: {telegram_settings.get('monitoring_mode')} ({reason})."
+        )
+    )
     if result.get("status") == "ok":
         log_step("Riepilogo Telegram automatico inviato")
     else:
@@ -1761,11 +2091,27 @@ def handle_local_interactive_command(user_text):
         print(f"- ticker: {ticker}")
         print(f"- importo: EUR {amount:.2f}")
         print("Nessun acquisto applicato: per eseguire devi confermare il proposal_id.")
-        result = send_monitoring_summary(extra_note="Riepilogo automatico dopo proposta pending creata da comando esplicito.")
-        if result.get("status") == "ok":
-            print("Riepilogo monitoraggio inviato su Telegram.")
+        should_send, telegram_reason, telegram_settings = should_send_monitoring_summary(
+            reason="automatic",
+            changed=True,
+            has_alerts=False,
+        )
+        if should_send:
+            result = send_monitoring_summary(
+                extra_note=(
+                    "Riepilogo automatico dopo proposta pending creata da comando esplicito. "
+                    f"Criterio: {telegram_settings.get('monitoring_mode')} ({telegram_reason})."
+                )
+            )
+            if result.get("status") == "ok":
+                print("Riepilogo monitoraggio inviato su Telegram.")
+            else:
+                print(f"Telegram non inviato: {result.get('message')}")
         else:
-            print(f"Telegram non inviato: {result.get('message')}")
+            print(
+                "Riepilogo Telegram saltato per configurazione: "
+                f"{telegram_settings.get('monitoring_mode')} ({telegram_reason})."
+            )
         return True
 
     if lower in {
@@ -1923,11 +2269,18 @@ def run_interactive_loop(model):
 
 def main():
     global DEFAULT_MODEL, DEFAULT_MAX_TURNS, DEFAULT_PERIODIC_MAX_TURNS
+    global DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_PERIODIC_CONDITION_LIMIT
     configure_stdout()
     load_env_file()
     DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", DEFAULT_MODEL)
     DEFAULT_MAX_TURNS = int(os.getenv("OPENAI_AGENT_MAX_TURNS", str(DEFAULT_MAX_TURNS)))
     DEFAULT_PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", str(DEFAULT_PERIODIC_MAX_TURNS)))
+    DEFAULT_MAX_OUTPUT_TOKENS = int(
+        os.getenv("OPENAI_AGENT_MAX_OUTPUT_TOKENS", str(DEFAULT_MAX_OUTPUT_TOKENS))
+    )
+    DEFAULT_PERIODIC_CONDITION_LIMIT = int(
+        os.getenv("OPENAI_PERIODIC_CONDITION_LIMIT", str(DEFAULT_PERIODIC_CONDITION_LIMIT))
+    )
     parser = argparse.ArgumentParser(description="Agente OpenAI SDK per watchlist e analisi titoli.")
     parser.add_argument(
         "request",

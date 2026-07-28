@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 import telepot
@@ -19,6 +20,8 @@ DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 SEND_TELEGRAM_BY_DEFAULT = True
 RESPONSE_TIMEOUT_SECONDS = 120
 PAUSE_BETWEEN_STOCKS_SECONDS = 3
+NAVIGATION_TIMEOUT_MS = 60000
+NAVIGATION_RETRIES = 3
 DEFAULT_COMPANY = "Vodafone"
 DEFAULT_TICKER = "VOD.L"
 DEFAULT_MARKET = "London Stock Exchange"
@@ -210,10 +213,30 @@ def wait_for_response(page, initial_assistant_count=0, timeout_seconds=RESPONSE_
 
 
 def open_chatgpt_page(context_or_browser):
-    page = context_or_browser.new_page()
-    page.goto(CHATGPT_URL, wait_until="domcontentloaded")
-    page.bring_to_front()
-    return page
+    last_error = None
+    for attempt in range(1, NAVIGATION_RETRIES + 1):
+        page = context_or_browser.new_page()
+        try:
+            safe_print(f"Apro ChatGPT (tentativo {attempt}/{NAVIGATION_RETRIES})...")
+            page.goto(
+                CHATGPT_URL,
+                wait_until="commit",
+                timeout=NAVIGATION_TIMEOUT_MS,
+            )
+            page.bring_to_front()
+            return page
+        except (PlaywrightTimeoutError, PlaywrightError) as exc:
+            last_error = exc
+            safe_print(f"Apertura ChatGPT fallita al tentativo {attempt}: {exc}")
+            try:
+                page.close()
+            except PlaywrightError:
+                pass
+            if attempt < NAVIGATION_RETRIES:
+                time.sleep(2 * attempt)
+    raise RuntimeError(
+        f"Impossibile aprire ChatGPT dopo {NAVIGATION_RETRIES} tentativi: {last_error}"
+    )
 
 
 def run_in_page(page, prompt, login_only):
@@ -233,17 +256,19 @@ def run_in_page(page, prompt, login_only):
 def run_stock_report(context, stock, index=1, total=1):
     safe_print(f"\n=== Analisi {index}/{total}: {stock['company']} ({stock['ticker']}) ===")
     prompt = build_stock_prompt(stock["company"], stock["ticker"], stock["market"])
-    page = open_chatgpt_page(context)
+    page = None
     try:
+        page = open_chatgpt_page(context)
         return run_in_page(page, prompt, False)
     except Exception as exc:
         safe_print(f"Errore analisi {stock['ticker']}: {exc}")
         return ""
     finally:
-        try:
-            page.close()
-        except PlaywrightError:
-            pass
+        if page is not None:
+            try:
+                page.close()
+            except PlaywrightError:
+                pass
 
 
 def pause_between_reports(context):

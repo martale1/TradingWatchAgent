@@ -1,6 +1,8 @@
 import json
 import os
 import subprocess
+import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -9,6 +11,9 @@ from finance_tools.common import PROJECT_ROOT
 
 STATE_FILE = PROJECT_ROOT / "agent_run_state.json"
 ANALYSIS_ROOT = PROJECT_ROOT / "output" / "stock_ai"
+SCHEDULER_CACHE_SECONDS = 15
+_scheduler_cache = {"task_name": None, "checked_at": 0.0, "value": {}}
+_scheduler_cache_lock = threading.Lock()
 
 
 def now_iso():
@@ -143,6 +148,26 @@ def windows_scheduler_state(task_name=None):
     if os.name != "nt":
         return {}
     task = task_name or os.getenv("WINDOWS_MONITOR_TASK_NAME", "TradingWatchAgentMonitor")
+    now = time.monotonic()
+    if (
+        _scheduler_cache["task_name"] == task
+        and now - _scheduler_cache["checked_at"] < SCHEDULER_CACHE_SECONDS
+    ):
+        return dict(_scheduler_cache["value"])
+
+    with _scheduler_cache_lock:
+        now = time.monotonic()
+        if (
+            _scheduler_cache["task_name"] == task
+            and now - _scheduler_cache["checked_at"] < SCHEDULER_CACHE_SECONDS
+        ):
+            return dict(_scheduler_cache["value"])
+        value = _read_windows_scheduler_state(task)
+        _scheduler_cache.update(task_name=task, checked_at=now, value=value)
+        return dict(value)
+
+
+def _read_windows_scheduler_state(task):
     script = (
         f"$task=Get-ScheduledTask -TaskName '{task}' -ErrorAction SilentlyContinue; "
         "if (-not $task) { return }; "

@@ -58,6 +58,21 @@ def _is_recent(path, minutes):
     return datetime.now() - modified_at <= timedelta(minutes=minutes)
 
 
+def _attach_telegram_notification(result):
+    if result.get("status") != "ok":
+        return result
+    try:
+        from finance_tools.news_notifications import send_relevant_news_alerts
+
+        result["telegram_notification"] = send_relevant_news_alerts([result.get("ticker")])
+    except Exception as exc:
+        result["telegram_notification"] = {
+            "status": "error",
+            "message": f"{exc.__class__.__name__}: {exc}",
+        }
+    return result
+
+
 def get_news_report(ticker, live=False, cache_minutes=30, force=False):
     info = ticker_info(ticker)
     output_path = PROJECT_ROOT / "output" / "stock_ai" / info["ticker"].replace("/", "_") / f"{info['ticker']}_news.txt"
@@ -67,13 +82,13 @@ def get_news_report(ticker, live=False, cache_minutes=30, force=False):
         source = "cached_file" if not live else "cached_live_file"
         detail = f"cache recente <={cache_minutes} min" if live else "cache locale"
         print(f"[news-tool] {info['ticker']} - leggo news da {detail}: {output_path}", flush=True)
-        return {
+        return _attach_telegram_notification({
             "ticker": info["ticker"],
             "status": "ok",
             "source": source,
             "report": output_path.read_text(encoding="utf-8", errors="replace"),
             "file": str(output_path),
-        }
+        })
 
     if not live:
         print(f"[news-tool] {info['ticker']} - cache non presente, live disattivato", flush=True)
@@ -114,14 +129,14 @@ def get_news_report(ticker, live=False, cache_minutes=30, force=False):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
     print(f"[news-tool] {info['ticker']} - report news salvato: {output_path}", flush=True)
-    return {
+    return _attach_telegram_notification({
         "ticker": info["ticker"],
         "status": "ok" if result["returncode"] == 0 else "error",
         "source": "live_playwright",
         "report": report,
         "file": str(output_path),
         "stderr": result["stderr"],
-    }
+    })
 
 
 def get_news_report_json(ticker, live=False):

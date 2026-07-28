@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
 
 from finance_tools.common import load_env_file  # noqa: E402
 from finance_tools.autonomy_settings import load_autonomy_settings, save_autonomy_settings  # noqa: E402
-from finance_tools.agent_run_state import agent_schedule_status  # noqa: E402
+from finance_tools.agent_run_state import agent_schedule_status, load_agent_run_state  # noqa: E402
 from finance_tools.commodity_scanner import load_commodity_tickers, scan_commodity_candidates  # noqa: E402
 from finance_tools.etf_scanner import load_etf_tickers, scan_etf_candidates  # noqa: E402
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
@@ -52,6 +52,7 @@ from finance_tools.telegram_tool import (  # noqa: E402
     send_monitoring_summary,
     send_performance_summary,
 )
+from finance_tools.token_usage import token_usage_summary  # noqa: E402
 from finance_charts.technical_charts import add_indicators  # noqa: E402
 import yfinance as yf  # noqa: E402
 
@@ -59,7 +60,7 @@ import yfinance as yf  # noqa: E402
 load_env_file()
 SDK_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-mini")
 PERIODIC_MODEL = os.getenv("OPENAI_PERIODIC_MODEL", "gpt-5")
-PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", "80"))
+PERIODIC_MAX_TURNS = int(os.getenv("OPENAI_PERIODIC_MAX_TURNS", "24"))
 
 app = FastAPI(title="Autonomous Trading Agent API")
 app.add_middleware(
@@ -556,6 +557,8 @@ class AutonomySettingsRequest(BaseModel):
 
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+LOG_TAIL_CACHE = {}
+LOG_TAIL_CACHE_LOCK = threading.Lock()
 
 
 def clean_log_text(text: str):
@@ -572,11 +575,24 @@ def tail_text(path: Path, max_lines: int = 300):
     if not path.exists():
         return ""
     try:
+        stat = path.stat()
+    except OSError as exc:
+        return f"[log-read-error] impossibile leggere {path.name}: {exc}"
+    cache_key = (str(path), int(max_lines))
+    signature = (stat.st_size, stat.st_mtime_ns)
+    with LOG_TAIL_CACHE_LOCK:
+        cached = LOG_TAIL_CACHE.get(cache_key)
+        if cached and cached["signature"] == signature:
+            return cached["text"]
+    try:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError as exc:
         return f"[log-read-error] impossibile leggere {path.name}: {exc}"
     lines = clean_log_text(text).splitlines()
-    return "\n".join(lines[-max_lines:])
+    result = "\n".join(lines[-max_lines:])
+    with LOG_TAIL_CACHE_LOCK:
+        LOG_TAIL_CACHE[cache_key] = {"signature": signature, "text": result}
+    return result
 
 
 def timestamped(line: str):
@@ -726,6 +742,12 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/agent/status")
+def agent_status():
+    """Return the live run state without recalculating prices or scanner data."""
+    return json_safe(load_agent_run_state())
+
+
 @app.get("/api/dashboard")
 def dashboard():
     portfolio = load_portfolio()
@@ -748,11 +770,17 @@ def dashboard():
         "monitored": monitored,
         "exit_conditions": exits,
         "agent_run_state": agent_schedule_status(),
+        "token_usage": token_usage_summary(),
         "recent_actions": closed,
         "ftse_mib": enrich_universe_with_scan(load_mib30_tickers(), "mib30_scan.json"),
         "commodities": enrich_universe_with_scan(load_commodity_tickers(), "commodity_scan.json"),
         "etfs": enrich_universe_with_scan(load_etf_tickers(), "etf_scan.json"),
     })
+
+
+@app.get("/api/token-usage")
+def get_token_usage(days: int = 14):
+    return json_safe(token_usage_summary(days=max(1, min(int(days or 14), 90))))
 
 
 @app.get("/api/news/reports")
@@ -941,10 +969,16 @@ def news_live_stream(ticker: str, force: str = "1"):
             combined = "\n".join(all_lines)
             marker = "--- Risposta ChatGPT ---"
             report = combined.split(marker, 1)[1].strip() if marker in combined else ""
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(report, encoding="utf-8")
-            yield _sse_line("report", report[:4000] if report else "")
-            yield _sse_line("saved", str(output_path.relative_to(ROOT)))
+            if report:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(report, encoding="utf-8")
+                yield _sse_line("report", report[:4000])
+                yield _sse_line("saved", str(output_path.relative_to(ROOT)))
+            else:
+                yield _sse_line(
+                    "error",
+                    f"Nessun report prodotto per {clean}: il file news non e stato salvato.",
+                )
         except Exception as exc:
             yield _sse_line("error", str(exc))
         finally:
@@ -1147,6 +1181,14 @@ def run_logs(lines: int = 300):
     manual_optimized_log = log_dir / "manual-optimized-run.log"
     telegram_agent_log = log_dir / "telegram-agent.log"
     agent_state = agent_schedule_status()
+    tails = {
+        "run_journal": tail_text(run_journal_log, max_lines),
+        "manual_optimized": tail_text(manual_optimized_log, max_lines),
+        "scheduled": tail_text(scheduled_log, max_lines),
+        "scheduled_err": tail_text(scheduled_err, max_lines),
+        "web_agent": tail_text(web_agent_log, max_lines),
+        "telegram_agent": tail_text(telegram_agent_log, max_lines),
+    }
 
     def log_meta(path: Path):
         if not path.exists():
@@ -1159,30 +1201,29 @@ def run_logs(lines: int = 300):
             "updated_at": stat.st_mtime,
         }
 
-    def titled_tail(path: Path, title: str):
-        text = tail_text(path, max_lines)
+    def titled_tail(path: Path, title: str, text: str):
         if not text.strip():
             return f"===== {title} =====\nNessun output disponibile in {path.name}."
         return f"===== {title} ({path.name}) =====\n{text}"
 
     combined_parts = [
-        titled_tail(run_journal_log, "JOURNAL RUN UNIFICATO"),
-        titled_tail(manual_optimized_log, "RUN MANUALE OTTIMIZZATO"),
-        titled_tail(scheduled_log, "RUN SCHEDULATO"),
-        titled_tail(web_agent_log, "RICHIESTE DA GUI/CHAT"),
-        titled_tail(telegram_agent_log, "BRIDGE TELEGRAM"),
+        titled_tail(run_journal_log, "JOURNAL RUN UNIFICATO", tails["run_journal"]),
+        titled_tail(manual_optimized_log, "RUN MANUALE OTTIMIZZATO", tails["manual_optimized"]),
+        titled_tail(scheduled_log, "RUN SCHEDULATO", tails["scheduled"]),
+        titled_tail(web_agent_log, "RICHIESTE DA GUI/CHAT", tails["web_agent"]),
+        titled_tail(telegram_agent_log, "BRIDGE TELEGRAM", tails["telegram_agent"]),
     ]
     return {
         "status": "ok",
         "lines": max_lines,
         "agent_run_state": agent_state,
         "combined_run_log": "\n\n".join(combined_parts),
-        "run_journal_log": tail_text(run_journal_log, max_lines),
-        "manual_optimized_log": tail_text(manual_optimized_log, max_lines),
-        "scheduled_log": tail_text(scheduled_log, max_lines),
-        "scheduled_err": tail_text(scheduled_err, max_lines),
-        "web_agent_log": tail_text(web_agent_log, max_lines),
-        "telegram_agent_log": tail_text(telegram_agent_log, max_lines),
+        "run_journal_log": tails["run_journal"],
+        "manual_optimized_log": tails["manual_optimized"],
+        "scheduled_log": tails["scheduled"],
+        "scheduled_err": tails["scheduled_err"],
+        "web_agent_log": tails["web_agent"],
+        "telegram_agent_log": tails["telegram_agent"],
         "log_files": [
             log_meta(run_journal_log),
             log_meta(manual_optimized_log),

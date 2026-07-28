@@ -161,6 +161,21 @@ def enrich_monitored_conditions(conditions):
             distance_pct = (distance / nearest_level * 100.0) if nearest_level else None
 
         status_label, status_kind = trigger_status(current_price, trigger_level, support_level)
+        if (
+            current_price is not None
+            and trigger_level is not None
+            and current_price >= trigger_level
+            and metadata.get("daily_bar_complete") is False
+        ):
+            status_label, status_kind = "PREZZO SOPRA · ATTESA CHIUSURA", "warning"
+        elif (
+            current_price is not None
+            and trigger_level is not None
+            and current_price >= trigger_level
+            and metadata.get("daily_bar_complete") is True
+            and str(scenario_state).upper() == "NEAR_TRIGGER"
+        ):
+            status_label, status_kind = "CHIUSURA OK · VOLUME DA CONFERMARE", "warning"
         rows.append(
             {
                 "id": item.get("id"),
@@ -201,6 +216,10 @@ def enrich_monitored_conditions(conditions):
                 "volume_ratio": round(metadata.get("volume_ratio"), 2)
                 if isinstance(metadata.get("volume_ratio"), (int, float))
                 else metadata.get("volume_ratio"),
+                "daily_bar_complete": metadata.get("daily_bar_complete"),
+                "market_close_at": metadata.get("market_close_at"),
+                "volume_finalized_at": metadata.get("volume_finalized_at"),
+                "market_session_reason": metadata.get("market_session_reason"),
                 "liquidity_ok": metadata.get("liquidity_ok"),
                 "liquidity_warnings": metadata.get("liquidity_warnings") or [],
             }

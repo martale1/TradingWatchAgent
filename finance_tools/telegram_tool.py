@@ -7,6 +7,7 @@ from pathlib import Path
 import telepot
 
 from finance_tools.common import PROJECT_ROOT
+from finance_tools.agent_run_state import load_agent_run_state, parse_iso
 from finance_tools.portfolio_store import list_monitored_conditions, load_portfolio, portfolio_status_summary
 from finance_tools.performance_tool import calculate_portfolio_performance
 
@@ -270,6 +271,19 @@ def _scenario_label(kind):
     return value or "trigger"
 
 
+def _scenario_dot(state):
+    value = str(state or "").upper()
+    if value == "BUY_CANDIDATE":
+        return "🟢"
+    if value in {"CONFIRMING", "NEAR_TRIGGER"}:
+        return "🟡"
+    if value in {"INVALIDATED", "REJECTED"}:
+        return "🔴"
+    if value in {"BOUGHT", "MET"}:
+        return "✅"
+    return "🔵"
+
+
 def _best_entry_scenario(item):
     metadata = item.get("metadata", {}) or {}
     scenarios = metadata.get("entry_scenarios") or []
@@ -495,7 +509,7 @@ def _condition_brief(item, include_details=False, position_tickers=None, pending
     reason = metadata.get("scenario_reason") or metadata.get("reason") or scenario.get("reason")
     distance = _condition_sort_key(item)
 
-    bits = [f"- {ticker} [{state}]"]
+    bits = [f"{_scenario_dot(state)} {ticker} [{state}]"]
     if close is not None:
         bits.append(f"px {format_number(close)}")
     if trigger is not None:
@@ -509,7 +523,14 @@ def _condition_brief(item, include_details=False, position_tickers=None, pending
             pass
     line = " | ".join(bits)
     if not include_details:
-        return line
+        ticker_key = str(ticker or "").strip().upper()
+        if ticker_key in (position_tickers or set()):
+            action = "🔵 INCREMENTO/RIBILANCIAMENTO se confermato"
+        elif ticker_key in (pending_buy_tickers or set()):
+            action = "⏳ BUY gia pending"
+        else:
+            action = "🟢 BUY se confermato"
+        return f"{line} | azione: {action}"
     details = [line]
     condition_text = short_condition(item.get("condition"), max_len=110)
     if condition_text:
@@ -518,6 +539,27 @@ def _condition_brief(item, include_details=False, position_tickers=None, pending
         details.append(f"  esito: {short_condition(reason, max_len=110)}")
     details.append(f"  {_condition_operational_note(item, position_tickers, pending_buy_tickers)}")
     return "\n".join(details)
+
+
+def _invalidated_condition_brief(item):
+    ticker = item.get("ticker", "n/d")
+    notes = item.get("notes") or []
+    invalidation_note = ""
+    for entry in reversed(notes):
+        note = str(entry.get("note") or "").strip()
+        if "invalidat" in note.lower():
+            invalidation_note = note
+            break
+    if invalidation_note:
+        cause = invalidation_note.split(":", 1)[-1].strip()
+    else:
+        metadata = item.get("metadata", {}) or {}
+        if metadata.get("liquidity_ok") is False:
+            cause = "liquidita insufficiente"
+        else:
+            cause = str(item.get("reason") or "condizione non piu valida").strip()
+
+    return f"🔴 {ticker}: INVALIDATO\n  motivo: {cause}"
 
 
 def _position_brief(item, perf_item=None):
@@ -564,7 +606,7 @@ def _action_timestamp(item):
         return None
 
 
-def _last_run_actions(actions, window_seconds=180):
+def _last_run_actions(actions, run_started_at=None, window_seconds=180):
     stamped = []
     for item in actions:
         when = _action_timestamp(item)
@@ -572,6 +614,8 @@ def _last_run_actions(actions, window_seconds=180):
             stamped.append((when, item))
     if not stamped:
         return []
+    if run_started_at:
+        return [item for when, item in stamped if when >= run_started_at]
     stamped.sort(key=lambda pair: pair[0])
     latest = stamped[-1][0]
     lower_bound = latest - timedelta(seconds=window_seconds)
@@ -636,7 +680,17 @@ def build_readable_monitoring_summary(extra_note=""):
         [item for item in conditions if item.get("status") == "met"],
         key=_condition_sort_key,
     )
-    invalidated = [item for item in conditions if item.get("status") == "invalidated"]
+    invalidated_all = sorted(
+        [item for item in conditions if item.get("status") == "invalidated"],
+        key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
+        reverse=True,
+    )
+    invalidated_by_ticker = {}
+    for item in invalidated_all:
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if ticker and ticker not in invalidated_by_ticker:
+            invalidated_by_ticker[ticker] = item
+    invalidated = list(invalidated_by_ticker.values())
     pending_buy = status.get("pending_buy_proposals", [])
     positions = status.get("positions", [])
     position_tickers = {
@@ -650,7 +704,12 @@ def build_readable_monitoring_summary(extra_note=""):
         if item.get("status") == "pending"
     }
     portfolio = load_portfolio() or {}
-    last_run_actions = _last_run_actions(portfolio.get("closed_proposals", []))
+    run_state = load_agent_run_state()
+    run_started_at = parse_iso(run_state.get("last_started_at"))
+    last_run_actions = _last_run_actions(
+        portfolio.get("closed_proposals", []),
+        run_started_at=run_started_at,
+    )
     recent_actions = []
 
     position_perf = {item.get("ticker"): item for item in performance.get("positions", [])}
@@ -697,15 +756,25 @@ def build_readable_monitoring_summary(extra_note=""):
 
     if waiting:
         lines.extend(["", f"🎯 Trigger in attesa ({len(waiting)})"])
+        lines.append("🟢 operativo/acquisto | 🟡 vicino o in conferma | 🔵 attesa/incremento")
         for item in waiting[:max_items]:
-            lines.append(_condition_brief(item))
+            lines.append(
+                _condition_brief(
+                    item,
+                    position_tickers=position_tickers,
+                    pending_buy_tickers=pending_buy_tickers,
+                )
+            )
         if len(waiting) > max_items:
             lines.append(f"... altri {len(waiting) - max_items} trigger in monitoraggio")
 
     if invalidated:
         lines.extend(["", f"⚠️ Trigger invalidati: {len(invalidated)}"])
-        for item in invalidated[: min(3, max_items)]:
-            lines.append(f"- {item.get('ticker')}: {short_condition(item.get('condition'), max_len=80)}")
+        visible_invalidated = invalidated[: min(3, max_items)]
+        for item in visible_invalidated:
+            lines.append(_invalidated_condition_brief(item))
+        if len(invalidated) > len(visible_invalidated):
+            lines.append(f"... altri {len(invalidated) - len(visible_invalidated)} trigger invalidati")
 
     if pending_buy:
         lines.extend(["", "📝 Proposte pending"])

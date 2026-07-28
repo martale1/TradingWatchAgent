@@ -455,9 +455,11 @@ Variabili principali:
 ```env
 OPENAI_API_KEY=your_openai_api_key_for_agent_only
 OPENAI_AGENT_MODEL=gpt-5-mini
-OPENAI_AGENT_MAX_TURNS=35
-OPENAI_PERIODIC_MODEL=gpt-5
-OPENAI_PERIODIC_MAX_TURNS=80
+OPENAI_AGENT_MAX_TURNS=24
+OPENAI_PERIODIC_MODEL=gpt-5-mini
+OPENAI_PERIODIC_MAX_TURNS=24
+OPENAI_PERIODIC_CONDITION_LIMIT=8
+OPENAI_AGENT_MAX_OUTPUT_TOKENS=6000
 
 MONITOR_INTERVAL_MINUTES=30
 MARKET_MONITOR_START_HOUR=10
@@ -483,6 +485,11 @@ TELEGRAM_RECEIVER_ID=your_telegram_chat_id
 `OPENAI_PERIODIC_MODEL` vale per il monitor periodico/schedulato, che usa piu contesto e piu tool.
 `OPENAI_AGENT_MAX_TURNS` vale per chat e richieste normali.
 `OPENAI_PERIODIC_MAX_TURNS` vale per il monitor periodico.
+`OPENAI_PERIODIC_CONDITION_LIMIT` limita ai trigger attivi piu prioritari il contesto di ogni ciclo.
+`OPENAI_AGENT_MAX_OUTPUT_TOKENS` limita la risposta di ogni singola chiamata modello.
+
+Nel monitor schedulato gli scanner completi vengono eseguiti nel ciclo di inizio ora.
+Il ciclo delle `:30` controlla posizioni, watchlist e trigger prioritari usando i dati gia salvati.
 
 ## Chrome con debug remoto
 
@@ -746,7 +753,7 @@ python -c "from finance_tools.commodity_scanner import scan_commodity_candidates
 Run autonoma singola:
 
 ```bash
-python agent_portfolio_manager.py --autonomous-monitor --once --scan-limit 5 --periodic-live-news --periodic-max-turns 80
+python agent_portfolio_manager.py --autonomous-monitor --once --scan-limit 5 --periodic-live-news --periodic-max-turns 24
 ```
 
 Run autonoma continua:
