@@ -14,3 +14,5 @@ playwright_chatgpt_profile/
 chrome_chatgpt_profile/
 frontend/node_modules/
 frontend/dist/
+data/portfolios/
+data/shared/

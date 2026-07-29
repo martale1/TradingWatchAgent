@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 
 from finance_tools.common import PROJECT_ROOT
@@ -30,6 +31,12 @@ def record_token_usage(usage, model="", mode="", label=""):
         "model": str(model or ""),
         "mode": str(mode or ""),
         "label": str(label or "")[:180],
+        "portfolio_id": str(os.getenv("ACTIVE_PORTFOLIO_ID") or "main").strip().lower(),
+        "allocation": (
+            "portfolio"
+            if os.getenv("MULTI_PORTFOLIO_CHILD") == "1"
+            else "shared_or_primary"
+        ),
         "requests": int(getattr(usage, "requests", 0) or 0),
         "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
         "cached_input_tokens": int(
@@ -51,8 +58,18 @@ def record_token_usage(usage, model="", mode="", label=""):
     return event
 
 
-def token_usage_summary(days=14):
-    events = load_token_usage_store().get("events") or []
+def token_usage_summary(days=14, portfolio_id=None):
+    all_events = load_token_usage_store().get("events") or []
+    resolved_id = str(portfolio_id or "").strip().lower()
+    events = (
+        [
+            event
+            for event in all_events
+            if str(event.get("portfolio_id") or "main").strip().lower() == resolved_id
+        ]
+        if resolved_id
+        else all_events
+    )
     grouped = {}
     for event in events:
         day = str(event.get("date") or "")
@@ -107,4 +124,5 @@ def token_usage_summary(days=14):
         "last_event": events[-1] if events else None,
         "tracking_started_at": events[0].get("timestamp") if events else None,
         "file": str(TOKEN_USAGE_FILE),
+        "portfolio_id": resolved_id or None,
     }

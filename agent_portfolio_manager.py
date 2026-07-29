@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -54,6 +55,8 @@ from finance_tools.telegram_tool import (
 )
 from finance_tools.token_usage import record_token_usage
 from finance_tools.risk_manager import execution_key
+from finance_tools.shared_market_analysis import run_shared_portfolio_evaluation
+from finance_tools.portfolio_registry import list_portfolios
 
 
 DEFAULT_MODEL = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-mini")
@@ -287,7 +290,12 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             "volume_ratio": volume_ratio,
             "autonomy_mode": action_mode,
             "auto_apply_virtual": auto_apply_virtual,
-            "execution_key": execution_key(ticker, condition.get("id"), state),
+            "execution_key": execution_key(
+                ticker,
+                condition.get("id"),
+                state,
+                portfolio_id=portfolio.get("portfolio_id", "main"),
+            ),
         }
 
         log_step(
@@ -1750,6 +1758,7 @@ def run_periodic_monitor_loop(
     max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT,
     periodic_max_turns=DEFAULT_PERIODIC_MAX_TURNS,
     once=False,
+    skip_market_scanners=False,
 ):
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY non trovata. Aggiungila al file .env o alle variabili ambiente.")
@@ -1761,7 +1770,7 @@ def run_periodic_monitor_loop(
     interval_seconds = max(1, int(interval_minutes * 60))
     cycle = 1
     while True:
-        run_market_scanners = datetime.now().minute < 15
+        run_market_scanners = datetime.now().minute < 15 and not skip_market_scanners
         log_step(
             "Ciclo monitor periodico "
             f"#{cycle} | interval_minutes={interval_minutes} scan_limit={scan_limit} "
@@ -1811,6 +1820,28 @@ def run_periodic_monitor_loop(
                 suppress_auto_telegram_summary=True,
                 max_turns=periodic_max_turns,
             )
+            if os.getenv("MULTI_PORTFOLIO_CHILD") != "1":
+                shared_evaluation = run_shared_portfolio_evaluation()
+                shared_portfolios = shared_evaluation.get("portfolios", [])
+                log_step(
+                    "Analisi condivisa applicata ai portafogli attivi | "
+                    f"run_id={shared_evaluation.get('run_id')} "
+                    f"ticker_condivisi={shared_evaluation.get('shared_item_count', 0)} "
+                    f"portafogli={len(shared_portfolios)} "
+                    f"eleggibili={sum(int(item.get('eligible_count') or 0) for item in shared_portfolios)} "
+                    f"nuovi_trigger={sum(int(item.get('created_conditions_count') or 0) for item in shared_evaluation.get('applications', []))}"
+                )
+                run_secondary_portfolio_cycles(
+                    model=model,
+                    interval_minutes=interval_minutes,
+                    scan_limit=scan_limit,
+                    universe_limit=universe_limit,
+                    live_news=live_news,
+                    deep_confirm_limit=deep_confirm_limit,
+                    auto_apply_virtual=auto_apply_virtual,
+                    max_auto_trade_pct=max_auto_trade_pct,
+                    periodic_max_turns=periodic_max_turns,
+                )
             auto_entry_decisions = process_autonomous_met_entry_conditions(
                 auto_apply_virtual=auto_apply_virtual,
                 max_auto_trade_pct=max_auto_trade_pct,
@@ -1879,6 +1910,105 @@ def run_periodic_monitor_loop(
             print("\nMonitor periodico interrotto dall'utente.")
             return
         cycle += 1
+
+
+def run_secondary_portfolio_cycles(
+    model,
+    interval_minutes,
+    scan_limit,
+    universe_limit,
+    live_news,
+    deep_confirm_limit,
+    auto_apply_virtual,
+    max_auto_trade_pct,
+    periodic_max_turns,
+):
+    current_id = str(os.getenv("ACTIVE_PORTFOLIO_ID") or "main").strip().lower()
+    portfolios = [
+        item
+        for item in list_portfolios(include_archived=False).get("items", [])
+        if item.get("status") == "active" and item.get("id") != current_id
+    ]
+    if not portfolios:
+        return []
+    results = []
+    for item in portfolios:
+        portfolio_id = item["id"]
+        command = [
+            sys.executable,
+            str(PROJECT_ROOT / "agent_portfolio_manager.py"),
+            "--model",
+            model,
+            "--autonomous-monitor",
+            "--once",
+            "--skip-market-scanners",
+            "--monitor-interval-minutes",
+            str(interval_minutes),
+            "--scan-limit",
+            str(scan_limit),
+            "--universe-limit",
+            str(universe_limit),
+            "--deep-confirm-limit",
+            str(deep_confirm_limit),
+            "--periodic-max-turns",
+            str(periodic_max_turns),
+            "--max-auto-trade-pct",
+            str(max_auto_trade_pct),
+        ]
+        if live_news:
+            command.append("--periodic-live-news")
+        environment = {
+            **os.environ,
+            "ACTIVE_PORTFOLIO_ID": portfolio_id,
+            "MULTI_PORTFOLIO_CHILD": "1",
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
+        log_step(
+            "Avvio valutazione portfolio-specifica senza nuovo scan | "
+            f"portfolio_id={portfolio_id} nome={item.get('name')}"
+        )
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=PROJECT_ROOT,
+                env=environment,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=max(900, periodic_max_turns * 90),
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            log_step(
+                "Timeout valutazione portfolio-specifica | "
+                f"portfolio_id={portfolio_id} timeout={exc.timeout}s"
+            )
+            results.append(
+                {
+                    "portfolio_id": portfolio_id,
+                    "returncode": -1,
+                    "error": f"timeout dopo {exc.timeout}s",
+                }
+            )
+            continue
+        stdout_tail = "\n".join((completed.stdout or "").splitlines()[-20:])
+        stderr_tail = "\n".join((completed.stderr or "").splitlines()[-10:])
+        if stdout_tail:
+            print(stdout_tail, flush=True)
+        if stderr_tail:
+            print(stderr_tail, file=sys.stderr, flush=True)
+        result = {
+            "portfolio_id": portfolio_id,
+            "returncode": completed.returncode,
+        }
+        results.append(result)
+        log_step(
+            "Valutazione portfolio-specifica completata | "
+            f"portfolio_id={portfolio_id} exit={completed.returncode}"
+        )
+    return results
 
 
 def monitoring_state_signature():
@@ -2411,6 +2541,11 @@ def main():
         help="Solo per test: analizza al massimo N ticker dell'universo FTSE MIB.",
     )
     parser.add_argument(
+        "--skip-market-scanners",
+        action="store_true",
+        help="Riusa le cache scanner condivise e valuta solo il portafoglio attivo.",
+    )
+    parser.add_argument(
         "--build-empty-portfolio",
         action="store_true",
         help="Se il portafoglio e vuoto, chiedi capitale e crea proposta allocazione FTSE MIB pending.",
@@ -2443,6 +2578,7 @@ def main():
             max_auto_trade_pct=args.max_auto_trade_pct,
             periodic_max_turns=args.periodic_max_turns,
             once=args.once,
+            skip_market_scanners=args.skip_market_scanners,
         )
         return
 

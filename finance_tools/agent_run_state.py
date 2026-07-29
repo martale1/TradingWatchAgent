@@ -7,9 +7,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from finance_tools.common import PROJECT_ROOT
+from finance_tools.portfolio_registry import atomic_write_json, portfolio_runtime_path
 
 
-STATE_FILE = PROJECT_ROOT / "agent_run_state.json"
+LEGACY_STATE_FILE = PROJECT_ROOT / "agent_run_state.json"
+ACTIVE_PORTFOLIO_ID = os.getenv("ACTIVE_PORTFOLIO_ID", "main")
+ACTIVE_RUNTIME_PATH = portfolio_runtime_path(ACTIVE_PORTFOLIO_ID)
+STATE_FILE = (
+    ACTIVE_RUNTIME_PATH.parent / "agent_run_state.json"
+    if ACTIVE_RUNTIME_PATH.parent.exists()
+    else LEGACY_STATE_FILE
+)
 ANALYSIS_ROOT = PROJECT_ROOT / "output" / "stock_ai"
 SCHEDULER_CACHE_SECONDS = 15
 _scheduler_cache = {"task_name": None, "checked_at": 0.0, "value": {}}
@@ -117,12 +125,12 @@ def load_agent_run_state(path=STATE_FILE):
     return state
 
 
-def latest_stock_analysis_state():
+def latest_stock_analysis_state(state_path=STATE_FILE):
     files = []
     if ANALYSIS_ROOT.exists():
         files = list(ANALYSIS_ROOT.glob("*/*_analysis.txt"))
     if not files:
-        state = load_agent_run_state()
+        state = load_agent_run_state(state_path)
         return {
             "last_stock_analysis_at": state.get("last_completed_at"),
             "last_stock_analysis_source": "agent_run_state" if state.get("last_completed_at") else "none",
@@ -209,9 +217,14 @@ def _read_windows_scheduler_state(task):
     }
 
 
-def agent_schedule_status():
-    state = load_agent_run_state()
-    stock = latest_stock_analysis_state()
+def agent_schedule_status(portfolio_id=None):
+    state_path = (
+        portfolio_runtime_path(portfolio_id).parent / "agent_run_state.json"
+        if portfolio_id
+        else STATE_FILE
+    )
+    state = load_agent_run_state(state_path)
+    stock = latest_stock_analysis_state(state_path)
     scheduler = windows_scheduler_state()
     next_expected = parse_iso(state.get("next_expected_at"))
     now = datetime.now()
@@ -247,7 +260,7 @@ def agent_schedule_status():
 
 def save_agent_run_state(state, path=STATE_FILE):
     file_path = Path(path)
-    file_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(file_path, state)
     return state
 
 

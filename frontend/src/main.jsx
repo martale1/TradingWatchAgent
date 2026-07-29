@@ -893,7 +893,7 @@ function Monitoring({ rows = [], positions = [], onChart }) {
   );
 }
 
-function Watchlist({ rows = [], reload, onChart }) {
+function Watchlist({ rows = [], reload, onChart, portfolioId = "main" }) {
   const [ticker, setTicker] = useState("");
   const [reason, setReason] = useState("");
   const [entryCondition, setEntryCondition] = useState("");
@@ -909,7 +909,7 @@ function Watchlist({ rows = [], reload, onChart }) {
     setBusy("add");
     setMessage("");
     try {
-      await api("/api/watchlist", {
+      await api(`/api/watchlist?portfolio_id=${encodeURIComponent(portfolioId)}`, {
         method: "POST",
         body: JSON.stringify({ ticker, reason, priority, entry_condition: entryCondition }),
       });
@@ -931,7 +931,7 @@ function Watchlist({ rows = [], reload, onChart }) {
     setBusy(`condition-${row.ticker}`);
     setMessage("");
     try {
-      await api("/api/watchlist", {
+      await api(`/api/watchlist?portfolio_id=${encodeURIComponent(portfolioId)}`, {
         method: "POST",
         body: JSON.stringify({
           ticker: row.ticker,
@@ -956,7 +956,10 @@ function Watchlist({ rows = [], reload, onChart }) {
     setBusy(symbol);
     setMessage("");
     try {
-      await api(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" });
+      await api(
+        `/api/watchlist/${encodeURIComponent(symbol)}?portfolio_id=${encodeURIComponent(portfolioId)}`,
+        { method: "DELETE" },
+      );
       setMessage(`${symbol} rimosso dalla watchlist.`);
       reload();
     } catch (error) {
@@ -975,11 +978,14 @@ function Watchlist({ rows = [], reload, onChart }) {
     setMessage("");
     setAiStatus("Analisi AI via Playwright in corso: genero grafici, leggo conferma visuale e imposto i trigger...");
     try {
-      const result = await api("/api/agent/analyze-watchlist-entry-conditions", {
+      const result = await api(
+        `/api/agent/analyze-watchlist-entry-conditions?portfolio_id=${encodeURIComponent(portfolioId)}`,
+        {
         method: "POST",
         body: JSON.stringify({}),
         timeoutMs: 1800000,
-      });
+        },
+      );
       setAiStatus(result.answer || result.output || "Analisi completata.");
       reload();
     } catch (error) {
@@ -2110,7 +2116,7 @@ function Actions({ rows = [] }) {
   );
 }
 
-function Chat() {
+function Chat({ portfolioId = "main" }) {
   const [messages, setMessages] = useState([
     { role: "assistant", content: "Ciao, sono Autonomous Trading Agent. Chiedimi stato, performance, condizioni o nuove analisi." },
   ]);
@@ -2126,7 +2132,7 @@ function Chat() {
     try {
       const result = await api("/api/agent/chat", {
         method: "POST",
-        body: JSON.stringify({ message, history: messages }),
+        body: JSON.stringify({ message, history: messages, portfolio_id: portfolioId }),
         timeoutMs: 900000,
       });
       setMessages([...next, { role: "assistant", content: result.answer }]);
@@ -2253,7 +2259,7 @@ function DeepPortfolioReport({ report }) {
   );
 }
 
-function Controls({ reload }) {
+function Controls({ reload, portfolioId = "main" }) {
   const [scanLimit, setScanLimit] = useState(5);
   const [maxTradePct, setMaxTradePct] = useState(25);
   const [telegramSettings, setTelegramSettings] = useState({
@@ -2288,38 +2294,40 @@ function Controls({ reload }) {
   useEffect(() => {
     async function loadTelegramSettings() {
       try {
-        const result = await api("/api/telegram/settings");
+        const result = await api(`/api/telegram/settings?portfolio_id=${encodeURIComponent(portfolioId)}`);
         setTelegramSettings(result.settings || telegramSettings);
       } catch (error) {
         setLog(`Errore caricamento impostazioni Telegram: ${error.message}`);
       }
     }
     loadTelegramSettings();
-  }, []);
+  }, [portfolioId]);
 
   useEffect(() => {
     async function loadAutonomySettings() {
       try {
-        const result = await api("/api/autonomy/settings");
+        const result = await api(`/api/autonomy/settings?portfolio_id=${encodeURIComponent(portfolioId)}`);
         setAutonomySettings(result.settings || autonomySettings);
       } catch (error) {
         setLog(`Errore caricamento configurazione autonomia: ${error.message}`);
       }
     }
     loadAutonomySettings();
-  }, []);
+  }, [portfolioId]);
 
   useEffect(() => {
     async function loadLatestDeepReport() {
       try {
-        const result = await api("/api/portfolio/deep-analysis/latest");
+        const result = await api(
+          `/api/portfolio/deep-analysis/latest?portfolio_id=${encodeURIComponent(portfolioId)}`,
+        );
         setDeepReport(result.report || null);
       } catch (error) {
         // Il report e opzionale: se non esiste ancora, la pagina resta pulita.
       }
     }
     loadLatestDeepReport();
-  }, []);
+  }, [portfolioId]);
 
   function elapsedLabel(startedAt, finishedAt) {
     if (!startedAt) return "";
@@ -2402,6 +2410,7 @@ function Controls({ reload }) {
           create_proposals: true,
           auto_apply: ["protective", "full_auto"].includes(autonomySettings.portfolio_action_mode),
           telegram: autonomySettings.notify_telegram,
+          portfolio_id: portfolioId,
         }),
       });
       if (!created.job_id) throw new Error("Il backend non ha restituito il job_id.");
@@ -2458,7 +2467,7 @@ function Controls({ reload }) {
       finishedAt: null,
     });
     try {
-      const result = await api("/api/telegram/settings", {
+      const result = await api(`/api/telegram/settings?portfolio_id=${encodeURIComponent(portfolioId)}`, {
         method: "POST",
         body: JSON.stringify(nextSettings),
       });
@@ -2496,7 +2505,7 @@ function Controls({ reload }) {
       finishedAt: null,
     });
     try {
-      const result = await api("/api/autonomy/settings", {
+      const result = await api(`/api/autonomy/settings?portfolio_id=${encodeURIComponent(portfolioId)}`, {
         method: "POST",
         body: JSON.stringify(nextSettings),
       });
@@ -2531,7 +2540,20 @@ function Controls({ reload }) {
         <label>Max auto trade %<input type="number" value={maxTradePct} min="1" max="100" onChange={(e) => setMaxTradePct(e.target.value)} /></label>
       </div>
       <div className="actions">
-        <button onClick={() => run("/api/agent/run-once", { scan_limit: scanLimit, max_auto_trade_pct: maxTradePct }, "monitor SDK")} disabled={!!busy}>Run monitor SDK</button>
+        <button
+          onClick={() => run(
+            "/api/agent/run-once",
+            {
+              scan_limit: scanLimit,
+              max_auto_trade_pct: maxTradePct,
+              portfolio_id: portfolioId,
+            },
+            "monitor SDK",
+          )}
+          disabled={!!busy}
+        >
+          Run monitor SDK
+        </button>
         <button
           onClick={runDeepPortfolioAnalysis}
           disabled={!!busy}
@@ -2539,13 +2561,41 @@ function Controls({ reload }) {
           Analisi profonda portafoglio
         </button>
         <button
-          onClick={() => run("/api/playwright-monitor/run", { limit: scanLimit, deep_limit: 2, universe_limit: 0, telegram: true }, "monitor Playwright")}
+          onClick={() => run(
+            "/api/playwright-monitor/run",
+            {
+              limit: scanLimit,
+              deep_limit: 2,
+              universe_limit: 0,
+              telegram: true,
+              portfolio_id: portfolioId,
+            },
+            "monitor Playwright",
+          )}
           disabled={!!busy}
         >
           Monitor via ChatGPT Web
         </button>
-        <button onClick={() => run("/api/telegram/monitoring", {}, "telegram")} disabled={!!busy}>Telegram monitoraggio</button>
-        <button onClick={() => run("/api/telegram/performance", {}, "performance")} disabled={!!busy}>Telegram performance</button>
+        <button
+          onClick={() => run(
+            `/api/telegram/monitoring?portfolio_id=${encodeURIComponent(portfolioId)}`,
+            {},
+            "telegram",
+          )}
+          disabled={!!busy}
+        >
+          Telegram monitoraggio
+        </button>
+        <button
+          onClick={() => run(
+            `/api/telegram/performance?portfolio_id=${encodeURIComponent(portfolioId)}`,
+            {},
+            "performance",
+          )}
+          disabled={!!busy}
+        >
+          Telegram performance
+        </button>
       </div>
       <p className="controlHint">
         Il monitor manuale considera tutto lo scope disponibile; "Top candidati" indica solo quanti migliori risultati sintetizzare dopo lo scan. Il monitor SDK usa OpenAI API key per orchestrare le decisioni. Il monitor Playwright usa ChatGPT nel browser per gli approfondimenti e riduce il consumo token API.
@@ -3247,6 +3297,325 @@ function RunLogs() {
   );
 }
 
+function PortfoliosSummary({ selectedId = "main", onSelect }) {
+  const [state, setState] = useState({
+    loading: true,
+    error: "",
+    data: null,
+  });
+
+  async function loadSummary() {
+    setState((current) => ({ ...current, loading: true, error: "" }));
+    try {
+      const data = await api("/api/portfolios-summary", { timeoutMs: 120000 });
+      setState({ loading: false, error: "", data });
+    } catch (error) {
+      setState({ loading: false, error: error.message, data: null });
+    }
+  }
+
+  useEffect(() => {
+    loadSummary();
+  }, []);
+
+  const data = state.data || {};
+  const totals = data.totals || {};
+  const rows = data.items || [];
+
+  return (
+    <section className="portfolioSummaryPage">
+      <div className="portfolioSummaryTitle">
+        <div>
+          <h2>Riepilogo portafogli</h2>
+          <p>Confronto aggiornato dei portafogli virtuali indipendenti.</p>
+        </div>
+        <button className="iconButton" onClick={loadSummary} disabled={state.loading}>
+          <RefreshCw size={16} className={state.loading ? "spinning" : ""} />
+          {state.loading ? "Aggiorno..." : "Aggiorna riepilogo"}
+        </button>
+      </div>
+
+      {state.error && <div className="error">{state.error}</div>}
+
+      <div className="portfolioSummaryTotals">
+        <Metric label="Portafogli" value={String(data.count ?? 0)} subtitle={`${data.active_count || 0} attivi`} />
+        <Metric label="Capitale virtuale" value={eur(totals.initial_capital)} />
+        <Metric
+          label="Patrimonio complessivo"
+          value={eur(totals.total_value)}
+          delta={totals.pnl_pct}
+          valueTone={signedClass(totals.pnl)}
+        />
+        <Metric label="Valore titoli" value={eur(totals.positions_value)} emphasis="positions" />
+        <Metric label="Cash complessivo" value={eur(totals.cash)} emphasis="cash" />
+        <Metric
+          label="P/L complessivo"
+          value={eur(totals.pnl)}
+          delta={totals.pnl_pct}
+          valueTone={signedClass(totals.pnl)}
+        />
+      </div>
+
+      <div className="portfolioSummaryGrid">
+        {rows.map((row) => (
+          <article
+            className={`portfolioSummaryCard ${row.portfolio_id === selectedId ? "selected" : ""}`}
+            key={row.portfolio_id}
+          >
+            <div className="portfolioSummaryCardHead">
+              <div>
+                <span className="portfolioSummaryEyebrow">{row.risk_profile}</span>
+                <h3>{row.name}</h3>
+              </div>
+              <span className={`portfolioState ${row.status}`}>{row.status}</span>
+            </div>
+            {row.description && <p className="portfolioSummaryDescription">{row.description}</p>}
+            <div className="portfolioSummaryValue">
+              <small>Patrimonio corrente</small>
+              <strong>{eur(row.total_value)}</strong>
+              <span className={signedClass(row.pnl)}>
+                {eur(row.pnl)} · {pct(row.pnl_pct)}
+              </span>
+            </div>
+            <div className="portfolioSummaryStats">
+              <span><small>Cash</small><strong>{eur(row.cash)}</strong><em>{pct(row.cash_pct, false)}</em></span>
+              <span><small>Titoli</small><strong>{eur(row.positions_value)}</strong><em>{pct(row.exposure_pct, false)}</em></span>
+              <span><small>Posizioni</small><strong>{row.positions_count}</strong><em>{row.quote_errors_count ? `${row.quote_errors_count} prezzi mancanti` : "prezzi aggiornati"}</em></span>
+            </div>
+            <div className="portfolioSummaryMarkets">
+              {(row.allowed_markets || []).map((market) => <span key={market}>{market.replaceAll("_", " ")}</span>)}
+            </div>
+            <button
+              className={row.portfolio_id === selectedId ? "selectedPortfolioButton" : ""}
+              onClick={() => onSelect(row.portfolio_id)}
+            >
+              {row.portfolio_id === selectedId ? "Portafoglio selezionato" : "Apri portafoglio"}
+            </button>
+          </article>
+        ))}
+      </div>
+
+      {!state.loading && !rows.length && <div className="mutedBox">Nessun portafoglio disponibile.</div>}
+      {data.note && <p className="portfolioSummaryNote">{data.note}</p>}
+    </section>
+  );
+}
+
+function PortfolioManager({
+  config = {},
+  registry = {},
+  selectedId = "main",
+  onSelect,
+  reload,
+}) {
+  const [draft, setDraft] = useState(config);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => setDraft(config), [config]);
+
+  function toggleList(key, value, checked) {
+    setDraft((current) => ({
+      ...current,
+      [key]: checked
+        ? [...new Set([...(current[key] || []), value])]
+        : (current[key] || []).filter((item) => item !== value),
+    }));
+  }
+
+  async function save() {
+    setBusy("save");
+    setMessage("");
+    try {
+      const payload = {
+        name: draft.name,
+        description: draft.description || "",
+        risk_profile: draft.risk_profile,
+        risk_limits: draft.risk_limits || {},
+        allowed_markets: draft.allowed_markets || [],
+        allowed_asset_classes: draft.allowed_asset_classes || [],
+        allow_leveraged: Boolean(draft.allow_leveraged),
+        excluded_tickers: draft.excluded_tickers || [],
+        excluded_sectors: draft.excluded_sectors || [],
+      };
+      await api(`/api/portfolios/${encodeURIComponent(selectedId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      setMessage("Configurazione portafoglio salvata.");
+      await reload();
+    } catch (error) {
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function changeStatus(status) {
+    setBusy(status);
+    setMessage("");
+    try {
+      const action = status === "active" ? "activate" : "pause";
+      await api(`/api/portfolios/${encodeURIComponent(selectedId)}/${action}`, {
+        method: "POST",
+      });
+      setMessage(status === "active" ? "Portafoglio attivato." : "Portafoglio sospeso.");
+      await reload();
+    } catch (error) {
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const profiles = registry.risk_profiles || {};
+  return (
+    <section className="panel portfolioManager">
+      <div className="portfolioManagerHeader">
+        <div>
+          <h2>Gestione portafogli</h2>
+          <p>Ogni portafoglio mantiene capitale, posizioni, trigger e regole indipendenti.</p>
+        </div>
+        <span className={`portfolioState ${config.status || "active"}`}>
+          {config.status || "active"}
+        </span>
+      </div>
+
+      <div className="portfolioCards">
+        {(registry.items || []).map((item) => (
+          <button
+            key={item.id}
+            className={item.id === selectedId ? "selectedPortfolioCard" : ""}
+            onClick={() => onSelect(item.id)}
+          >
+            <strong>{item.name}</strong>
+            <span>{item.risk_profile} · {eur(item.initial_capital)}</span>
+            <small>{item.status}</small>
+          </button>
+        ))}
+      </div>
+
+      <div className="portfolioEditGrid">
+        <label>
+          <span>Nome</span>
+          <input value={draft.name || ""} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+        </label>
+        <label>
+          <span>Profilo</span>
+          <select
+            value={draft.risk_profile || "balanced"}
+            onChange={(event) => {
+              const profile = event.target.value;
+              setDraft({
+                ...draft,
+                risk_profile: profile,
+                risk_limits: profiles[profile] || draft.risk_limits,
+              });
+            }}
+          >
+            <option value="conservative">Prudente</option>
+            <option value="balanced">Bilanciato</option>
+            <option value="dynamic">Dinamico</option>
+          </select>
+        </label>
+        <label className="portfolioDescription">
+          <span>Descrizione</span>
+          <input
+            value={draft.description || ""}
+            onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            placeholder="Obiettivo o strategia del portafoglio"
+          />
+        </label>
+      </div>
+
+      <div className="riskLimitGrid">
+        {[
+          ["min_cash_pct", "Cash minimo %"],
+          ["max_position_pct", "Max posizione %"],
+          ["max_sector_pct", "Max settore %"],
+          ["max_new_position_pct", "Nuovo ingresso max %"],
+          ["max_increment_pct", "Incremento max %"],
+          ["min_score", "Score minimo"],
+          ["min_average_turnover", "Controvalore minimo"],
+          ["max_positions", "Max posizioni"],
+        ].map(([key, label]) => (
+          <label key={key}>
+            <span>{label}</span>
+            <input
+              type="number"
+              min="0"
+              value={draft.risk_limits?.[key] ?? ""}
+              onChange={(event) => setDraft({
+                ...draft,
+                risk_limits: {
+                  ...(draft.risk_limits || {}),
+                  [key]: Number(event.target.value),
+                },
+              })}
+            />
+          </label>
+        ))}
+      </div>
+
+      <div className="portfolioPolicyGroups">
+        <fieldset className="portfolioChoiceGroup">
+          <legend>Mercati abilitati</legend>
+          {[
+            ["ftse_mib", "FTSE MIB"],
+            ["commodities", "Materie prime"],
+            ["etf", "ETF"],
+            ["watchlist", "Watchlist"],
+          ].map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="checkbox"
+                checked={(draft.allowed_markets || []).includes(value)}
+                onChange={(event) => toggleList("allowed_markets", value, event.target.checked)}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </fieldset>
+        <fieldset className="portfolioChoiceGroup">
+          <legend>Strumenti abilitati</legend>
+          {[
+            ["equity", "Azioni"],
+            ["etf", "ETF"],
+            ["commodity_etc", "ETC / commodity"],
+          ].map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="checkbox"
+                checked={(draft.allowed_asset_classes || []).includes(value)}
+                onChange={(event) => toggleList("allowed_asset_classes", value, event.target.checked)}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+          <label>
+            <input
+              type="checkbox"
+              checked={Boolean(draft.allow_leveraged)}
+              onChange={(event) => setDraft({ ...draft, allow_leveraged: event.target.checked })}
+            />
+            <span>Leveraged</span>
+          </label>
+        </fieldset>
+      </div>
+
+      <div className="actions">
+        <button className="primaryHeaderAction" onClick={save} disabled={!!busy}>Salva configurazione</button>
+        {config.status === "active" ? (
+          <button onClick={() => changeStatus("paused")} disabled={!!busy}>Sospendi operativita</button>
+        ) : (
+          <button onClick={() => changeStatus("active")} disabled={!!busy}>Riattiva operativita</button>
+        )}
+      </div>
+      {message && <div className={message.startsWith("Errore") ? "error" : "okBox"}>{message}</div>}
+    </section>
+  );
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -3255,17 +3624,33 @@ function App() {
   const [newsTicker, setNewsTicker] = useState("");
   const [runNowBusy, setRunNowBusy] = useState(false);
   const [runNowMessage, setRunNowMessage] = useState("");
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState(
+    () => window.localStorage.getItem("selectedPortfolioId") || "main",
+  );
+  const [showPortfolioForm, setShowPortfolioForm] = useState(false);
+  const [portfolioFormBusy, setPortfolioFormBusy] = useState(false);
+  const [portfolioFormError, setPortfolioFormError] = useState("");
+  const [portfolioForm, setPortfolioForm] = useState({
+    id: "",
+    name: "",
+    initial_capital: 20000,
+    risk_profile: "balanced",
+    allowed_markets: ["ftse_mib", "commodities", "etf", "watchlist"],
+    allowed_asset_classes: ["equity", "etf", "commodity_etc"],
+    allow_leveraged: false,
+  });
   const loadingRef = useRef(false);
   const agentStatusLoadingRef = useRef(false);
 
   async function load(options = {}) {
     const silent = Boolean(options.silent);
+    const portfolioId = options.portfolioId || selectedPortfolioId;
     if (loadingRef.current) return;
     loadingRef.current = true;
     if (!silent) setDashboardLoading(true);
     try {
       setError("");
-      setData(await api("/api/dashboard", { timeoutMs: 120000 }));
+      setData(await api(`/api/dashboard?portfolio_id=${encodeURIComponent(portfolioId)}`, { timeoutMs: 120000 }));
     } catch (err) {
       const message = err.name === "AbortError"
         ? "Timeout nel caricamento dei dati. Il backend sta impiegando troppo tempo a rispondere."
@@ -3277,17 +3662,27 @@ function App() {
     }
   }
 
-  useEffect(() => { load(); }, []);
   useEffect(() => {
-    const timer = window.setInterval(() => load({ silent: true }), 15000);
+    window.localStorage.setItem("selectedPortfolioId", selectedPortfolioId);
+    setData(null);
+    load({ portfolioId: selectedPortfolioId });
+  }, [selectedPortfolioId]);
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => load({ silent: true, portfolioId: selectedPortfolioId }),
+      15000,
+    );
     return () => window.clearInterval(timer);
-  }, []);
+  }, [selectedPortfolioId]);
   useEffect(() => {
     async function loadAgentStatus() {
       if (agentStatusLoadingRef.current) return;
       agentStatusLoadingRef.current = true;
       try {
-        const state = await api("/api/agent/status", { timeoutMs: 5000 });
+        const state = await api(
+          `/api/agent/status?portfolio_id=${encodeURIComponent(selectedPortfolioId)}`,
+          { timeoutMs: 5000 },
+        );
         setData((current) => current
           ? {
               ...current,
@@ -3306,7 +3701,7 @@ function App() {
     loadAgentStatus();
     const timer = window.setInterval(loadAgentStatus, 3000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [selectedPortfolioId]);
   useEffect(() => {
     function openTickerNews(event) {
       const ticker = String(event.detail?.ticker || "").trim().toUpperCase();
@@ -3317,6 +3712,38 @@ function App() {
   }, []);
   const perf = data?.performance || {};
   const portfolio = data?.portfolio || {};
+  const portfolioConfig = data?.portfolio_config || {};
+  const portfolioOptions = data?.portfolios?.items || [];
+
+  async function createPortfolio(event) {
+    event.preventDefault();
+    setPortfolioFormBusy(true);
+    setPortfolioFormError("");
+    try {
+      const result = await api("/api/portfolios", {
+        method: "POST",
+        body: JSON.stringify(portfolioForm),
+        timeoutMs: 15000,
+      });
+      const portfolioId = result?.config?.id;
+      if (!portfolioId) throw new Error("Il backend non ha restituito l'ID del portafoglio.");
+      setShowPortfolioForm(false);
+      setPortfolioForm({
+        id: "",
+        name: "",
+        initial_capital: 20000,
+        risk_profile: "balanced",
+        allowed_markets: ["ftse_mib", "commodities", "etf", "watchlist"],
+        allowed_asset_classes: ["equity", "etf", "commodity_etc"],
+        allow_leveraged: false,
+      });
+      setSelectedPortfolioId(portfolioId);
+    } catch (err) {
+      setPortfolioFormError(err.message);
+    } finally {
+      setPortfolioFormBusy(false);
+    }
+  }
 
   async function runNow() {
     setRunNowBusy(true);
@@ -3324,7 +3751,11 @@ function App() {
     try {
       await api("/api/agent/run-once", {
         method: "POST",
-        body: JSON.stringify({ scan_limit: 5, max_auto_trade_pct: 25 }),
+        body: JSON.stringify({
+          scan_limit: 5,
+          max_auto_trade_pct: 25,
+          portfolio_id: selectedPortfolioId,
+        }),
         timeoutMs: 900000,
       });
       setRunNowMessage("Esecuzione manuale completata. Dashboard aggiornata.");
@@ -3338,6 +3769,8 @@ function App() {
 
   const tabs = useMemo(() => [
     ["dashboard", "Dashboard"],
+    ["summary", "Riepilogo"],
+    ["portfolios", "Portafogli"],
     ["ftse-mib", "FTSE MIB"],
     ["commodities", "Materie prime"],
     ["etfs", "ETF"],
@@ -3349,30 +3782,220 @@ function App() {
     ["controls", "Controlli"],
   ], []);
   const [tab, setTab] = useState("dashboard");
+  const riskProfileLabel = {
+    conservative: "Prudente",
+    balanced: "Bilanciato",
+    dynamic: "Dinamico",
+    custom: "Personalizzato",
+  }[portfolioConfig.risk_profile] || portfolioConfig.risk_profile || "Profilo";
+  const portfolioStatusLabel = {
+    active: "Attivo",
+    paused: "Sospeso",
+    archived: "Archiviato",
+  }[portfolioConfig.status] || portfolioConfig.status || "In caricamento";
 
   return (
     <main>
-      <header>
-        <div>
-          <h1><Bot size={34} /> Autonomous Trading Agent</h1>
-          <p>Portafoglio virtuale con trading automatico.</p>
+      <header className="appHeader">
+        <div className="appBrand">
+          <div className="brandIcon"><Bot size={25} /></div>
+          <div>
+            <h1>Autonomous Trading Agent</h1>
+            <p>Portafogli virtuali, analisi condivise e trading automatico.</p>
+          </div>
         </div>
         <div className="headerActions">
+          <div className="activePortfolioControl">
+            <div className="activePortfolioTop">
+              <span className="activePortfolioLabel">Portafoglio attivo</span>
+              <span className={`activePortfolioStatus ${portfolioConfig.status || "loading"}`}>
+                <i /> {portfolioStatusLabel}
+              </span>
+            </div>
+            <select
+              aria-label="Portafoglio attivo"
+              value={selectedPortfolioId}
+              onChange={(event) => setSelectedPortfolioId(event.target.value)}
+            >
+              {portfolioOptions.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.name}
+                </option>
+              ))}
+              {!portfolioOptions.some((item) => item.id === selectedPortfolioId) && (
+                <option value={selectedPortfolioId}>{selectedPortfolioId}</option>
+              )}
+            </select>
+            <div className="activePortfolioMeta">
+              <span>{riskProfileLabel}</span>
+              {portfolioConfig.initial_capital != null && (
+                <span>{eur(portfolioConfig.initial_capital)} iniziali</span>
+              )}
+            </div>
+          </div>
+          <button
+            className="iconButton secondaryHeaderAction"
+            onClick={() => setShowPortfolioForm((value) => !value)}
+            title="Crea un nuovo portafoglio"
+          >
+            <span className="buttonPlus">+</span> Nuovo
+          </button>
           <button className="iconButton primaryHeaderAction" onClick={runNow} disabled={runNowBusy}>
             <Activity size={18} /> {runNowBusy ? "Avvio..." : "Esegui ora"}
           </button>
-          <button className="iconButton" onClick={load} disabled={dashboardLoading}>
-            <RefreshCw size={18} /> {dashboardLoading ? "Aggiorno..." : "Aggiorna"}
+          <button
+            className="iconButton refreshHeaderAction"
+            onClick={load}
+            disabled={dashboardLoading}
+            title="Aggiorna i dati"
+          >
+            <RefreshCw size={18} className={dashboardLoading ? "spinning" : ""} />
+            <span>{dashboardLoading ? "Aggiorno" : "Aggiorna"}</span>
           </button>
         </div>
       </header>
 
+      {showPortfolioForm && (
+        <section className="panel portfolioCreatePanel">
+          <div className="portfolioCreateHeading">
+            <div>
+              <h2>Nuovo portafoglio</h2>
+              <p>Crea un capitale virtuale indipendente scegliendo il profilo di rischio iniziale.</p>
+            </div>
+            <button onClick={() => setShowPortfolioForm(false)}>Chiudi</button>
+          </div>
+          <form className="portfolioCreateForm" onSubmit={createPortfolio}>
+            <label>
+              <span>Nome</span>
+              <input
+                required
+                value={portfolioForm.name}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  const suggestedId = name
+                    .toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/[^a-z0-9]+/g, "-")
+                    .replace(/^-|-$/g, "")
+                    .slice(0, 50);
+                  setPortfolioForm((current) => ({
+                    ...current,
+                    name,
+                    id: suggestedId,
+                  }));
+                }}
+                placeholder="Per esempio: Prudente ETF"
+              />
+            </label>
+            <label>
+              <span>ID stabile</span>
+              <input
+                required
+                minLength={3}
+                value={portfolioForm.id}
+                onChange={(event) => setPortfolioForm((current) => ({ ...current, id: event.target.value.toLowerCase() }))}
+                placeholder="prudente-etf"
+              />
+            </label>
+            <label>
+              <span>Capitale iniziale</span>
+              <input
+                required
+                type="number"
+                min="1"
+                step="0.01"
+                value={portfolioForm.initial_capital}
+                onChange={(event) => setPortfolioForm((current) => ({ ...current, initial_capital: Number(event.target.value) }))}
+              />
+            </label>
+            <label>
+              <span>Profilo di rischio</span>
+              <select
+                value={portfolioForm.risk_profile}
+                onChange={(event) => setPortfolioForm((current) => ({ ...current, risk_profile: event.target.value }))}
+              >
+                <option value="conservative">Prudente</option>
+                <option value="balanced">Bilanciato</option>
+                <option value="dynamic">Dinamico</option>
+              </select>
+            </label>
+            <fieldset className="portfolioChoiceGroup">
+              <legend>Mercati</legend>
+              {[
+                ["ftse_mib", "FTSE MIB"],
+                ["commodities", "Materie prime"],
+                ["etf", "ETF"],
+                ["watchlist", "Watchlist"],
+              ].map(([value, label]) => (
+                <label key={value}>
+                  <input
+                    type="checkbox"
+                    checked={portfolioForm.allowed_markets.includes(value)}
+                    onChange={(event) => setPortfolioForm((current) => ({
+                      ...current,
+                      allowed_markets: event.target.checked
+                        ? [...current.allowed_markets, value]
+                        : current.allowed_markets.filter((item) => item !== value),
+                    }))}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className="portfolioChoiceGroup">
+              <legend>Strumenti</legend>
+              {[
+                ["equity", "Azioni"],
+                ["etf", "ETF"],
+                ["commodity_etc", "ETC / commodity"],
+              ].map(([value, label]) => (
+                <label key={value}>
+                  <input
+                    type="checkbox"
+                    checked={portfolioForm.allowed_asset_classes.includes(value)}
+                    onChange={(event) => setPortfolioForm((current) => ({
+                      ...current,
+                      allowed_asset_classes: event.target.checked
+                        ? [...current.allowed_asset_classes, value]
+                        : current.allowed_asset_classes.filter((item) => item !== value),
+                    }))}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={portfolioForm.allow_leveraged}
+                  onChange={(event) => setPortfolioForm((current) => ({
+                    ...current,
+                    allow_leveraged: event.target.checked,
+                  }))}
+                />
+                <span>Leveraged</span>
+              </label>
+            </fieldset>
+            <button className="primaryHeaderAction" disabled={portfolioFormBusy}>
+              {portfolioFormBusy ? "Creazione..." : "Crea portafoglio"}
+            </button>
+          </form>
+          {portfolioFormError && <div className="error">{portfolioFormError}</div>}
+        </section>
+      )}
+
       {error && <div className="error">{error}</div>}
 
-      <nav>{tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{label}</button>)}</nav>
+      <nav className="mainNav">
+        {tabs.map(([id, label]) => (
+          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </nav>
 
       {!data && tab === "logs" && <RunLogs />}
-      {!data && tab === "controls" && <Controls reload={load} />}
+      {!data && tab === "controls" && <Controls reload={load} portfolioId={selectedPortfolioId} />}
       {!data && tab === "news" && <NewsReports />}
       {!data && !["logs", "controls", "news"].includes(tab) && (
         <section className="panel dashboardLoading">
@@ -3384,7 +4007,7 @@ function App() {
 
       {data && (
         <>
-          <div className="metrics">
+          {!["summary", "portfolios"].includes(tab) && <div className="metrics">
             <AgentRunStatus
               state={data.agent_run_state || {}}
               tokenUsage={data.token_usage || {}}
@@ -3420,7 +4043,7 @@ function App() {
               emphasis="cash"
             />
             <Metric label="P/L totale" value={eur(perf.total_pnl)} valueTone={signedClass(perf.total_pnl)} delta={perf.total_pnl_pct} icon={perf.total_pnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} />
-          </div>
+          </div>}
           {runNowMessage && <div className={`manualRunBanner ${runNowBusy ? "running" : ""}`}>{runNowMessage}</div>}
 
           {tab === "dashboard" && (
@@ -3432,15 +4055,37 @@ function App() {
               <Monitoring rows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />
             </>
           )}
+          {tab === "summary" && (
+            <PortfoliosSummary
+              selectedId={selectedPortfolioId}
+              onSelect={setSelectedPortfolioId}
+            />
+          )}
+          {tab === "portfolios" && (
+            <PortfolioManager
+              config={portfolioConfig}
+              registry={data.portfolios || {}}
+              selectedId={selectedPortfolioId}
+              onSelect={setSelectedPortfolioId}
+              reload={load}
+            />
+          )}
           {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
           {tab === "commodities" && <Commodities rows={data.commodities || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
           {tab === "etfs" && <Etfs rows={data.etfs || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
           {tab === "news" && <NewsReports />}
-          {tab === "chat" && <Chat />}
-          {tab === "watchlist" && <Watchlist rows={portfolio.watchlist || []} reload={load} onChart={setChartItem} />}
+          {tab === "chat" && <Chat portfolioId={selectedPortfolioId} />}
+          {tab === "watchlist" && (
+            <Watchlist
+              rows={portfolio.watchlist || []}
+              reload={load}
+              onChart={setChartItem}
+              portfolioId={selectedPortfolioId}
+            />
+          )}
           {tab === "actions" && <Actions rows={data.recent_actions || []} />}
           {tab === "logs" && <RunLogs />}
-          {tab === "controls" && <Controls reload={load} />}
+          {tab === "controls" && <Controls reload={load} portfolioId={selectedPortfolioId} />}
         </>
       )}
       <ChartModal item={chartItem} onClose={() => setChartItem(null)} />

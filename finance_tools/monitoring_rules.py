@@ -87,9 +87,14 @@ def _has_negative_news(report):
     return any(term in text for term in NEGATIVE_NEWS_TERMS)
 
 
-def _has_active_condition(ticker):
+def _has_active_condition(ticker, path=None):
     ticker = ticker.strip().upper()
-    for item in list_monitored_conditions(status=None):
+    items = (
+        list_monitored_conditions(status=None, path=path)
+        if path
+        else list_monitored_conditions(status=None)
+    )
+    for item in items:
         if str(item.get("ticker", "")).strip().upper() == ticker:
             return item.get("status") in {"waiting", "met"}
     return False
@@ -155,20 +160,27 @@ def build_entry_condition_from_candidate(candidate):
     return f"SCENARIO PULLBACK_SUPPORTO: ingresso solo su tenuta/rimbalzo del supporto {support}, con stop sotto supporto"
 
 
-def ensure_candidate_conditions(candidates, market, min_score=MIN_MONITOR_SCORE, max_items=None):
+def ensure_candidate_conditions(
+    candidates,
+    market,
+    min_score=MIN_MONITOR_SCORE,
+    max_items=None,
+    path=None,
+):
     """Persist waiting entry conditions for interesting scanner candidates.
 
     The dashboard trigger view is based on monitored_conditions, not on raw scanner output.
     This helper bridges the two so both FTSE MIB and commodities can appear there.
     """
-    if load_portfolio() is None:
+    portfolio = load_portfolio(path) if path else load_portfolio()
+    if portfolio is None:
         return []
 
     created = []
     selected = candidates if max_items is None else candidates[: int(max_items)]
     for candidate in selected:
         ticker = str(candidate.get("ticker", "")).strip().upper()
-        if not ticker or _has_active_condition(ticker):
+        if not ticker or _has_active_condition(ticker, path=path):
             continue
         score = int(candidate.get("score") or 0)
         if score < int(min_score):
@@ -184,27 +196,32 @@ def ensure_candidate_conditions(candidates, market, min_score=MIN_MONITOR_SCORE,
         reason = f"{market}: score {score}. {reasons}"
         if risks:
             reason += f". Rischi da verificare: {risks}"
+        condition_kwargs = {
+            "ticker": ticker,
+            "condition": condition,
+            "reason": reason,
+            "action_if_met": "rivaluta grafico e news per possibile proposta autonoma di ingresso",
+            "metadata": {
+                "market": market,
+                "score": score,
+                "source": "scanner_auto_monitor",
+                "entry_scenarios": scenarios,
+                "scenario_state": SCENARIO_WAIT,
+                "support_10": candidate.get("support_10"),
+                "resistance_10": candidate.get("resistance_10"),
+                "close": candidate.get("close"),
+                "change_1d_pct": candidate.get("change_1d_pct"),
+                "liquidity_ok": candidate.get("liquidity_ok"),
+                "avg_volume": candidate.get("avg_volume"),
+                "volume_ma10": candidate.get("volume_ma10"),
+                "turnover_eur": candidate.get("turnover_eur"),
+            },
+        }
+        if path:
+            condition_kwargs["path"] = path
         created.append(
             add_monitored_condition(
-                ticker=ticker,
-                condition=condition,
-                reason=reason,
-                action_if_met="rivaluta grafico e news per possibile proposta autonoma di ingresso",
-                metadata={
-                    "market": market,
-                    "score": score,
-                    "source": "scanner_auto_monitor",
-                    "entry_scenarios": scenarios,
-                    "scenario_state": SCENARIO_WAIT,
-                    "support_10": candidate.get("support_10"),
-                    "resistance_10": candidate.get("resistance_10"),
-                    "close": candidate.get("close"),
-                    "change_1d_pct": candidate.get("change_1d_pct"),
-                    "liquidity_ok": candidate.get("liquidity_ok"),
-                    "avg_volume": candidate.get("avg_volume"),
-                    "volume_ma10": candidate.get("volume_ma10"),
-                    "turnover_eur": candidate.get("turnover_eur"),
-                },
+                **condition_kwargs,
             )
         )
     return created

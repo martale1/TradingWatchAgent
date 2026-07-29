@@ -36,7 +36,11 @@ from finance_tools.market_universe_store import (  # noqa: E402
 from finance_tools.mib30_scanner import load_mib30_tickers, scan_mib30_candidates  # noqa: E402
 from finance_tools.monitoring_view import enrich_monitored_conditions  # noqa: E402
 from finance_tools.news_tool import get_news_report  # noqa: E402
-from finance_tools.performance_tool import build_performance_history_view, calculate_portfolio_performance  # noqa: E402
+from finance_tools.performance_tool import (  # noqa: E402
+    build_performance_history_view,
+    calculate_portfolio_performance,
+    load_performance_history,
+)
 from finance_tools.portfolio_deep_analysis import run_deep_portfolio_analysis  # noqa: E402
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai  # noqa: E402
 from finance_tools.portfolio_store import (  # noqa: E402
@@ -46,6 +50,16 @@ from finance_tools.portfolio_store import (  # noqa: E402
     portfolio_status_summary,
     remove_watchlist_item,
 )
+from finance_tools.portfolio_registry import (  # noqa: E402
+    create_portfolio,
+    ensure_registry,
+    list_portfolios,
+    load_portfolio_config,
+    load_portfolio_state,
+    portfolio_runtime_path,
+    portfolio_state_path,
+    update_portfolio_config,
+)
 from finance_tools.telegram_tool import (  # noqa: E402
     load_telegram_settings,
     save_telegram_settings,
@@ -53,6 +67,11 @@ from finance_tools.telegram_tool import (  # noqa: E402
     send_performance_summary,
 )
 from finance_tools.token_usage import token_usage_summary  # noqa: E402
+from finance_tools.shared_market_analysis import (  # noqa: E402
+    load_latest_shared_results,
+    run_shared_portfolio_evaluation,
+)
+from finance_tools.portfolio_summary import build_portfolios_summary  # noqa: E402
 from finance_charts.technical_charts import add_indicators  # noqa: E402
 import yfinance as yf  # noqa: E402
 
@@ -166,8 +185,11 @@ def compact_deep_analysis_item(item):
     }
 
 
-def build_deep_analysis_report(result):
-    performance = calculate_portfolio_performance(record_history=False)
+def build_deep_analysis_report(result, portfolio_path=None):
+    performance = calculate_portfolio_performance(
+        portfolio_path,
+        record_history=False,
+    )
     items = [compact_deep_analysis_item(item) for item in result.get("items", [])]
     actions = {}
     for item in items:
@@ -176,6 +198,7 @@ def build_deep_analysis_report(result):
 
     return {
         "status": result.get("status"),
+        "portfolio_id": result.get("portfolio_id", "main"),
         "summary": result.get("summary", "Analisi completata."),
         "portfolio": {
             "total_value": safe_number(performance.get("total_value")),
@@ -247,10 +270,18 @@ def run_deep_analysis_job(job_id, payload):
             use_playwright=True,
             live_news=True,
             progress_callback=on_progress,
+            portfolio_path=portfolio_state_path(payload["portfolio_id"]),
+            portfolio_id=payload["portfolio_id"],
         )
         summary = result.get("summary", "Analisi completata.")
-        report = build_deep_analysis_report(result)
-        report = save_last_deep_analysis_report(report)
+        report = build_deep_analysis_report(
+            result,
+            portfolio_path=portfolio_state_path(payload["portfolio_id"]),
+        )
+        report = save_last_deep_analysis_report(
+            report,
+            portfolio_id=payload["portfolio_id"],
+        )
         update_deep_analysis_job(
             job_id,
             state="completed",
@@ -449,24 +480,40 @@ def latest_news_item_for_ticker(ticker):
     return None
 
 
-def save_last_deep_analysis_report(report):
+def deep_analysis_report_path(portfolio_id="main"):
+    try:
+        path = portfolio_state_path(portfolio_id)
+    except ValueError:
+        return LAST_DEEP_ANALYSIS_PATH
+    return path.parent / "last_deep_portfolio_analysis.json"
+
+
+def save_last_deep_analysis_report(report, portfolio_id="main"):
     payload = {
         **report,
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
-    LAST_DEEP_ANALYSIS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LAST_DEEP_ANALYSIS_PATH.write_text(
+    report_path = deep_analysis_report_path(portfolio_id)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
         json.dumps(json_safe(payload), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     return payload
 
 
-def load_last_deep_analysis_report():
-    if not LAST_DEEP_ANALYSIS_PATH.exists():
+def load_last_deep_analysis_report(portfolio_id="main"):
+    report_path = deep_analysis_report_path(portfolio_id)
+    if (
+        not report_path.exists()
+        and portfolio_id == "main"
+        and LAST_DEEP_ANALYSIS_PATH.exists()
+    ):
+        report_path = LAST_DEEP_ANALYSIS_PATH
+    if not report_path.exists():
         return None
     try:
-        return json.loads(LAST_DEEP_ANALYSIS_PATH.read_text(encoding="utf-8"))
+        return json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
 
@@ -474,11 +521,13 @@ def load_last_deep_analysis_report():
 class ChatRequest(BaseModel):
     message: str
     history: list[dict[str, str]] = []
+    portfolio_id: str = "main"
 
 
 class RunMonitorRequest(BaseModel):
     scan_limit: int = 5
     max_auto_trade_pct: float = 25.0
+    portfolio_id: str = "main"
 
 
 class PlaywrightMonitorRequest(BaseModel):
@@ -486,6 +535,7 @@ class PlaywrightMonitorRequest(BaseModel):
     deep_limit: int = 2
     universe_limit: int = 0
     telegram: bool = True
+    portfolio_id: str = "main"
 
 
 class WatchlistRequest(BaseModel):
@@ -549,11 +599,42 @@ class PortfolioDeepAnalysisRequest(BaseModel):
     create_proposals: bool = False
     auto_apply: bool = False
     telegram: bool = False
+    portfolio_id: str = "main"
 
 
 class AutonomySettingsRequest(BaseModel):
     portfolio_action_mode: str = "full_auto"
     notify_telegram: bool = True
+
+
+class PortfolioCreateRequest(BaseModel):
+    id: str
+    name: str
+    initial_capital: float
+    description: str = ""
+    risk_profile: str = "balanced"
+    risk_limits: dict = {}
+    allowed_markets: list[str] = ["ftse_mib", "commodities", "etf", "watchlist"]
+    allowed_asset_classes: list[str] = ["equity", "etf", "commodity_etc"]
+    allow_leveraged: bool = False
+    autonomy_mode: str = "full_auto"
+
+
+class PortfolioUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    status: str | None = None
+    risk_profile: str | None = None
+    risk_limits: dict | None = None
+    allowed_markets: list[str] | None = None
+    allowed_asset_classes: list[str] | None = None
+    allow_leveraged: bool | None = None
+    excluded_sectors: list[str] | None = None
+    preferred_sectors: list[str] | None = None
+    excluded_tickers: list[str] | None = None
+    asset_class_limits_pct: dict | None = None
+    autonomy: dict | None = None
+    telegram: dict | None = None
 
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -635,7 +716,7 @@ def kill_process_tree(pid: int):
         )
 
 
-def run_agent_command(args, timeout=900, script="agent_portfolio_manager.py"):
+def run_agent_command(args, timeout=900, script="agent_portfolio_manager.py", env_overrides=None):
     cmd = [sys.executable, str(ROOT / script), *args]
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     append_agent_logs(f"===== RUN {run_id} START script={script} =====")
@@ -646,6 +727,7 @@ def run_agent_command(args, timeout=900, script="agent_portfolio_manager.py"):
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
         "TRADINGWATCH_TIMESTAMP_LOGS": "0",
+        **(env_overrides or {}),
     }
     process = subprocess.Popen(
         cmd,
@@ -742,18 +824,151 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/portfolios")
+def get_portfolios(include_archived: bool = False):
+    return json_safe(list_portfolios(include_archived=include_archived))
+
+
+@app.get("/api/portfolios-summary")
+def get_portfolios_summary(include_archived: bool = False):
+    return json_safe(
+        build_portfolios_summary(include_archived=include_archived)
+    )
+
+
+@app.post("/api/portfolios", status_code=201)
+def post_portfolio(request: PortfolioCreateRequest):
+    payload = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+    try:
+        result = create_portfolio(
+            portfolio_id=payload["id"],
+            name=payload["name"],
+            initial_capital=payload["initial_capital"],
+            profile_name=payload["risk_profile"],
+            description=payload["description"],
+            allowed_markets=payload["allowed_markets"],
+            allowed_asset_classes=payload["allowed_asset_classes"],
+            autonomy_mode=payload["autonomy_mode"],
+            risk_overrides=payload["risk_limits"],
+            allow_leveraged=payload["allow_leveraged"],
+        )
+        return json_safe(result)
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/portfolios/{portfolio_id}")
+def get_portfolio(portfolio_id: str):
+    try:
+        config = load_portfolio_config(portfolio_id)
+        portfolio = load_portfolio_state(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not config or not portfolio:
+        raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    return json_safe({"config": config, "portfolio": portfolio})
+
+
+@app.patch("/api/portfolios/{portfolio_id}")
+def patch_portfolio(portfolio_id: str, request: PortfolioUpdateRequest):
+    payload = (
+        request.model_dump(exclude_none=True)
+        if hasattr(request, "model_dump")
+        else request.dict(exclude_none=True)
+    )
+    try:
+        config = update_portfolio_config(portfolio_id, payload)
+        return json_safe({"config": config})
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/portfolios/{portfolio_id}/status")
+def get_portfolio_status(portfolio_id: str):
+    try:
+        config = load_portfolio_config(portfolio_id)
+        path = portfolio_state_path(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not config or not path.exists():
+        raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    return json_safe(
+        {
+            "portfolio_id": portfolio_id,
+            "config": config,
+            "status": portfolio_status_summary(path),
+        }
+    )
+
+
+@app.get("/api/portfolios/{portfolio_id}/performance")
+def get_portfolio_performance(portfolio_id: str, record_history: bool = False):
+    try:
+        config = load_portfolio_config(portfolio_id)
+        path = portfolio_state_path(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not config or not path.exists():
+        raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    return json_safe(
+        calculate_portfolio_performance(
+            path,
+            record_history=record_history,
+            history_path=path.parent / "performance_history.json",
+        )
+    )
+
+
+@app.post("/api/portfolios/{portfolio_id}/pause")
+def pause_portfolio(portfolio_id: str):
+    try:
+        return json_safe({"config": update_portfolio_config(portfolio_id, {"status": "paused"})})
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/portfolios/{portfolio_id}/activate")
+def activate_portfolio(portfolio_id: str):
+    try:
+        return json_safe({"config": update_portfolio_config(portfolio_id, {"status": "active"})})
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/api/agent/status")
-def agent_status():
+def agent_status(portfolio_id: str = "main"):
     """Return the live run state without recalculating prices or scanner data."""
-    return json_safe(load_agent_run_state())
+    state_path = portfolio_runtime_path(portfolio_id).parent / "agent_run_state.json"
+    return json_safe(load_agent_run_state(state_path))
 
 
 @app.get("/api/dashboard")
-def dashboard():
-    portfolio = load_portfolio()
-    status = portfolio_status_summary()
-    performance = calculate_portfolio_performance()
-    performance_history = build_performance_history_view()
+def dashboard(portfolio_id: str = "main"):
+    try:
+        config = load_portfolio_config(portfolio_id)
+        state_path = portfolio_state_path(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not config or not state_path.exists():
+        raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    portfolio = load_portfolio(state_path)
+    status = portfolio_status_summary(state_path)
+    performance_history_path = state_path.parent / "performance_history.json"
+    performance = calculate_portfolio_performance(
+        state_path,
+        history_path=performance_history_path,
+    )
+    performance_history = build_performance_history_view(
+        history=load_performance_history(performance_history_path)
+    )
     active_conditions = [
         item
         for item in status.get("monitored_conditions", [])
@@ -765,12 +980,15 @@ def dashboard():
     closed = list(reversed((portfolio or {}).get("closed_proposals", [])))[:20]
     return json_safe({
         "portfolio": status,
+        "portfolio_config": config,
+        "portfolio_id": portfolio_id,
+        "portfolios": list_portfolios(),
         "performance": performance,
         "performance_history": performance_history,
         "monitored": monitored,
         "exit_conditions": exits,
-        "agent_run_state": agent_schedule_status(),
-        "token_usage": token_usage_summary(),
+        "agent_run_state": agent_schedule_status(portfolio_id),
+        "token_usage": token_usage_summary(portfolio_id=portfolio_id),
         "recent_actions": closed,
         "ftse_mib": enrich_universe_with_scan(load_mib30_tickers(), "mib30_scan.json"),
         "commodities": enrich_universe_with_scan(load_commodity_tickers(), "commodity_scan.json"),
@@ -779,8 +997,26 @@ def dashboard():
 
 
 @app.get("/api/token-usage")
-def get_token_usage(days: int = 14):
-    return json_safe(token_usage_summary(days=max(1, min(int(days or 14), 90))))
+def get_token_usage(days: int = 14, portfolio_id: str | None = None):
+    return json_safe(
+        token_usage_summary(
+            days=max(1, min(int(days or 14), 90)),
+            portfolio_id=portfolio_id,
+        )
+    )
+
+
+@app.post("/api/shared-analysis/evaluate")
+def evaluate_shared_analysis():
+    return json_safe(run_shared_portfolio_evaluation())
+
+
+@app.get("/api/shared-analysis/latest")
+def latest_shared_analysis():
+    result = load_latest_shared_results()
+    if result is None:
+        raise HTTPException(status_code=404, detail="Nessuna valutazione condivisa disponibile.")
+    return json_safe(result)
 
 
 @app.get("/api/news/reports")
@@ -1332,12 +1568,18 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
 
 
 @app.get("/api/watchlist")
-def get_watchlist():
-    return {"status": "ok", "watchlist": list_watchlist()}
+def get_watchlist(portfolio_id: str = "main"):
+    try:
+        path = portfolio_state_path(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    return {"status": "ok", "portfolio_id": portfolio_id, "watchlist": list_watchlist(path)}
 
 
 @app.post("/api/watchlist")
-def add_watchlist(request: WatchlistRequest):
+def add_watchlist(request: WatchlistRequest, portfolio_id: str = "main"):
     if not request.ticker.strip():
         raise HTTPException(status_code=400, detail="Ticker mancante")
     try:
@@ -1349,6 +1591,7 @@ def add_watchlist(request: WatchlistRequest):
             entry_condition=request.entry_condition,
             priority=request.priority,
             tags=request.tags,
+            path=portfolio_state_path(portfolio_id),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1356,23 +1599,49 @@ def add_watchlist(request: WatchlistRequest):
 
 
 @app.delete("/api/watchlist/{ticker}")
-def delete_watchlist(ticker: str):
+def delete_watchlist(ticker: str, portfolio_id: str = "main"):
     try:
-        return remove_watchlist_item(ticker)
+        return remove_watchlist_item(ticker, path=portfolio_state_path(portfolio_id))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/agent/chat")
 def chat(request: ChatRequest):
-    output = run_agent_command(["--model", SDK_MODEL, build_context(request.history, request.message)])
+    if not load_portfolio_config(request.portfolio_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Portafoglio {request.portfolio_id} non trovato.",
+        )
+    output = run_agent_command(
+        ["--model", SDK_MODEL, build_context(request.history, request.message)],
+        env_overrides={
+            "ACTIVE_PORTFOLIO_ID": request.portfolio_id,
+            "MULTI_PORTFOLIO_CHILD": "1",
+        },
+    )
     return {"answer": extract_agent_answer(output), "raw": output}
 
 
 @app.post("/api/agent/run-once")
 def run_once(request: RunMonitorRequest):
+    try:
+        config = load_portfolio_config(request.portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not config:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Portafoglio {request.portfolio_id} non trovato.",
+        )
+    if config.get("status") != "active":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Il portafoglio {request.portfolio_id} non e attivo.",
+        )
     append_agent_logs(
         "===== RUN MANUALE DA GUI: avvio monitor autonomo "
+        f"portfolio_id={request.portfolio_id} "
         f"universo=FTSE MIB completo + MateriePrime.xlsx completo + watchlist + trigger; "
         f"top_candidati={int(request.scan_limit)} max_auto_trade_pct={float(request.max_auto_trade_pct)} "
         f"model={PERIODIC_MODEL} max_turns={PERIODIC_MAX_TURNS} ====="
@@ -1392,13 +1661,22 @@ def run_once(request: RunMonitorRequest):
             str(PERIODIC_MAX_TURNS),
             "--max-auto-trade-pct",
             str(float(request.max_auto_trade_pct)),
-        ]
+        ],
+        env_overrides={
+            "ACTIVE_PORTFOLIO_ID": request.portfolio_id,
+            "MULTI_PORTFOLIO_CHILD": "1",
+        },
     )
     return {"output": output}
 
 
 @app.post("/api/playwright-monitor/run")
 def run_playwright_monitor(request: PlaywrightMonitorRequest):
+    if not load_portfolio_config(request.portfolio_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Portafoglio {request.portfolio_id} non trovato.",
+        )
     args = [
         "--limit",
         str(max(1, min(int(request.limit), 30))),
@@ -1409,12 +1687,25 @@ def run_playwright_monitor(request: PlaywrightMonitorRequest):
     ]
     if request.telegram:
         args.append("--telegram")
-    output = run_agent_command(args, timeout=1800, script="playwright_monitor.py")
+    output = run_agent_command(
+        args,
+        timeout=1800,
+        script="playwright_monitor.py",
+        env_overrides={
+            "ACTIVE_PORTFOLIO_ID": request.portfolio_id,
+            "MULTI_PORTFOLIO_CHILD": "1",
+        },
+    )
     return {"output": output}
 
 
 @app.post("/api/agent/analyze-watchlist-entry-conditions")
-def analyze_watchlist_entry_conditions():
+def analyze_watchlist_entry_conditions(portfolio_id: str = "main"):
+    if not load_portfolio_config(portfolio_id):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Portafoglio {portfolio_id} non trovato.",
+        )
     prompt = (
         "Analizza tutti i titoli della watchlist manuale usando list_manual_watchlist. "
         "Per ogni titolo lavora in sequenza, uno alla volta: "
@@ -1431,13 +1722,25 @@ def analyze_watchlist_entry_conditions():
         "Non creare proposte di acquisto in questa azione: imposta solo condizioni ingresso per la watchlist. "
         "Concludi con una tabella compatta ticker, prezzo, condizione ingresso impostata, supporto/stop e motivazione."
     )
-    output = run_agent_command(["--model", SDK_MODEL, prompt], timeout=1800)
+    output = run_agent_command(
+        ["--model", SDK_MODEL, prompt],
+        timeout=1800,
+        env_overrides={
+            "ACTIVE_PORTFOLIO_ID": portfolio_id,
+            "MULTI_PORTFOLIO_CHILD": "1",
+        },
+    )
     return {"output": output, "answer": extract_agent_answer(output)}
 
 
 @app.post("/api/portfolio/deep-analysis")
 def portfolio_deep_analysis(request: PortfolioDeepAnalysisRequest):
     payload = request.model_dump()
+    if not load_portfolio_config(payload["portfolio_id"]):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Portafoglio {payload['portfolio_id']} non trovato.",
+        )
     with DEEP_ANALYSIS_JOBS_LOCK:
         active_job = next(
             (
@@ -1490,8 +1793,12 @@ def portfolio_deep_analysis(request: PortfolioDeepAnalysisRequest):
 
 
 @app.get("/api/portfolio/deep-analysis/latest")
-def latest_portfolio_deep_analysis():
-    return {"status": "ok", "report": load_last_deep_analysis_report()}
+def latest_portfolio_deep_analysis(portfolio_id: str = "main"):
+    return {
+        "status": "ok",
+        "portfolio_id": portfolio_id,
+        "report": load_last_deep_analysis_report(portfolio_id),
+    }
 
 
 @app.get("/api/portfolio/deep-analysis/{job_id}")
@@ -1504,43 +1811,58 @@ def portfolio_deep_analysis_status(job_id: str):
 
 
 @app.get("/api/autonomy/settings")
-def autonomy_settings():
-    return {"status": "ok", "settings": load_autonomy_settings()}
+def autonomy_settings(portfolio_id: str = "main"):
+    return {
+        "status": "ok",
+        "portfolio_id": portfolio_id,
+        "settings": load_autonomy_settings(portfolio_id),
+    }
 
 
 @app.post("/api/autonomy/settings")
-def update_autonomy_settings(request: AutonomySettingsRequest):
+def update_autonomy_settings(request: AutonomySettingsRequest, portfolio_id: str = "main"):
     try:
-        settings = save_autonomy_settings(request.model_dump())
+        settings = save_autonomy_settings(request.model_dump(), portfolio_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     append_agent_logs(
         "Configurazione autonomia aggiornata dalla GUI | "
-        f"portfolio_action_mode={settings['portfolio_action_mode']} "
+        f"portfolio_id={portfolio_id} portfolio_action_mode={settings['portfolio_action_mode']} "
         f"notify_telegram={settings['notify_telegram']}"
     )
     return {"status": "ok", "settings": settings}
 
 
 @app.post("/api/telegram/monitoring")
-def telegram_monitoring():
-    return send_monitoring_summary(extra_note="Invio richiesto da web app React.")
+def telegram_monitoring(portfolio_id: str = "main"):
+    return send_monitoring_summary(
+        extra_note="Invio richiesto da web app React.",
+        portfolio_id=portfolio_id,
+    )
 
 
 @app.post("/api/telegram/performance")
-def telegram_performance():
-    return send_performance_summary(extra_note="Invio richiesto da web app React.", force=True)
+def telegram_performance(portfolio_id: str = "main"):
+    return send_performance_summary(
+        extra_note="Invio richiesto da web app React.",
+        force=True,
+        portfolio_id=portfolio_id,
+    )
 
 
 @app.get("/api/telegram/settings")
-def telegram_settings():
-    return {"status": "ok", "settings": load_telegram_settings()}
+def telegram_settings(portfolio_id: str = "main"):
+    return {
+        "status": "ok",
+        "portfolio_id": portfolio_id,
+        "settings": load_telegram_settings(portfolio_id),
+    }
 
 
 @app.post("/api/telegram/settings")
-def update_telegram_settings(request: TelegramSettingsRequest):
+def update_telegram_settings(request: TelegramSettingsRequest, portfolio_id: str = "main"):
     try:
-        settings = save_telegram_settings(request.model_dump())
+        settings = save_telegram_settings(request.model_dump(), portfolio_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "settings": settings}

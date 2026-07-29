@@ -10,6 +10,14 @@ from finance_tools.common import PROJECT_ROOT
 from finance_tools.agent_run_state import load_agent_run_state, parse_iso
 from finance_tools.portfolio_store import list_monitored_conditions, load_portfolio, portfolio_status_summary
 from finance_tools.performance_tool import calculate_portfolio_performance
+from finance_tools.portfolio_registry import (
+    DEFAULT_PORTFOLIO_ID,
+    atomic_write_json,
+    load_portfolio_config,
+    portfolio_runtime_path,
+    portfolio_state_path,
+    update_portfolio_config,
+)
 
 
 TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
@@ -47,31 +55,63 @@ def now_iso():
     return datetime.now().replace(microsecond=0).isoformat()
 
 
-def load_notification_state():
-    if not TELEGRAM_NOTIFICATION_STATE.exists():
+def active_portfolio_id(portfolio_id=None):
+    return str(
+        portfolio_id
+        or os.getenv("ACTIVE_PORTFOLIO_ID")
+        or DEFAULT_PORTFOLIO_ID
+    ).strip().lower()
+
+
+def portfolio_display_label(portfolio_id=None):
+    resolved_id = active_portfolio_id(portfolio_id)
+    config = load_portfolio_config(resolved_id) or {}
+    name = str(config.get("name") or resolved_id).strip()
+    return resolved_id, f"{name} [{resolved_id}]"
+
+
+def notification_state_path(portfolio_id=None):
+    resolved_id = active_portfolio_id(portfolio_id)
+    runtime_path = portfolio_runtime_path(resolved_id)
+    if runtime_path.parent.exists():
+        return runtime_path.parent / "telegram_notification_state.json"
+    return TELEGRAM_NOTIFICATION_STATE
+
+
+def load_notification_state(portfolio_id=None):
+    path = notification_state_path(portfolio_id)
+    if not path.exists():
         return {}
     try:
-        return json.loads(TELEGRAM_NOTIFICATION_STATE.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
 
 
-def save_notification_state(state):
-    TELEGRAM_NOTIFICATION_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_notification_state(state, portfolio_id=None):
+    path = notification_state_path(portfolio_id)
+    atomic_write_json(path, state)
 
 
-def load_telegram_settings():
+def load_telegram_settings(portfolio_id=None):
     default = {
         "monitoring_mode": "always",
         "send_performance_alerts": True,
         "max_monitoring_items": 5,
     }
-    if not TELEGRAM_SETTINGS_FILE.exists():
-        return default
-    try:
-        data = json.loads(TELEGRAM_SETTINGS_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return default
+    resolved_id = active_portfolio_id(portfolio_id)
+    config = load_portfolio_config(resolved_id)
+    portfolio_settings = (config or {}).get("telegram") or {}
+    if portfolio_settings.get("inherit_global", True):
+        if not TELEGRAM_SETTINGS_FILE.exists():
+            data = {}
+        else:
+            try:
+                data = json.loads(TELEGRAM_SETTINGS_FILE.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                data = {}
+    else:
+        data = portfolio_settings
     merged = {**default, **data}
     if merged.get("monitoring_mode") not in TELEGRAM_MODES:
         merged["monitoring_mode"] = default["monitoring_mode"]
@@ -83,8 +123,9 @@ def load_telegram_settings():
     return merged
 
 
-def save_telegram_settings(settings):
-    current = load_telegram_settings()
+def save_telegram_settings(settings, portfolio_id=None):
+    resolved_id = active_portfolio_id(portfolio_id)
+    current = load_telegram_settings(resolved_id)
     merged = {**current, **settings}
     if merged.get("monitoring_mode") not in TELEGRAM_MODES:
         raise ValueError(f"monitoring_mode non valido. Usa uno tra: {', '.join(sorted(TELEGRAM_MODES))}")
@@ -93,7 +134,19 @@ def save_telegram_settings(settings):
     except (TypeError, ValueError) as exc:
         raise ValueError("max_monitoring_items deve essere un numero tra 3 e 12") from exc
     merged["send_performance_alerts"] = bool(merged.get("send_performance_alerts"))
-    TELEGRAM_SETTINGS_FILE.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    config = load_portfolio_config(resolved_id)
+    if config:
+        update_portfolio_config(
+            resolved_id,
+            {
+                "telegram": {
+                    **merged,
+                    "inherit_global": False,
+                }
+            },
+        )
+    else:
+        atomic_write_json(TELEGRAM_SETTINGS_FILE, merged)
     return merged
 
 
@@ -679,12 +732,14 @@ def _action_effect_brief(item):
     return "\n".join(details)
 
 
-def build_readable_monitoring_summary(extra_note=""):
-    settings = load_telegram_settings()
+def build_readable_monitoring_summary(extra_note="", portfolio_id=None):
+    resolved_id, portfolio_label = portfolio_display_label(portfolio_id)
+    path = portfolio_state_path(resolved_id)
+    settings = load_telegram_settings(resolved_id)
     max_items = int(settings.get("max_monitoring_items") or 5)
-    status = portfolio_status_summary()
-    performance = calculate_portfolio_performance()
-    conditions = list_monitored_conditions(status=None)
+    status = portfolio_status_summary(path)
+    performance = calculate_portfolio_performance(path, record_history=False)
+    conditions = list_monitored_conditions(status=None, path=path)
     waiting = sorted(
         [item for item in conditions if item.get("status") == "waiting"],
         key=_condition_sort_key,
@@ -716,7 +771,7 @@ def build_readable_monitoring_summary(extra_note=""):
         for item in pending_buy
         if item.get("status") == "pending"
     }
-    portfolio = load_portfolio() or {}
+    portfolio = load_portfolio(path) or {}
     run_state = load_agent_run_state()
     run_started_at = parse_iso(run_state.get("last_started_at"))
     last_run_actions = _last_run_actions(
@@ -732,6 +787,7 @@ def build_readable_monitoring_summary(extra_note=""):
     lines = [
         "📊 Autonomous Trading Agent",
         f"Monitor | {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        f"Portafoglio | {portfolio_label}",
         "",
         "💼 Portafoglio",
         f"Valore: {format_money(performance.get('total_value'))}",
@@ -807,16 +863,18 @@ def build_readable_monitoring_summary(extra_note=""):
     return "\n".join(lines)
 
 
-def build_readable_performance_summary(performance=None, extra_note=""):
+def build_readable_performance_summary(performance=None, extra_note="", portfolio_id=None):
     perf = performance or calculate_portfolio_performance()
     if perf.get("status") != "ok":
         return perf.get("message", "Performance non disponibile.")
 
+    _, portfolio_label = portfolio_display_label(portfolio_id)
     total_pnl = float(perf.get("total_pnl") or 0)
     total_pnl_pct = float(perf.get("total_pnl_pct") or 0)
     lines = [
         "📊 Autonomous Trading Agent",
         f"Performance | {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        f"Portafoglio | {portfolio_label}",
         "",
         "💼 Totale",
         f"Valore: {format_money(perf.get('total_value'))}",
@@ -854,23 +912,40 @@ def build_readable_performance_summary(performance=None, extra_note=""):
     return "\n".join(lines)
 
 
-def build_monitoring_summary(extra_note=""):
-    return build_readable_monitoring_summary(extra_note=extra_note)
+def build_monitoring_summary(extra_note="", portfolio_id=None):
+    return build_readable_monitoring_summary(
+        extra_note=extra_note,
+        portfolio_id=portfolio_id,
+    )
 
 
-def send_monitoring_summary(extra_note=""):
-    message = build_monitoring_summary(extra_note=extra_note)
+def send_monitoring_summary(extra_note="", portfolio_id=None):
+    message = build_monitoring_summary(
+        extra_note=extra_note,
+        portfolio_id=portfolio_id,
+    )
     result = send_telegram_message(message)
     return {**result, "message": message}
 
 
-def send_performance_summary(extra_note="", force=False, min_interval_minutes=180):
-    performance = calculate_portfolio_performance()
+def send_performance_summary(
+    extra_note="",
+    force=False,
+    min_interval_minutes=180,
+    portfolio_id=None,
+):
+    resolved_id = active_portfolio_id(portfolio_id)
+    path = portfolio_state_path(resolved_id)
+    performance = calculate_portfolio_performance(path, record_history=False)
     if not force:
         allowed, reason = should_send_performance_alert(performance, min_interval_minutes=min_interval_minutes)
         if not allowed:
             return {"status": "skipped", "reason": reason, "message": ""}
 
-    message = build_readable_performance_summary(performance, extra_note=extra_note)
+    message = build_readable_performance_summary(
+        performance,
+        extra_note=extra_note,
+        portfolio_id=resolved_id,
+    )
     result = send_telegram_message(message)
     return {**result, "message": message}

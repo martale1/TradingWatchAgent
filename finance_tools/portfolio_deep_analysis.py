@@ -9,6 +9,7 @@ from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
 from finance_tools.news_tool import get_news_report
 from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.portfolio_store import (
+    PORTFOLIO_FILE,
     add_position_action_proposal,
     confirm_proposal,
     load_portfolio,
@@ -202,6 +203,8 @@ def run_deep_portfolio_analysis(
     period="1y",
     days=70,
     progress_callback=None,
+    portfolio_path=None,
+    portfolio_id="main",
 ):
     """Analyze only open portfolio positions with chart AI/news and action hints."""
     def progress(stage, message, ticker=None, current=None, total=None, percent=None):
@@ -224,17 +227,22 @@ def run_deep_portfolio_analysis(
         f"use_playwright={use_playwright} live_news={live_news} "
         f"create_proposals={create_proposals} auto_apply={auto_apply}"
     )
-    portfolio = load_portfolio()
+    resolved_path = portfolio_path or PORTFOLIO_FILE
+    portfolio = load_portfolio(resolved_path)
     if portfolio is None:
         progress("error", "Il file portfolio.json non esiste.", percent=100)
         return {"status": "missing_portfolio", "message": "portfolio.json non esiste.", "items": []}
 
     positions = [item for item in portfolio.get("positions", []) if item.get("status") == "open"]
     positions = positions[: max(1, int(max_positions or 1))]
-    performance = calculate_portfolio_performance(record_history=False)
+    performance = calculate_portfolio_performance(
+        resolved_path,
+        record_history=False,
+    )
     result = {
         "status": "ok",
         "mode": "portfolio_deep_on_demand",
+        "portfolio_id": portfolio_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "only_open_positions": True,
         "create_proposals": bool(create_proposals),
@@ -352,12 +360,19 @@ def run_deep_portfolio_analysis(
                 reference_price=decision["reference_price"],
                 reason=f"Analisi approfondita on demand: {decision['reason']}",
                 metadata={"source": "portfolio_deep_on_demand", "priority": decision["priority"]},
+                path=resolved_path,
             )
             _log(f"{ticker} - proposta creata {proposal.get('id')} action={proposal.get('action')}")
             if auto_apply:
-                allowed, autonomy_mode = autonomous_action_allowed(proposal.get("action"))
+                allowed, autonomy_mode = autonomous_action_allowed(
+                    proposal.get("action"),
+                    portfolio_id=portfolio_id,
+                )
                 if allowed:
-                    applied = confirm_proposal(proposal["id"])
+                    applied = confirm_proposal(
+                        proposal["id"],
+                        path=resolved_path,
+                    )
                     _log(
                         f"{ticker} - proposta applicata automaticamente {proposal.get('id')} "
                         f"modalita={autonomy_mode}"

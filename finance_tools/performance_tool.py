@@ -172,7 +172,7 @@ def latest_price(ticker):
     return latest_quote(ticker)["current_price"]
 
 
-def calculate_portfolio_performance(path=None, record_history=True):
+def calculate_portfolio_performance(path=None, record_history=True, history_path=None):
     portfolio = load_portfolio(path) if path else load_portfolio()
     if portfolio is None:
         return {
@@ -315,7 +315,15 @@ def calculate_portfolio_performance(path=None, record_history=True):
         "alerts": alerts,
     }
     if record_history:
-        performance["history_count"] = len(append_performance_snapshot(performance))
+        resolved_history_path = history_path
+        if resolved_history_path is None and path:
+            resolved_history_path = Path(path).parent / "performance_history.json"
+        performance["history_count"] = len(
+            append_performance_snapshot(
+                performance,
+                resolved_history_path or PERFORMANCE_HISTORY_FILE,
+            )
+        )
     return performance
 
 

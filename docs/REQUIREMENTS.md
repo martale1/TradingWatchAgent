@@ -6,6 +6,12 @@ Questo file va riletto prima di ogni modifica importante, run manuale, revisione
 
 Autonomous Trading Agent gestisce un portafoglio virtuale con trading automatico, monitoraggio trigger, analisi tecnica, news tramite ChatGPT/Playwright e notifiche Telegram.
 
+La gestione di piu portafogli e disciplinata dalla specifica dedicata
+[`MULTI_PORTFOLIO_REQUIREMENTS.md`](MULTI_PORTFOLIO_REQUIREMENTS.md). In caso di
+modifiche al registry, alla selezione del portafoglio, ai profili di rischio o
+alla condivisione delle analisi, quella specifica deve essere aggiornata insieme
+a questo documento.
+
 Il sistema deve aiutare l'utente a:
 
 - monitorare posizioni aperte;

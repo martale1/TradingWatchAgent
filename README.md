@@ -56,6 +56,30 @@ logs/                             # log schedulati e Telegram bot
 output/                           # grafici, analisi e cache news
 ```
 
+## Gestione multi-portafoglio
+
+Il branch `codex/multi-portfolio` separa l'analisi condivisa dei mercati dalle
+decisioni dei singoli portafogli.
+
+- Il portafoglio storico viene migrato in `data/portfolios/main` con nome
+  `Portafoglio principale`.
+- Ogni portafoglio ha capitale, posizioni, trigger, proposte, profilo di rischio,
+  autonomia, Telegram, performance e runtime indipendenti.
+- La GUI permette di creare, selezionare, configurare, sospendere e riattivare i
+  portafogli.
+- Gli scanner FTSE MIB, Materie prime ed ETF vengono eseguiti dal ciclo
+  principale e salvati come analisi condivisa.
+- Le opportunita vengono filtrate per mercati, asset class, score, liquidita e
+  limiti del singolo portafoglio.
+- I cicli secondari usano `--skip-market-scanners`, quindi rivalutano trigger,
+  posizioni e decisioni senza ripetere lo scan completo.
+- `ACTIVE_PORTFOLIO_ID` identifica il portafoglio usato da un subprocess.
+- `MULTI_PORTFOLIO_CHILD=1` impedisce ai cicli secondari di rilanciare a loro
+  volta il coordinatore.
+
+La specifica completa e in
+[`docs/MULTI_PORTFOLIO_REQUIREMENTS.md`](docs/MULTI_PORTFOLIO_REQUIREMENTS.md).
+
 ## Architettura LangGraph proposta
 
 Il branch `codex/langgraph-review` introduce un workflow LangGraph per rendere il ciclo operativo piu prevedibile. L'idea e spostare la sequenza decisionale dal solo prompt dell'agente a un grafo esplicito, dove ogni nodo ha input, output e responsabilita chiare.
@@ -312,26 +336,117 @@ Nota: Playwright non viene lanciato su tutti gli strumenti importati. Viene usat
 
 ## Scoring e filtri
 
-Gli scanner calcolano indicatori tecnici locali, tra cui:
+Lo score e un punteggio tecnico usato per ordinare la short-list. Non e una
+probabilita di rendimento e non genera da solo un ordine di acquisto. Azioni,
+ETF e Materie prime/ETC usano attualmente la stessa funzione di scoring.
 
-- RSI
-- MACD e signal
-- Stocastico
-- Williams %R
-- ADX, DI+ e DI-
-- volumi e volume MA10
-- supporti e resistenze recenti
-- variazione giornaliera
+### Calcolo dello score tecnico
 
-Lo score serve solo per creare una short-list. Non e un ordine di acquisto.
+| Condizione | Punti |
+|---|---:|
+| `MACD > MACD Signal` | `+2` |
+| `DI+ > DI-` e `ADX >= 20` | `+2` |
+| RSI compreso tra 45 e 68 | `+2` |
+| Stocastico `%K > %D` e `%K < 85` | `+1` |
+| Volume finale della seduta maggiore della MA10 | `+1` |
+| Resistenza a 10 sedute distante tra 0% e +6% | `+1` |
+| Supporto a 10 sedute distante tra -5% e 0% | `+1` |
+| RSI maggiore di 72 | `-1` |
+| RSI minore di 40 | `-1` |
+| Liquidita insufficiente | `-3` e filtro hard |
 
-Prima di diventare operativo, un candidato deve superare anche:
+Il massimo teorico e 10. Un esempio con MACD positivo (`+2`), trend
+direzionale confermato (`+2`), RSI costruttivo (`+2`), Stocastico positivo
+(`+1`), volume finale insufficiente (`0`), resistenza vicina (`+1`) e supporto
+vicino (`+1`) produce uno score pari a 9.
 
-- liquidita minima;
-- distanza ragionevole dal trigger;
-- volumi non contrari;
-- news non negative;
-- eventuale conferma grafica via Playwright se il caso e vicino a una decisione.
+### Come vengono calcolati gli indicatori
+
+- **MACD**: `EMA(12) - EMA(26)`. La Signal e l'EMA a 9 periodi del MACD.
+- **RSI**: calcolato su 14 sedute usando guadagni e perdite medie.
+- **Stocastico**: `%K` usa il range massimo/minimo delle ultime 14 sedute;
+  `%D` e la media a 3 periodi di `%K`.
+- **ADX e DI**: calcolati su 14 sedute. DI+/DI- indicano la direzione e ADX la
+  forza del trend.
+- **Volume MA10**: media semplice del volume delle ultime 10 sedute.
+- **Supporto 10**: minimo dei prezzi `Low` delle ultime 10 sedute.
+- **Resistenza 10**: massimo dei prezzi `High` delle ultime 10 sedute.
+- **Distanza dal livello**: `(livello / prezzo corrente - 1) * 100`.
+
+Williams %R, EMA e Alligator sono disponibili nei grafici, ma non assegnano
+punti nello score corrente.
+
+### Volume intraday e volume finale
+
+Il volume giornaliero non viene usato per confermare un ingresso mentre la
+seduta e ancora aperta:
+
+- durante la seduta il volume e indicato come provvisorio e il setup resta al
+  massimo `NEAR_TRIGGER`;
+- a fine seduta lo score riceve `+1` se `volume > MA10`;
+- per confermare numericamente un breakout o pullback e sufficiente
+  `volume / MA10 >= 0.80`, se il volume e disponibile.
+
+Esempio: `volume 0.80x MA10` significa che il volume della seduta e pari
+all'80% della media delle ultime 10 sedute.
+
+### Liquidita
+
+```text
+volume medio = volume MA10, oppure MA5/volume corrente come fallback
+controvalore medio = volume medio * prezzo corrente
+```
+
+| Asset class | Volume medio minimo scanner | Controvalore minimo scanner |
+|---|---:|---:|
+| Azioni | 100.000 unita | 100.000 EUR |
+| ETF | 100.000 unita | 100.000 EUR |
+| Materie prime/ETC | 5.000 unita | 100.000 EUR |
+
+Se almeno una soglia non e rispettata, `liquidity_ok` diventa falso, lo score
+perde 3 punti e lo strumento rimane visibile nello scan ma viene escluso dai
+candidati operativi.
+
+Nota implementativa: il filtro hard globale dello scanner usa attualmente
+100.000 EUR di controvalore minimo. Di conseguenza un profilo con soglia
+portfolio inferiore, per esempio il dinamico a 50.000 EUR, non puo ancora
+recuperare uno strumento gia escluso dallo scanner. La separazione completa
+tra metriche globali e soglie per-portafoglio e un miglioramento pianificato.
+
+### Dal mercato alla short-list di ciascun portafoglio
+
+La scansione tecnica viene eseguita una sola volta. Ogni risultato viene poi
+valutato separatamente per ciascun portafoglio e deve rispettare:
+
+1. portafoglio attivo;
+2. mercato e asset class ammessi;
+3. ticker e settore non esclusi;
+4. policy sugli strumenti leveraged;
+5. score minimo del profilo;
+6. liquidita e controvalore minimo;
+7. numero massimo di posizioni, se si tratta di un nuovo titolo.
+
+Gli strumenti idonei vengono ordinati per score e, a parita, per controvalore
+medio. Vengono salvati fino a 5 candidati per mercato e portafoglio.
+
+### Profili di rischio predefiniti
+
+| Limite | Conservativo | Bilanciato | Dinamico |
+|---|---:|---:|---:|
+| Score minimo | 7 | 6 | 5 |
+| Controvalore medio minimo | 250.000 EUR | 100.000 EUR | 50.000 EUR |
+| Cash minimo da preservare | 25% | 15% | 8% |
+| Massimo per posizione | 7% | 12% | 18% |
+| Massimo per settore | 18% | 25% | 35% |
+| Nuova posizione massima | 5% | 8% | 12% |
+| Incremento massimo | 2% | 3% | 5% |
+| Operazione minima | 1% | 1% | 1% |
+| Numero massimo posizioni | 25 | 18 | 12 |
+
+Il dimensionamento finale usa il minimo tra importo richiesto, cash
+disponibile oltre la riserva, spazio residuo sulla posizione, spazio residuo
+sul settore e limite per nuova posizione/incremento. Non viene ripetuto un
+acquisto sullo stesso ticker nella stessa seduta.
 
 ## Scenari di ingresso
 

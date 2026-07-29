@@ -1,11 +1,18 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
 from finance_tools.common import PROJECT_ROOT
+from finance_tools.portfolio_registry import atomic_write_json, portfolio_state_path
 
 
-PORTFOLIO_FILE = PROJECT_ROOT / "portfolio.json"
+LEGACY_PORTFOLIO_FILE = PROJECT_ROOT / "portfolio.json"
+ACTIVE_PORTFOLIO_ID = os.getenv("ACTIVE_PORTFOLIO_ID", "main")
+ACTIVE_PORTFOLIO_FILE = portfolio_state_path(ACTIVE_PORTFOLIO_ID)
+PORTFOLIO_FILE = (
+    ACTIVE_PORTFOLIO_FILE if ACTIVE_PORTFOLIO_FILE.exists() else LEGACY_PORTFOLIO_FILE
+)
 ACTIVE_CONDITION_STATUSES = {"waiting", "met"}
 SCENARIO_RANK = {
     "BUY_CANDIDATE": 50,
@@ -52,7 +59,7 @@ def load_portfolio(path=PORTFOLIO_FILE):
 def save_portfolio(portfolio, path=PORTFOLIO_FILE):
     portfolio["updated_at"] = now_iso()
     file_path = Path(path)
-    file_path.write_text(json.dumps(portfolio, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(file_path, portfolio)
     return portfolio
 
 
@@ -474,14 +481,18 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
 
     if match.get("action") == "buy_virtual_position":
         from finance_tools.risk_manager import prepare_buy
+        from finance_tools.portfolio_registry import load_portfolio_config
 
         metadata = match.setdefault("metadata", {})
+        portfolio_id = str(portfolio.get("portfolio_id") or "main")
+        config = load_portfolio_config(portfolio_id) or {}
         risk = prepare_buy(
             portfolio,
             match.get("ticker"),
             metadata.get("amount"),
             metadata.get("execution_key", ""),
             metadata.get("sector", ""),
+            risk_limits=config.get("risk_limits"),
         )
         metadata["risk_validation"] = risk
         if not risk.get("allowed"):
