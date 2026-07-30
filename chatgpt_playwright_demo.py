@@ -17,11 +17,12 @@ TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_TOKEN_FALLBACK_ENV = "TELEGRAM_BOT_TOKEN_CH1"
 TELEGRAM_RECEIVER_ENV = "TELEGRAM_RECEIVER_ID"
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
+CDP_CONNECT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_CDP_CONNECT_TIMEOUT_MS", "15000"))
 SEND_TELEGRAM_BY_DEFAULT = True
-RESPONSE_TIMEOUT_SECONDS = 120
+RESPONSE_TIMEOUT_SECONDS = int(os.getenv("NEWS_RESPONSE_TIMEOUT_SECONDS", "75"))
 PAUSE_BETWEEN_STOCKS_SECONDS = 3
-NAVIGATION_TIMEOUT_MS = 60000
-NAVIGATION_RETRIES = 3
+NAVIGATION_TIMEOUT_MS = int(os.getenv("CHATGPT_NAVIGATION_TIMEOUT_MS", "20000"))
+NAVIGATION_RETRIES = int(os.getenv("CHATGPT_NAVIGATION_RETRIES", "2"))
 DEFAULT_COMPANY = "Vodafone"
 DEFAULT_TICKER = "VOD.L"
 DEFAULT_MARKET = "London Stock Exchange"
@@ -359,7 +360,10 @@ def main():
 
     with sync_playwright() as p:
         if args.cdp:
-            browser = p.chromium.connect_over_cdp(args.cdp)
+            browser = p.chromium.connect_over_cdp(
+                args.cdp,
+                timeout=CDP_CONNECT_TIMEOUT_MS,
+            )
             context = browser.contexts[0] if browser.contexts else browser.new_context()
             if args.prompt or args.login_only:
                 prompt = args.prompt or build_stock_prompt(args.company, args.ticker, args.market)

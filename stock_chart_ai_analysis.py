@@ -13,6 +13,8 @@ from finance_charts.technical_charts import create_chart_bundle
 
 CHATGPT_URL = "https://chatgpt.com/"
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
+CDP_CONNECT_TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_CDP_CONNECT_TIMEOUT_MS", "15000"))
+RESPONSE_TIMEOUT_SECONDS = int(os.getenv("CHART_AI_RESPONSE_TIMEOUT_SECONDS", "90"))
 TELEGRAM_TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_TOKEN_FALLBACK_ENV = "TELEGRAM_BOT_TOKEN_CH1"
 TELEGRAM_RECEIVER_ENV = "TELEGRAM_RECEIVER_ID"
@@ -173,7 +175,7 @@ def send_prompt(page, prompt):
     return initial_count
 
 
-def wait_for_response(page, initial_count, timeout_seconds=180):
+def wait_for_response(page, initial_count, timeout_seconds=RESPONSE_TIMEOUT_SECONDS):
     last_text = ""
     stable_reads = 0
     elapsed = 0
@@ -270,7 +272,10 @@ def main():
         return
 
     with sync_playwright() as p:
-        browser = p.chromium.connect_over_cdp(args.cdp)
+        browser = p.chromium.connect_over_cdp(
+            args.cdp,
+            timeout=CDP_CONNECT_TIMEOUT_MS,
+        )
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         for bundle in bundles:
             ticker = bundle["ticker"]

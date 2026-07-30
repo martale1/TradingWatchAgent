@@ -407,7 +407,7 @@ function QuickNewsPanel({ ticker, onClose }) {
   );
 }
 
-function AgentRunStatus({ state = {}, stats = {}, tokenUsage = {} }) {
+function AgentRunStatus({ state = {}, stats = {}, tokenUsage = {}, playwrightHealth = {} }) {
   const status = state.status || "never_run";
   const statusClass = status === "ok" ? "positive" : status === "running" ? "warning" : status === "error" || status === "stale" ? "negative" : "neutral";
   const statusLabel = status === "never_run" ? "mai eseguito" : status === "stale" ? "run appesa" : status;
@@ -488,6 +488,16 @@ function AgentRunStatus({ state = {}, stats = {}, tokenUsage = {} }) {
           </small>
         )}
       </div>
+      {playwrightHealth.status === "error" && (
+        <div className="agentStatusError">
+          <span>Playwright / ChatGPT non operativo</span>
+          <b>{playwrightHealth.message}</b>
+          <small className="agentScheduleDetail">
+            {playwrightHealth.ticker ? `${playwrightHealth.ticker} · ` : ""}
+            rilevato {dateTime(playwrightHealth.last_error_at)}
+          </small>
+        </div>
+      )}
       {state.last_error && <div className="agentStatusError"><span>Errore ultima run</span><b>{state.last_error}</b></div>}
     </section>
   );
@@ -639,7 +649,7 @@ function PortfolioPerformanceChart({ data = {} }) {
       </div>
       <div className="performanceHistoryStats">
         <div><span>Valore ultimo giorno</span><b>{eur(latest?.total_value)}</b></div>
-        <div><span>P/L ultimo giorno</span><b className={signedClass(latest?.total_pnl)}>{eur(latest?.total_pnl)} ({pct(latest?.total_pnl_pct)})</b></div>
+        <div><span>P/L totale a oggi</span><b className={signedClass(latest?.total_pnl)}>{eur(latest?.total_pnl)} ({pct(latest?.total_pnl_pct)})</b></div>
         <div><span>Rendimento giornaliero</span><b className={signedClass(lastDaily)}>{pct(lastDaily)}</b></div>
         <div><span>Range giornaliero storico</span><b>{pct(worst?.daily_return_pct)} / {pct(best?.daily_return_pct)}</b></div>
       </div>
@@ -3382,6 +3392,36 @@ function PortfoliosSummary({ selectedId = "main", onSelect }) {
               <span><small>Titoli</small><strong>{eur(row.positions_value)}</strong><em>{pct(row.exposure_pct, false)}</em></span>
               <span><small>Posizioni</small><strong>{row.positions_count}</strong><em>{row.quote_errors_count ? `${row.quote_errors_count} prezzi mancanti` : "prezzi aggiornati"}</em></span>
             </div>
+            <div className="portfolioSummaryPositions">
+              <div className="portfolioSummaryPositionsHead">
+                <strong>Titoli in portafoglio</strong>
+                <span>Valore · rendimento</span>
+              </div>
+              {(row.positions || []).length ? (
+                <div className="portfolioSummaryPositionsList">
+                  {(row.positions || []).map((position) => (
+                    <div className="portfolioSummaryPosition" key={position.ticker}>
+                      <div>
+                        <strong>{position.ticker}</strong>
+                        {position.daily_change_pct != null && (
+                          <small className={signedClass(position.daily_change_pct)}>
+                            oggi {pct(position.daily_change_pct)}
+                          </small>
+                        )}
+                      </div>
+                      <div>
+                        <strong>{eur(position.market_value)}</strong>
+                        <small className={signedClass(position.pnl)}>
+                          {eur(position.pnl)} · {pct(position.pnl_pct)}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span className="portfolioSummaryEmpty">Nessun titolo in portafoglio</span>
+              )}
+            </div>
             <div className="portfolioSummaryMarkets">
               {(row.allowed_markets || []).map((market) => <span key={market}>{market.replaceAll("_", " ")}</span>)}
             </div>
@@ -4010,6 +4050,7 @@ function App() {
           {!["summary", "portfolios"].includes(tab) && <div className="metrics">
             <AgentRunStatus
               state={data.agent_run_state || {}}
+              playwrightHealth={data.playwright_health || {}}
               tokenUsage={data.token_usage || {}}
               stats={{
                 positionsCount: (perf.positions || []).length,

@@ -20,6 +20,7 @@ BREAKOUT_NEAR_PCT = float(os.getenv("BREAKOUT_NEAR_PCT", "3"))
 PULLBACK_ENTRY_DISTANCE_PCT = float(os.getenv("PULLBACK_ENTRY_DISTANCE_PCT", "2.5"))
 PULLBACK_STOP_BUFFER_PCT = float(os.getenv("PULLBACK_STOP_BUFFER_PCT", "1.2"))
 MIN_CONFIRM_VOLUME_RATIO = float(os.getenv("MIN_CONFIRM_VOLUME_RATIO", "0.8"))
+MIN_INTRADAY_SESSION_PROGRESS = float(os.getenv("MIN_INTRADAY_SESSION_PROGRESS", "0.10"))
 
 SCENARIO_WAIT = "WAIT"
 SCENARIO_NEAR_TRIGGER = "NEAR_TRIGGER"
@@ -245,6 +246,14 @@ def _volume_ratio(snapshot):
     return volume / volume_ma10
 
 
+def _intraday_volume_pace_ratio(snapshot):
+    volume_ratio = _volume_ratio(snapshot)
+    progress = _to_float(snapshot.get("market_session_progress"))
+    if volume_ratio is None or progress is None or progress < MIN_INTRADAY_SESSION_PROGRESS:
+        return None
+    return volume_ratio / min(progress, 1.0)
+
+
 def _evaluate_breakout(scenario, snapshot, liquidity):
     close = _to_float(snapshot.get("close"))
     trigger = _to_float(scenario.get("trigger"))
@@ -257,9 +266,18 @@ def _evaluate_breakout(scenario, snapshot, liquidity):
     if support is not None and close < support:
         return SCENARIO_INVALIDATED, f"close sotto supporto {support:.4f}"
     if close >= trigger and not snapshot.get("daily_bar_complete", False):
+        pace_ratio = _intraday_volume_pace_ratio(snapshot)
+        if pace_ratio is not None and pace_ratio >= MIN_CONFIRM_VOLUME_RATIO:
+            return (
+                SCENARIO_CONFIRMING,
+                f"breakout intraday verificato con ritmo volumi {pace_ratio:.2f}x MA10 atteso; "
+                "serve conferma Playwright/news",
+            )
         return (
             SCENARIO_NEAR_TRIGGER,
-            "prezzo sopra trigger intraday; attendo chiusura e volume finali della seduta",
+            "prezzo sopra trigger intraday ma ritmo volumi non ancora sufficiente o seduta troppo giovane"
+            if pace_ratio is not None
+            else "prezzo sopra trigger intraday; attendo dati sufficienti sul ritmo dei volumi",
         )
     if close >= trigger and (volume_ratio is None or volume_ratio >= MIN_CONFIRM_VOLUME_RATIO):
         return SCENARIO_CONFIRMING, "breakout numerico verificato, serve conferma Playwright/news"
@@ -281,6 +299,7 @@ def _evaluate_pullback(scenario, snapshot, liquidity):
     entry_max = _to_float(scenario.get("entry_area_max"))
     stop = _to_float(scenario.get("stop"))
     volume_ratio = _volume_ratio(snapshot)
+    pace_ratio = _intraday_volume_pace_ratio(snapshot)
     rsi = _to_float(snapshot.get("rsi"))
     if not liquidity.get("liquidity_ok"):
         return SCENARIO_INVALIDATED, "liquidita insufficiente"
@@ -294,9 +313,15 @@ def _evaluate_pullback(scenario, snapshot, liquidity):
     momentum_ok = rsi is None or 35 <= rsi <= 68
     volume_ok = volume_ratio is None or volume_ratio >= MIN_CONFIRM_VOLUME_RATIO
     if in_entry_area and not snapshot.get("daily_bar_complete", False):
+        if momentum_ok and pace_ratio is not None and pace_ratio >= MIN_CONFIRM_VOLUME_RATIO:
+            return (
+                SCENARIO_CONFIRMING,
+                f"pullback intraday in area con ritmo volumi {pace_ratio:.2f}x MA10 atteso; "
+                "serve conferma Playwright/news",
+            )
         return (
             SCENARIO_NEAR_TRIGGER,
-            "prezzo in area pullback intraday; attendo chiusura e volume finali della seduta",
+            "prezzo in area pullback intraday ma conferme di momentum/ritmo volumi incomplete",
         )
     if in_entry_area and momentum_ok and volume_ok:
         return SCENARIO_CONFIRMING, "pullback su supporto in area utile, serve conferma Playwright/news"
@@ -329,6 +354,7 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         "[scenario] VALUTO TRIGGER "
         f"{ticker} | mercato={asset_class} close={snapshot.get('close')} "
         f"oggi={snapshot.get('change_1d_pct')}% volume_ratio={_volume_ratio(snapshot)} "
+        f"volume_pace_ratio={_intraday_volume_pace_ratio(snapshot)} "
         f"daily_bar_complete={snapshot.get('daily_bar_complete')} "
         f"liquidita_ok={liquidity.get('liquidity_ok')} | condizione={item.get('condition')}",
         flush=True,
@@ -371,9 +397,17 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
             flush=True,
         )
         chart_confirmation = confirm_candidate_with_chart_ai(ticker, no_telegram=True)
-        news_confirmation = get_news_report(ticker, live=live_news)
         chart_ok = chart_confirmation.get("status") == "ok"
-        news_report = news_confirmation.get("report", "")
+        if chart_ok:
+            news_confirmation = get_news_report(ticker, live=live_news)
+        else:
+            print(
+                "[scenario] SALTO NEWS "
+                f"{ticker} | motivo=conferma grafica Playwright non disponibile; "
+                "evito una seconda attesa browser che non potrebbe abilitare il BUY_CANDIDATE",
+                flush=True,
+            )
+        news_report = (news_confirmation or {}).get("report", "")
         news_negative = _has_negative_news(news_report)
         if chart_ok and not news_negative:
             best_state = SCENARIO_BUY_CANDIDATE
@@ -416,6 +450,8 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         "volume": snapshot.get("volume"),
         "volume_ma10": snapshot.get("volume_ma10"),
         "volume_ratio": _volume_ratio(snapshot),
+        "intraday_volume_pace_ratio": _intraday_volume_pace_ratio(snapshot),
+        "market_session_progress": snapshot.get("market_session_progress"),
         "daily_bar_complete": snapshot.get("daily_bar_complete"),
         "market_close_at": snapshot.get("market_close_at"),
         "volume_finalized_at": snapshot.get("volume_finalized_at"),
@@ -455,6 +491,7 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
         "current_price": snapshot.get("close"),
         "change_1d_pct": snapshot.get("change_1d_pct"),
         "volume_ratio": _volume_ratio(snapshot),
+        "intraday_volume_pace_ratio": _intraday_volume_pace_ratio(snapshot),
         "liquidity_ok": liquidity.get("liquidity_ok"),
         "needs_playwright": needs_playwright,
         "playwright_used": bool(chart_confirmation or news_confirmation),

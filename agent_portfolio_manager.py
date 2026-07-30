@@ -49,6 +49,7 @@ from finance_tools.portfolio_store import (
 )
 from finance_tools.ticker_resolver import resolve_ticker, resolve_ticker_context
 from finance_tools.telegram_tool import (
+    send_all_portfolios_summary,
     send_monitoring_summary,
     send_performance_summary,
     should_send_monitoring_summary,
@@ -1872,9 +1873,10 @@ def run_periodic_monitor_loop(
                 portfolio_changed=before_portfolio_state != after_portfolio_state,
                 has_alerts=has_alerts,
             )
-            if should_send:
+            is_multi_portfolio_child = os.getenv("MULTI_PORTFOLIO_CHILD") == "1"
+            if should_send and not is_multi_portfolio_child:
                 log_step(f"Invio riepilogo Telegram fine ciclo | criterio={reason}")
-                telegram_result = send_monitoring_summary(
+                telegram_result = send_all_portfolios_summary(
                     extra_note=(
                         f"Fine ciclo schedulato #{cycle}. Criterio Telegram: "
                         f"{telegram_settings.get('monitoring_mode')} ({reason}). "
@@ -1882,12 +1884,17 @@ def run_periodic_monitor_loop(
                     )
                 )
                 if telegram_result.get("status") == "ok":
-                    log_step("Riepilogo Telegram fine ciclo inviato")
+                    log_step("Riepilogo consolidato di tutti i portafogli inviato su Telegram")
                 else:
                     log_step(
                         "Riepilogo Telegram fine ciclo non inviato: "
                         f"{telegram_result.get('message') or telegram_result.get('reason') or telegram_result.get('status')}"
                     )
+            elif is_multi_portfolio_child:
+                log_step(
+                    "Riepilogo Telegram portfolio-specifico saltato: "
+                    "verra incluso nel messaggio consolidato del ciclo principale"
+                )
             else:
                 log_step(f"Riepilogo Telegram fine ciclo saltato | criterio={reason}")
             mark_agent_run_completed(

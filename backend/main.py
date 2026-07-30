@@ -72,6 +72,7 @@ from finance_tools.shared_market_analysis import (  # noqa: E402
     run_shared_portfolio_evaluation,
 )
 from finance_tools.portfolio_summary import build_portfolios_summary  # noqa: E402
+from finance_tools.playwright_health import load_playwright_health  # noqa: E402
 from finance_charts.technical_charts import add_indicators  # noqa: E402
 import yfinance as yf  # noqa: E402
 
@@ -988,6 +989,7 @@ def dashboard(portfolio_id: str = "main"):
         "monitored": monitored,
         "exit_conditions": exits,
         "agent_run_state": agent_schedule_status(portfolio_id),
+        "playwright_health": load_playwright_health(),
         "token_usage": token_usage_summary(portfolio_id=portfolio_id),
         "recent_actions": closed,
         "ftse_mib": enrich_universe_with_scan(load_mib30_tickers(), "mib30_scan.json"),

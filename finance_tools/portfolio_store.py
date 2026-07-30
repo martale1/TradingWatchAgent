@@ -484,6 +484,23 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
         from finance_tools.portfolio_registry import load_portfolio_config
 
         metadata = match.setdefault("metadata", {})
+        try:
+            entry_price = float(metadata.get("entry_price") or 0)
+        except (TypeError, ValueError):
+            entry_price = 0.0
+        if entry_price <= 0:
+            pending.remove(match)
+            match["status"] = "blocked"
+            match["blocked_at"] = now_iso()
+            match["failure_reason"] = "prezzo di ingresso mancante o non valido"
+            portfolio.setdefault("closed_proposals", []).append(match)
+            save_portfolio(portfolio, path)
+            return {
+                "status": "blocked",
+                "reason": match["failure_reason"],
+                "proposal": match,
+                "portfolio": portfolio,
+            }
         portfolio_id = str(portfolio.get("portfolio_id") or "main")
         config = load_portfolio_config(portfolio_id) or {}
         risk = prepare_buy(

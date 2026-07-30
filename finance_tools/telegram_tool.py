@@ -912,6 +912,68 @@ def build_readable_performance_summary(performance=None, extra_note="", portfoli
     return "\n".join(lines)
 
 
+def build_all_portfolios_summary(extra_note=""):
+    from finance_tools.portfolio_summary import build_portfolios_summary
+
+    summary = build_portfolios_summary(include_archived=False)
+    totals = summary.get("totals") or {}
+    rows = summary.get("items") or []
+    total_pnl = float(totals.get("pnl") or 0)
+    total_pnl_pct = float(totals.get("pnl_pct") or 0)
+    lines = [
+        "📊 Autonomous Trading Agent",
+        f"Riepilogo portafogli | {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        "",
+        "💼 Totale portafogli virtuali",
+        f"Portafogli attivi: {sum(1 for row in rows if row.get('status') == 'active')}",
+        f"Capitale iniziale: {format_money(totals.get('initial_capital'))}",
+        f"Patrimonio: {format_money(totals.get('total_value'))}",
+        f"Titoli: {format_money(totals.get('positions_value'))}",
+        f"Cash: {format_money(totals.get('cash'))}",
+        f"P/L: {signal_dot(total_pnl_pct)} {format_signed_money(total_pnl)} ({format_pct(total_pnl_pct)})",
+    ]
+
+    for index, row in enumerate(rows, start=1):
+        pnl = float(row.get("pnl") or 0)
+        pnl_pct = float(row.get("pnl_pct") or 0)
+        lines.extend(
+            [
+                "",
+                "━━━━━━━━━━━━━━━━━━━━",
+                f"{index}. {row.get('name') or row.get('portfolio_id')} [{row.get('portfolio_id')}]",
+                f"Profilo: {row.get('risk_profile') or 'n/d'} | Stato: {row.get('status') or 'n/d'}",
+                f"Patrimonio: {format_money(row.get('total_value'))}",
+                f"P/L: {signal_dot(pnl_pct)} {format_signed_money(pnl)} ({format_pct(pnl_pct)})",
+                f"Titoli: {format_money(row.get('positions_value'))} ({format_plain_pct(row.get('exposure_pct'))})",
+                f"Cash: {format_money(row.get('cash'))} ({format_plain_pct(row.get('cash_pct'))})",
+                f"Posizioni: {row.get('positions_count') or 0}",
+            ]
+        )
+        positions = row.get("positions") or []
+        if positions:
+            lines.append("Posizioni:")
+            for position in positions:
+                position_pnl = float(position.get("pnl") or 0)
+                position_pnl_pct = float(position.get("pnl_pct") or 0)
+                daily = position.get("daily_change_pct")
+                position_line = (
+                    f"{signal_dot(position_pnl_pct)} {position.get('ticker')}: "
+                    f"{format_money(position.get('market_value'))} | "
+                    f"P/L {format_signed_money(position_pnl)} ({format_pct(position_pnl_pct)})"
+                )
+                if daily is not None:
+                    position_line += f" | oggi {format_pct(daily)}"
+                lines.append(position_line)
+        else:
+            lines.append("Posizioni: nessuna")
+        if row.get("quote_errors_count"):
+            lines.append(f"⚠️ Prezzi non disponibili: {row['quote_errors_count']}")
+
+    if extra_note:
+        lines.extend(["", "ℹ️ Nota", short_condition(extra_note, max_len=200)])
+    return "\n".join(lines)
+
+
 def build_monitoring_summary(extra_note="", portfolio_id=None):
     return build_readable_monitoring_summary(
         extra_note=extra_note,
@@ -924,6 +986,12 @@ def send_monitoring_summary(extra_note="", portfolio_id=None):
         extra_note=extra_note,
         portfolio_id=portfolio_id,
     )
+    result = send_telegram_message(message)
+    return {**result, "message": message}
+
+
+def send_all_portfolios_summary(extra_note=""):
+    message = build_all_portfolios_summary(extra_note=extra_note)
     result = send_telegram_message(message)
     return {**result, "message": message}
 

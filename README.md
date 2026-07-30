@@ -378,17 +378,23 @@ punti nello score corrente.
 
 ### Volume intraday e volume finale
 
-Il volume giornaliero non viene usato per confermare un ingresso mentre la
-seduta e ancora aperta:
+Il volume giornaliero viene interpretato diversamente durante e dopo la
+seduta:
 
-- durante la seduta il volume e indicato come provvisorio e il setup resta al
-  massimo `NEAR_TRIGGER`;
+- durante la seduta si calcola il ritmo normalizzato
+  `(volume / MA10) / percentuale seduta trascorsa`;
+- la conferma intraday e possibile dopo almeno il 10% della seduta se il ritmo
+  normalizzato e almeno `0.80`;
 - a fine seduta lo score riceve `+1` se `volume > MA10`;
-- per confermare numericamente un breakout o pullback e sufficiente
-  `volume / MA10 >= 0.80`, se il volume e disponibile.
+- dopo la chiusura, per confermare numericamente un breakout o pullback e
+  sufficiente `volume / MA10 >= 0.80`, se il volume e disponibile.
 
 Esempio: `volume 0.80x MA10` significa che il volume della seduta e pari
 all'80% della media delle ultime 10 sedute.
+
+Un breakout o pullback puo quindi diventare `CONFIRMING` e produrre un acquisto
+durante la seduta. Restano obbligatori conferma grafica/news e guardrail del
+portafoglio.
 
 ### Liquidita
 

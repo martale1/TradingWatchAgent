@@ -4,6 +4,10 @@ from pathlib import Path
 
 from finance_tools.common import PROJECT_ROOT, run_python_script
 from finance_tools.playwright_queue import run_serialized_playwright
+from finance_tools.playwright_health import (
+    record_playwright_failure,
+    record_playwright_success,
+)
 
 
 def _is_recent(path, minutes):
@@ -51,7 +55,7 @@ def confirm_candidate_with_chart_ai(ticker, no_telegram=True, cache_minutes=30, 
         )
         return run_python_script(
             args,
-            timeout_seconds=420,
+            timeout_seconds=150,
             progress_label=f"chart-ai {clean}",
             heartbeat_seconds=15,
         )
@@ -66,9 +70,18 @@ def confirm_candidate_with_chart_ai(ticker, no_telegram=True, cache_minutes=30, 
         if result["stderr"]:
             print(f"[deep-chart-tool] {clean} - errore: {result['stderr'][-800:]}", flush=True)
 
+    status = "ok" if result["returncode"] == 0 and report else "error"
+    if status == "ok":
+        record_playwright_success("analisi grafica", ticker=clean)
+    else:
+        record_playwright_failure(
+            "analisi grafica",
+            detail=result.get("stderr") or result.get("stdout"),
+            ticker=clean,
+        )
     return {
         "ticker": clean,
-        "status": "ok" if result["returncode"] == 0 and report else "error",
+        "status": status,
         "source": "playwright_chart_ai",
         "report": report,
         "analysis_file": str(analysis_path),

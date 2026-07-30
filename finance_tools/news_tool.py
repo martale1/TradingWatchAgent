@@ -6,6 +6,10 @@ import pandas as pd
 
 from finance_tools.common import PROJECT_ROOT, run_python_script
 from finance_tools.playwright_queue import run_serialized_playwright
+from finance_tools.playwright_health import (
+    record_playwright_failure,
+    record_playwright_success,
+)
 
 
 STOCK_CATALOG = {
@@ -119,7 +123,7 @@ def get_news_report(ticker, live=False, cache_minutes=30, force=False):
         )
         return run_python_script(
             args,
-            timeout_seconds=300,
+            timeout_seconds=150,
             progress_label=f"news-live {info['ticker']}",
             heartbeat_seconds=15,
         )
@@ -129,9 +133,18 @@ def get_news_report(ticker, live=False, cache_minutes=30, force=False):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
     print(f"[news-tool] {info['ticker']} - report news salvato: {output_path}", flush=True)
+    status = "ok" if result["returncode"] == 0 and report else "error"
+    if status == "ok":
+        record_playwright_success("news live", ticker=info["ticker"])
+    else:
+        record_playwright_failure(
+            "news live",
+            detail=result.get("stderr") or result.get("stdout"),
+            ticker=info["ticker"],
+        )
     return _attach_telegram_notification({
         "ticker": info["ticker"],
-        "status": "ok" if result["returncode"] == 0 else "error",
+        "status": status,
         "source": "live_playwright",
         "report": report,
         "file": str(output_path),

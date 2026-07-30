@@ -105,6 +105,36 @@ def build_portfolios_summary(include_archived=False):
             for position in positions
             if position.get("ticker")
         ]
+        position_rows = []
+        for position in positions:
+            ticker = str(position.get("ticker") or "").strip().upper()
+            quote = quotes.get(ticker) or {}
+            allocated = safe_float(position.get("allocated_amount"))
+            market_value = position_market_value(position, quote)
+            position_pnl = market_value - allocated
+            position_pnl_pct = (
+                position_pnl / allocated * 100.0 if allocated else 0.0
+            )
+            position_rows.append(
+                {
+                    "ticker": ticker,
+                    "market_value": round(market_value, 2),
+                    "pnl": round(position_pnl, 2),
+                    "pnl_pct": round(position_pnl_pct, 2),
+                    "current_price": (
+                        round(safe_float(quote.get("current_price")), 4)
+                        if quote.get("current_price") is not None
+                        else None
+                    ),
+                    "daily_change_pct": (
+                        round(safe_float(quote.get("daily_change_pct")), 2)
+                        if quote.get("daily_change_pct") is not None
+                        else None
+                    ),
+                    "quote_available": ticker in quotes,
+                }
+            )
+        position_rows.sort(key=lambda row: row["market_value"], reverse=True)
         rows.append(
             {
                 "portfolio_id": entry["id"],
@@ -126,6 +156,7 @@ def build_portfolios_summary(include_archived=False):
                 "pnl": round(pnl, 2),
                 "pnl_pct": round(pnl_pct, 2),
                 "positions_count": len(positions),
+                "positions": position_rows,
                 "tickers": position_tickers,
                 "quote_errors_count": sum(
                     1 for ticker in position_tickers if ticker in quote_errors
