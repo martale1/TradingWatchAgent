@@ -2297,8 +2297,8 @@ function ChartModal({ item, onClose }) {
         )}
         <div className="chartToolbar">
           <div className="segmented">
-            {["1mo", "3mo", "6mo", "1y"].map((value) => (
-              <button key={value} className={period === value ? "active" : ""} onClick={() => setPeriod(value)}>{value}</button>
+            {[["5d", "5g"], ["1mo", "1m"], ["3mo", "3m"], ["6mo", "6m"], ["1y", "1a"], ["2y", "2a"]].map(([value, label]) => (
+              <button key={value} className={period === value ? "active" : ""} onClick={() => setPeriod(value)}>{label}</button>
             ))}
           </div>
           <div className="segmented">

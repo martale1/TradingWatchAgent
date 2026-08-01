@@ -1731,12 +1731,18 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
     if not symbol:
         raise HTTPException(status_code=400, detail="Ticker mancante")
     warmup_periods = {
+        "5d": ("6mo", 5),
         "1mo": ("1y", 23),
         "3mo": ("1y", 66),
         "6mo": ("1y", 132),
         "1y": ("2y", 252),
+        "2y": ("5y", 504),
     }
-    download_period, visible_rows = warmup_periods.get(period, (period, None))
+    if period not in warmup_periods:
+        raise HTTPException(status_code=422, detail=f"Periodo grafico non valido: {period}")
+    if interval != "1d":
+        raise HTTPException(status_code=422, detail=f"Intervallo grafico non valido: {interval}")
+    download_period, visible_rows = warmup_periods[period]
     try:
         history = yf.Ticker(symbol).history(period=download_period, interval=interval, auto_adjust=False)
     except Exception as exc:
@@ -1749,6 +1755,8 @@ def chart_data(ticker: str, period: str = "6mo", interval: str = "1d"):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Errore calcolo indicatori {symbol}: {exc}") from exc
 
+    if "Close" in history:
+        history = history[history["Close"].notna()]
     if visible_rows:
         history = history.tail(visible_rows)
 
