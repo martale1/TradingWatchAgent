@@ -160,11 +160,14 @@ def latest_quote(ticker):
         raise RuntimeError(f"Nessuna chiusura disponibile per {ticker}")
     current = float(close.iloc[-1])
     previous = float(close.iloc[-2]) if len(close) >= 2 else None
+    quote_date = close.index[-1]
+    quote_date = quote_date.date().isoformat() if hasattr(quote_date, "date") else str(quote_date)[:10]
     daily_change_pct = ((current - previous) / previous * 100.0) if previous else None
     return {
         "current_price": current,
         "previous_close": previous,
         "daily_change_pct": daily_change_pct,
+        "price_as_of": quote_date,
     }
 
 
@@ -207,12 +210,14 @@ def calculate_portfolio_performance(path=None, record_history=True, history_path
             price_change_pct = ((price - entry) / entry * 100.0) if entry else 0.0
             daily_change_pct = quote.get("daily_change_pct")
             previous_close = quote.get("previous_close")
+            price_as_of = quote.get("price_as_of")
             status = "ok"
             error = ""
         except Exception as exc:
             price = None
             daily_change_pct = None
             previous_close = None
+            price_as_of = None
             market_value = allocated
             pnl = 0.0
             pnl_pct = 0.0
@@ -255,6 +260,8 @@ def calculate_portfolio_performance(path=None, record_history=True, history_path
                 "current_price": round(price, 4) if price is not None else None,
                 "previous_close": round(previous_close, 4) if previous_close is not None else None,
                 "daily_change_pct": round(daily_change_pct, 2) if daily_change_pct is not None else None,
+                "price_as_of": price_as_of,
+                "price_currency": "GBp" if ticker.endswith(".L") else ("EUR" if ticker.endswith(".MI") else ""),
                 "virtual_quantity": round(quantity, 4) if quantity else None,
                 "invested_amount": round(allocated, 2),
                 "market_value": round(market_value, 2),

@@ -9,6 +9,7 @@ from finance_tools.monitoring_view import first_level_after_keywords, parse_cond
 ANALYSIS_ROOT = PROJECT_ROOT / "output" / "stock_ai"
 MIN_TAKE_PROFIT_PCT = 3.0
 MIN_HOLD_HOURS_BEFORE_TAKE_PROFIT = 24
+TAKE_PROFIT_REDUCTION_PCT = 30.0
 
 
 def safe_float(value):
@@ -109,6 +110,23 @@ def levels_from_reason(reason, current_price=None):
     return stop or support, resistance
 
 
+def explicit_stop_from_reason(reason):
+    """Read only a numeric stop written directly after an exit keyword."""
+    text = str(reason or "")
+    patterns = [
+        r"stop\s+stretto\s+sotto\s*(?:EUR\s*)?([0-9]+(?:[,.][0-9]+)?)",
+        r"stop\s+inval\.?\s+sotto\s*(?:EUR\s*)?([0-9]+(?:[,.][0-9]+)?)",
+        r"stop\s+sotto\s*(?:EUR\s*)?([0-9]+(?:[,.][0-9]+)?)",
+        r"invalidazione\s+sotto\s*(?:EUR\s*)?([0-9]+(?:[,.][0-9]+)?)",
+        r"invalidatione\s+sotto\s*(?:EUR\s*)?([0-9]+(?:[,.][0-9]+)?)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return safe_float(match.group(1).replace(",", "."))
+    return None
+
+
 def should_take_profit(current, target, pnl_pct, opened_at):
     if current is None or target is None or current < target:
         return False, ""
@@ -128,6 +146,15 @@ def build_exit_conditions(performance, portfolio):
         for item in (portfolio or {}).get("positions", [])
         if item.get("status") == "open"
     }
+    completed_take_profits = {
+        (
+            str(item.get("ticker") or "").strip().upper(),
+            safe_float((item.get("metadata") or {}).get("trigger_level")),
+        )
+        for item in (portfolio or {}).get("closed_proposals", [])
+        if (item.get("metadata") or {}).get("source") == "deterministic_take_profit"
+        and item.get("status") == "confirmed"
+    }
     rows = []
 
     for item in positions:
@@ -138,35 +165,59 @@ def build_exit_conditions(performance, portfolio):
         raw = raw_positions.get(ticker, {})
         reason = normalize_analysis_text(raw.get("reason") or item.get("reason") or "")
         opened_at = raw.get("opened_at")
-        path, analysis_text, _ = read_playwright_analysis(ticker)
+        path, analysis_text, analysis_mtime = read_playwright_analysis(ticker)
 
         support_1 = parse_label_level(analysis_text, "S1")
         support_2 = parse_label_level(analysis_text, "S2")
         resistance_1 = parse_label_level(analysis_text, "R1")
         resistance_2 = parse_label_level(analysis_text, "R2")
         fallback_support, fallback_resistance = levels_from_reason(reason, current)
+        explicit_stop = explicit_stop_from_reason(reason)
 
-        stop_level = support_1 or fallback_support or (round(entry * 0.95, 4) if entry else None)
+        stop_level = explicit_stop or support_1 or fallback_support or (round(entry * 0.95, 4) if entry else None)
+        stop_source = (
+            "stop definito all'ingresso" if explicit_stop is not None
+            else "primo supporto tecnico" if support_1 is not None
+            else "supporto della condizione d'ingresso" if fallback_support is not None
+            else "protezione automatica -5% dal carico"
+        )
         panic_level = support_2
-        take_profit_level = resistance_1 or fallback_resistance
+        resistance_level = resistance_1 or fallback_resistance
+        take_profit_level = resistance_level
+        target_unavailable_reason = ""
         if take_profit_level is not None and stop_level is not None and take_profit_level <= stop_level:
+            target_unavailable_reason = "resistenza non valida: non e sopra il livello di uscita"
             take_profit_level = None
         if take_profit_level is not None and entry is not None:
             min_take_profit_price = entry * (1 + MIN_TAKE_PROFIT_PCT / 100.0)
             if take_profit_level < min_take_profit_price:
+                target_unavailable_reason = (
+                    f"resistenza {take_profit_level:.4f} nota ma troppo vicina al prezzo di carico; "
+                    f"take profit minimo {MIN_TAKE_PROFIT_PCT:.0f}%"
+                )
                 take_profit_level = None
+        if resistance_level is None:
+            target_unavailable_reason = "nessuna resistenza tecnica disponibile"
         stretch_target = resistance_2 if resistance_2 and resistance_2 != take_profit_level else None
 
         take_profit_ready, take_profit_blocker = should_take_profit(current, take_profit_level, pnl_pct, opened_at)
+        take_profit_executed = (
+            take_profit_level is not None
+            and (ticker, safe_float(take_profit_level)) in completed_take_profits
+        )
 
         if current is not None and stop_level is not None and current <= stop_level:
-            status = "USCITA DA VALUTARE"
+            status = "STOP VIOLATO"
             status_kind = "negative"
-            primary_action = "Prezzo sotto il primo supporto: valuta vendita o riduzione."
-        elif take_profit_ready:
+            primary_action = "Stop violato: vendita totale automatica della posizione."
+        elif take_profit_ready and not take_profit_executed:
             status = "TAKE PROFIT"
             status_kind = "positive"
-            primary_action = "Prezzo sopra la prima resistenza: valuta presa profitto parziale."
+            primary_action = f"Take profit raggiunto: vendita parziale automatica del {TAKE_PROFIT_REDUCTION_PCT:.0f}%."
+        elif take_profit_executed:
+            status = "TAKE PROFIT ESEGUITO"
+            status_kind = "positive"
+            primary_action = f"Vendita parziale del {TAKE_PROFIT_REDUCTION_PCT:.0f}% gia eseguita su questo target."
         elif current is not None and take_profit_level is not None and current >= take_profit_level:
             status = "MANTIENI"
             status_kind = "neutral"
@@ -184,13 +235,19 @@ def build_exit_conditions(performance, portfolio):
             status_kind = "neutral"
             primary_action = "Nessun trigger di uscita immediato."
 
-        explanation_source = "Playwright/ChatGPT" if analysis_text else "fallback da proposta/posizione"
-        explanation = extract_sentence(
-            analysis_text,
-            ["sotto", "support", "resistenza", "operativita", "scenario"],
+        explanation_source = "Analisi tecnica Playwright/ChatGPT" if analysis_text else "Proposta originale della posizione"
+        known_levels = []
+        for label, value in (("S1", support_1), ("S2", support_2), ("R1", resistance_1), ("R2", resistance_2)):
+            if value is not None:
+                known_levels.append(f"{label} {value:.4f}")
+        explanation = (
+            "Livelli tecnici rilevati: " + ", ".join(known_levels) + "."
+            if known_levels else reason or "Nessun livello tecnico disponibile."
         )
-        if not explanation:
-            explanation = reason or "Condizione generata dai livelli tecnici disponibili."
+        analysis_updated_at = (
+            datetime.fromtimestamp(analysis_mtime).isoformat(timespec="seconds")
+            if analysis_mtime is not None else None
+        )
 
         rows.append(
             {
@@ -200,17 +257,38 @@ def build_exit_conditions(performance, portfolio):
                 "current_price": item.get("current_price"),
                 "previous_close": item.get("previous_close"),
                 "daily_change_pct": item.get("daily_change_pct"),
+                "price_as_of": item.get("price_as_of"),
+                "price_currency": item.get("price_currency"),
                 "entry_price": item.get("entry_price"),
                 "pnl_pct": item.get("pnl_pct"),
                 "stop_level": round(stop_level, 4) if stop_level is not None else None,
+                "stop_source": stop_source,
                 "panic_level": round(panic_level, 4) if panic_level is not None else None,
+                "resistance_level": round(resistance_level, 4) if resistance_level is not None else None,
                 "take_profit_level": round(take_profit_level, 4) if take_profit_level is not None else None,
+                "target_unavailable_reason": target_unavailable_reason,
                 "stretch_target": round(stretch_target, 4) if stretch_target is not None else None,
                 "distance_to_stop_pct": pct_distance(current, stop_level),
                 "distance_to_take_profit_pct": pct_distance(current, take_profit_level),
+                "stop_action_code": "sell_all" if stop_level is not None else None,
+                "take_profit_action_code": (
+                    "reduce_position" if take_profit_level is not None else None
+                ),
+                "take_profit_percent": TAKE_PROFIT_REDUCTION_PCT if take_profit_level is not None else None,
+                "take_profit_executed": take_profit_executed,
+                "stop_trigger_action": (
+                    "Vendita totale della posizione quando il prezzo raggiunge o scende sotto questo livello."
+                    if stop_level is not None else None
+                ),
+                "take_profit_trigger_action": (
+                    f"Vendita parziale automatica del {TAKE_PROFIT_REDUCTION_PCT:.0f}% al raggiungimento del livello."
+                    if take_profit_level is not None else None
+                ),
+                "take_profit_action_known": take_profit_level is not None,
                 "primary_action": primary_action,
                 "explanation": explanation,
                 "source": explanation_source,
+                "analysis_updated_at": analysis_updated_at,
                 "analysis_file": str(path) if path else "",
             }
         )

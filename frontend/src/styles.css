@@ -1673,6 +1673,25 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   color: #64748b;
   font-size: 10px;
 }
+
+.exitLevelGrid .levelAction {
+  display: block;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #d9e2ef;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.exitLevelGrid .knownAction {
+  color: #a11b1b;
+}
+
+.exitLevelGrid .pendingAction {
+  color: #8a5a00;
+}
 .exitPositionSnapshot strong {
   display: block;
   margin: 3px 0;
@@ -2174,7 +2193,7 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .modalHeader p { margin: 8px 0 0; }
 .chartSummary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -2287,8 +2306,22 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   font-size: 13px;
   font-weight: 800;
 }
+.entryLine line {
+  stroke: #7c3aed;
+  stroke-width: 2.5;
+  stroke-dasharray: 3 5;
+}
+.entryLine text {
+  fill: #6d28d9;
+  font-size: 13px;
+  font-weight: 800;
+}
 .lastPoint circle { fill: #2563eb; stroke: white; stroke-width: 2; }
 .lastPoint text { fill: #1d4ed8; font-size: 13px; font-weight: 800; }
+.lastPoint .levelLabelConnector { stroke: #2563eb; stroke-width: 1.5; }
+.triggerLine .levelLabelConnector { stroke: #dc2626; stroke-width: 1.5; stroke-dasharray: none; }
+.supportLine .levelLabelConnector { stroke: #16a34a; stroke-width: 1.5; stroke-dasharray: none; }
+.entryLine .levelLabelConnector { stroke: #7c3aed; stroke-width: 1.5; stroke-dasharray: none; }
 .hoverLayer > line { stroke: #64748b; stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
 .hoverLayer circle { fill: #111827; stroke: white; stroke-width: 2; }
 .hoverLayer rect { fill: #111827; opacity: .92; }

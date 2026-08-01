@@ -22,6 +22,17 @@ function price(value) {
   return Number(value).toLocaleString("it-IT", { maximumFractionDigits: 4 });
 }
 
+function quotedPrice(value, currency = "") {
+  const formatted = price(value);
+  return formatted === "n/d" || !currency ? formatted : `${formatted} ${currency}`;
+}
+
+function dateOnly(value) {
+  if (!value) return "data non disponibile";
+  const parts = String(value).slice(0, 10).split("-");
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(value);
+}
+
 function numeric(value) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -251,10 +262,35 @@ function dashboardStorageKey(portfolioId) {
   return `dashboardSnapshot:${String(portfolioId || "main")}`;
 }
 
+const DASHBOARD_SNAPSHOT_VERSION = 2;
+
+function normalizeDashboardPayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  return {
+    ...payload,
+    dashboard_schema_version: DASHBOARD_SNAPSHOT_VERSION,
+    exit_conditions: (payload.exit_conditions || []).map((row) => ({
+      ...row,
+      stop_action_code: row.stop_level !== null && row.stop_level !== undefined
+        ? (row.stop_action_code || "sell_all")
+        : null,
+      take_profit_action_code: row.take_profit_level !== null && row.take_profit_level !== undefined
+        ? (row.take_profit_action_code || "reduce_position")
+        : null,
+      take_profit_percent: row.take_profit_level !== null && row.take_profit_level !== undefined
+        ? (row.take_profit_percent || 30)
+        : null,
+      take_profit_action_known: row.take_profit_level !== null && row.take_profit_level !== undefined,
+    })),
+  };
+}
+
 function readDashboardSnapshot(portfolioId) {
   try {
     const value = window.localStorage.getItem(dashboardStorageKey(portfolioId));
-    return value ? JSON.parse(value) : null;
+    if (!value) return null;
+    const stored = JSON.parse(value);
+    return normalizeDashboardPayload(stored.payload || stored);
   } catch {
     return null;
   }
@@ -262,7 +298,10 @@ function readDashboardSnapshot(portfolioId) {
 
 function saveDashboardSnapshot(portfolioId, payload) {
   try {
-    window.localStorage.setItem(dashboardStorageKey(portfolioId), JSON.stringify(payload));
+    window.localStorage.setItem(dashboardStorageKey(portfolioId), JSON.stringify({
+      version: DASHBOARD_SNAPSHOT_VERSION,
+      payload: normalizeDashboardPayload(payload),
+    }));
   } catch {
     // The backend cache remains available if browser storage is disabled or full.
   }
@@ -626,7 +665,7 @@ function Positions({ rows = [], onChart, totalValue = 0 }) {
                 <td><span className={`pill ${signedClass(row.daily_change_pct)}`}>{pct(row.daily_change_pct)}</span></td>
                 <td>{price(row.virtual_quantity)}</td>
                 <td className="rowActions">
-                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, trigger_level: row.entry_price, support_level: null, condition: "Prezzo di ingresso posizione" })}><LineChart size={15} /> Grafico</button>
+                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, entry_price: row.entry_price, support_level: null, condition: "Posizione in portafoglio" })}><LineChart size={15} /> Grafico</button>
                 </td>
               </tr>
             ))}
@@ -744,10 +783,26 @@ function ExitConditions({ rows = [], onChart }) {
               ? `Lo stop e ${pct(stopDistance, false)} sotto il prezzo attuale`
               : `STOP VIOLATO: prezzo ${pct(Math.abs(stopDistance), false)} sotto il livello`;
           const targetText = !hasTargetDistance
-            ? "Target non definito"
+            ? (row.target_unavailable_reason || "Take profit operativo non definito")
             : targetDistance < 0
               ? `Il target e ${pct(Math.abs(targetDistance), false)} sopra il prezzo attuale`
               : `Target superato di ${pct(targetDistance, false)}`;
+          const stopTriggerAction = row.stop_action_code === "sell_all"
+            ? "Vendita totale automatica della posizione."
+            : (row.stop_trigger_action || "Azione non ancora determinata.");
+          const takeProfitTriggerAction = row.take_profit_trigger_action
+            || (row.take_profit_level !== null && row.take_profit_level !== undefined
+              ? `Vendita parziale automatica del ${row.take_profit_percent || 30}%.`
+              : null);
+          const stopBreached = hasStopDistance && stopDistance < 0;
+          const actionNow = stopBreached && row.stop_action_code === "sell_all"
+            ? "Vendita totale automatica della posizione."
+            : row.status === "TAKE PROFIT" || row.status === "TAKE PROFIT ESEGUITO"
+              ? row.primary_action
+              : "Nessuna operazione. Posizione mantenuta sotto osservazione.";
+          const nextAction = row.stop_action_code === "sell_all"
+            ? `Se il prezzo raggiunge o scende sotto ${price(row.stop_level)}, il sistema vende tutta la posizione.`
+            : `Il livello ${price(row.stop_level)} e solo un riferimento tecnico: non ha ancora un'operazione associata.`;
           return (
           <div className="exitCard" key={row.ticker}>
             <div className="triggerHeader">
@@ -755,31 +810,34 @@ function ExitConditions({ rows = [], onChart }) {
               <span className={`status ${row.status_kind}`}>{row.status}</span>
             </div>
             <div className="exitPositionSnapshot">
-              <div><span>Prezzo attuale</span><strong>{price(row.current_price)}</strong><small>Oggi {pct(row.daily_change_pct)}</small></div>
-              <div><span>Prezzo medio</span><strong>{price(row.entry_price)}</strong><small>Prezzo di carico</small></div>
+              <div><span>Ultima chiusura</span><strong>{quotedPrice(row.current_price, row.price_currency)}</strong><small>Seduta {dateOnly(row.price_as_of)} · {pct(row.daily_change_pct)}</small></div>
+              <div><span>Prezzo medio</span><strong>{quotedPrice(row.entry_price, row.price_currency)}</strong><small>Prezzo di carico</small></div>
               <div><span>P/L posizione</span><strong className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</strong><small>Dal prezzo medio</small></div>
             </div>
             <div className="triggerGrid exitLevelGrid">
               <div className={stopDistance < 0 ? "levelViolated" : ""}>
-                <span>Stop / prima uscita</span><b>{price(row.stop_level)}</b><small>{stopText}</small>
+                <span>{row.stop_action_code === "sell_all" ? "Stop automatico" : "Livello di uscita"}</span><b>{quotedPrice(row.stop_level, row.price_currency)}</b><small>{stopText}. Fonte: {row.stop_source || "non disponibile"}.</small>
+                <em className="levelAction knownAction">Quando scatta: {stopTriggerAction}</em>
               </div>
-              <div><span>Take profit</span><b>{price(row.take_profit_level)}</b><small>{targetText}</small></div>
+              <div><span>Take profit operativo</span><b>{quotedPrice(row.take_profit_level, row.price_currency)}</b><small>{targetText}</small>
+                {!row.take_profit_level && row.resistance_level && <small>Resistenza tecnica nota: {quotedPrice(row.resistance_level, row.price_currency)}</small>}
+                {takeProfitTriggerAction && <em className={`levelAction ${row.take_profit_action_known ? "knownAction" : "pendingAction"}`}>Quando scatta: {takeProfitTriggerAction}</em>}
+              </div>
             </div>
             <div className={`exitDecision ${row.status_kind}`}>
-              <span>Azione adesso</span>
-              <strong>{row.primary_action}</strong>
-              <small>{stopDistance < 0
-                ? "Il livello di protezione e gia stato oltrepassato: serve una decisione operativa."
-                : `Se il prezzo scende a ${price(row.stop_level)}, il sistema rivaluta riduzione o vendita.`}</small>
+              <span>Cosa fa il sistema adesso</span>
+              <strong>{actionNow}</strong>
+              <small>{nextAction}</small>
             </div>
             <p className="condition">{row.explanation}</p>
-            <div className="sourceLine">Fonte: {row.source}</div>
+            <div className="sourceLine">Fonte livelli: {row.source}{row.analysis_updated_at ? ` · aggiornata ${dateTime(row.analysis_updated_at)}` : ""}</div>
             <div className="cardActions">
               <button
                 className="chartButton"
                 onClick={() => onChart({
                   ticker: row.ticker,
                   current_price: row.current_price,
+                  entry_price: row.entry_price,
                   trigger_level: row.take_profit_level,
                   support_level: row.stop_level,
                   trigger_distance_pct: row.distance_to_take_profit_pct,
@@ -798,7 +856,7 @@ function ExitConditions({ rows = [], onChart }) {
   );
 }
 
-function TriggerCard({ item, onChart, isInPortfolio = false }) {
+function TriggerCard({ item, onChart, isInPortfolio = false, entryPrice = null }) {
   const progress = item.trigger_progress ?? 0;
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
   const triggerLabel = isInPortfolio ? "Trigger incremento" : "Trigger ingresso";
@@ -889,7 +947,7 @@ function TriggerCard({ item, onChart, isInPortfolio = false }) {
       <p className="condition">{item.condition}</p>
       {item.scenario_reason && <p className="small scenarioReason">{item.scenario_reason}</p>}
       <div className="cardActions">
-        <button className="chartButton" onClick={() => onChart(item)}><LineChart size={16} /> Apri grafico trigger</button>
+        <button className="chartButton" onClick={() => onChart({ ...item, entry_price: entryPrice })}><LineChart size={16} /> Apri grafico trigger</button>
         <NewsButton ticker={item.ticker} />
       </div>
     </div>
@@ -911,7 +969,7 @@ function marketGroupForCondition(row) {
   return "other";
 }
 
-function MonitoringGroup({ title, subtitle, rows, onChart, positionTickers }) {
+function MonitoringGroup({ title, subtitle, rows, onChart, positionTickers, positionEntries }) {
   if (!rows.length) return null;
   const near = rows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
   return (
@@ -930,6 +988,7 @@ function MonitoringGroup({ title, subtitle, rows, onChart, positionTickers }) {
             item={item}
             onChart={onChart}
             isInPortfolio={positionTickers.has(String(item.ticker || "").toUpperCase())}
+            entryPrice={positionEntries.get(String(item.ticker || "").toUpperCase())}
           />
         ))}
       </div>
@@ -967,6 +1026,7 @@ function CompactTriggerTable({ rows, onChart, positionTickers }) {
 function Monitoring({ rows = [], positions = [], onChart }) {
   const uniqueRows = uniqueConditionsByTicker(rows);
   const positionTickers = new Set(positions.map((row) => String(row.ticker || "").toUpperCase()));
+  const positionEntries = new Map(positions.map((row) => [String(row.ticker || "").toUpperCase(), row.entry_price]));
   const isHeld = (row) => positionTickers.has(String(row.ticker || "").toUpperCase());
   const needsDecision = (row) => {
     const state = String(row.scenario_state || "").toUpperCase();
@@ -1002,6 +1062,7 @@ function Monitoring({ rows = [], positions = [], onChart }) {
         rows={decisionRows}
         onChart={onChart}
         positionTickers={positionTickers}
+        positionEntries={positionEntries}
       />
       <MonitoringGroup
         title="Posizioni gia in portafoglio vicine a una decisione"
@@ -1009,6 +1070,7 @@ function Monitoring({ rows = [], positions = [], onChart }) {
         rows={heldAttention}
         onChart={onChart}
         positionTickers={positionTickers}
+        positionEntries={positionEntries}
       />
       <MonitoringGroup
         title="Nuovi ingressi vicini"
@@ -1016,6 +1078,7 @@ function Monitoring({ rows = [], positions = [], onChart }) {
         rows={entryAttention}
         onChart={onChart}
         positionTickers={positionTickers}
+        positionEntries={positionEntries}
       />
       <details className="waitingTriggers">
         <summary><span>Tutti gli altri trigger in attesa</span><b>{waiting.length}</b></summary>
@@ -1776,7 +1839,7 @@ function Etfs({ rows = [], monitoredRows = [], positions = [], onChart }) {
   );
 }
 
-function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" }) {
+function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, mode = "candles" }) {
   const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
   const height = 500;
@@ -1793,7 +1856,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   const closeValues = prices.map((row) => Number(row.close)).filter((value) => !Number.isNaN(value));
   const volumeValues = prices.map((row) => Number(row.volume)).filter((value) => !Number.isNaN(value) && value > 0);
   const maxVolume = Math.max(...volumeValues, 1);
-  const levels = [triggerLevel, supportLevel].map(Number).filter((value) => !Number.isNaN(value) && value > 0);
+  const levels = [triggerLevel, supportLevel, entryPrice].map(Number).filter((value) => !Number.isNaN(value) && value > 0);
   const min = Math.min(...priceValues, ...levels);
   const max = Math.max(...priceValues, ...levels);
   const span = max - min || 1;
@@ -1818,6 +1881,27 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
   const hoverDailyPct = hoverOpen && hoverClose && Number.isFinite(hoverOpen) && Number.isFinite(hoverClose) && hoverOpen !== 0
     ? ((hoverClose - hoverOpen) / hoverOpen) * 100
     : null;
+  const rightLabelItems = [
+    { key: "trigger", value: Number(triggerLevel) },
+    { key: "support", value: Number(supportLevel) },
+    { key: "entry", value: Number(entryPrice) },
+    { key: "price", value: last ? Number(last.close) : NaN },
+  ]
+    .filter((item) => Number.isFinite(item.value) && item.value > 0)
+    .map((item) => ({ ...item, lineY: y(item.value), labelY: y(item.value) + 4 }))
+    .sort((a, b) => a.labelY - b.labelY);
+  const minimumLabelGap = 18;
+  rightLabelItems.forEach((item, index) => {
+    const minimumY = index === 0 ? pad.top + 8 : rightLabelItems[index - 1].labelY + minimumLabelGap;
+    item.labelY = Math.max(item.labelY, minimumY);
+  });
+  const labelOverflow = rightLabelItems.length
+    ? rightLabelItems[rightLabelItems.length - 1].labelY - (pad.top + pricePlotH - 4)
+    : 0;
+  if (labelOverflow > 0) {
+    rightLabelItems.forEach((item) => { item.labelY -= labelOverflow; });
+  }
+  const rightLabelLayout = Object.fromEntries(rightLabelItems.map((item) => [item.key, item]));
   const bandTop = Number(triggerLevel) > 0 ? y(Number(triggerLevel)) : null;
   const bandBottom = Number(supportLevel) > 0 ? y(Number(supportLevel)) : null;
   const dateTicks = prices
@@ -1830,14 +1914,18 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
       return String(row.date || "").slice(0, 7) !== String(previous.date || "").slice(0, 7);
     });
 
-  function LevelLine({ value, label, className }) {
+  function LevelLine({ value, label, className, layoutKey }) {
     const level = Number(value);
     if (Number.isNaN(level) || level <= 0) return null;
     const ly = y(level);
+    const labelY = rightLabelLayout[layoutKey]?.labelY ?? ly + 4;
     return (
       <g className={className}>
         <line x1={pad.left} x2={pad.left + plotW} y1={ly} y2={ly} />
-        <text x={pad.left + plotW + 12} y={ly + 4}>{label} {price(level)}</text>
+        {Math.abs(labelY - (ly + 4)) > 2 && (
+          <line className="levelLabelConnector" x1={pad.left + plotW} x2={pad.left + plotW + 9} y1={ly} y2={labelY - 4} />
+        )}
+        <text x={pad.left + plotW + 12} y={labelY}>{label} {price(level)}</text>
       </g>
     );
   }
@@ -1933,12 +2021,16 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, mode = "candles" 
           );
         })}
       </g>
-      <LevelLine value={triggerLevel} label="TRIGGER" className="triggerLine" />
-      <LevelLine value={supportLevel} label="SUPPORTO" className="supportLine" />
+      <LevelLine value={triggerLevel} label="TRIGGER" className="triggerLine" layoutKey="trigger" />
+      <LevelLine value={supportLevel} label="SUPPORTO" className="supportLine" layoutKey="support" />
+      <LevelLine value={entryPrice} label="INGRESSO" className="entryLine" layoutKey="entry" />
       {last && (
         <g className="lastPoint">
           <circle cx={x(prices.length - 1)} cy={y(Number(last.close))} r="5" />
-          <text x={pad.left + plotW + 12} y={y(Number(last.close)) - 10}>Prezzo {price(last.close)}</text>
+          {Math.abs((rightLabelLayout.price?.labelY ?? y(Number(last.close))) - (y(Number(last.close)) + 4)) > 2 && (
+            <line className="levelLabelConnector" x1={pad.left + plotW} x2={pad.left + plotW + 9} y1={y(Number(last.close))} y2={(rightLabelLayout.price?.labelY ?? y(Number(last.close))) - 4} />
+          )}
+          <text x={pad.left + plotW + 12} y={rightLabelLayout.price?.labelY ?? y(Number(last.close)) + 4}>PREZZO {price(last.close)}</text>
         </g>
       )}
       {hover && hoverX !== null && (
@@ -2137,6 +2229,7 @@ function ChartModal({ item, onClose }) {
   const parsedLevels = levelsFromCondition(item.condition || "");
   const triggerLevel = numeric(item.trigger_level) || parsedLevels.trigger;
   const supportLevel = numeric(item.support_level) || parsedLevels.support;
+  const entryPrice = numeric(item.entry_price);
   const lastPrice = state.prices.length ? numeric(state.prices[state.prices.length - 1]?.close) : null;
   const currentPrice = numeric(item.current_price) || lastPrice;
   const distance = numeric(item.trigger_distance_pct)
@@ -2154,6 +2247,7 @@ function ChartModal({ item, onClose }) {
         </div>
         <div className="chartSummary">
           <span>Prezzo attuale <b>{price(currentPrice)}</b></span>
+          {entryPrice && <span>Prezzo ingresso <b>{price(entryPrice)}</b></span>}
           <span>Trigger <b>{price(triggerLevel)}</b></span>
           <span>Supporto/stop <b>{price(supportLevel)}</b></span>
           <span>Distanza trigger <b className={signedClass(distance)}>{pct(distance)}</b></span>
@@ -2193,7 +2287,7 @@ function ChartModal({ item, onClose }) {
             <div className="allChartsStack">
               <div>
                 <h3>Prezzo</h3>
-                <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} mode={mode} />
+                <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} mode={mode} />
               </div>
               <div>
                 <h3>Volumi</h3>
@@ -2213,7 +2307,7 @@ function ChartModal({ item, onClose }) {
               </div>
             </div>
           ) : view === "price"
-            ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} mode={mode} />
+            ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} mode={mode} />
             : <TechnicalChart prices={state.prices} type={view} />
         )}
       </div>

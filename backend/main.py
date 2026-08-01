@@ -1047,6 +1047,12 @@ def dashboard(portfolio_id: str = "main", refresh: bool = False):
     if cached is not None:
         age_seconds = _dashboard_cache_age_seconds(cached)
         if not refresh or age_seconds < DASHBOARD_CACHE_MAX_AGE_SECONDS:
+            cached_portfolio = load_portfolio(state_path)
+            cached["exit_conditions"] = build_exit_conditions(
+                cached.get("performance") or {},
+                cached_portfolio,
+            )
+            cached["dashboard_schema_version"] = 2
             if refresh:
                 exit_enforcement = enforce_triggered_exits(
                     cached.get("exit_conditions") or [],
@@ -1156,6 +1162,7 @@ def dashboard(portfolio_id: str = "main", refresh: bool = False):
         "playwright_health": load_playwright_health(),
         "token_usage": token_usage_summary(portfolio_id=portfolio_id),
         "recent_actions": closed,
+        "dashboard_schema_version": 2,
         "ftse_mib": enrich_universe_with_scan(load_mib30_tickers(), "mib30_scan.json"),
         "commodities": enrich_universe_with_scan(load_commodity_tickers(), "commodity_scan.json"),
         "etfs": enrich_universe_with_scan(load_etf_tickers(), "etf_scan.json"),
