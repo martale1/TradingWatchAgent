@@ -2,7 +2,9 @@ import copy
 import json
 import os
 import re
+import shutil
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -414,3 +416,57 @@ def update_portfolio_config(portfolio_id, changes):
     ]
     save_registry(registry)
     return config
+
+
+def delete_portfolio_completely(portfolio_id):
+    """Remove a non-default portfolio directory and its registry entry atomically."""
+    portfolio_id = validate_portfolio_id(portfolio_id)
+    if portfolio_id == DEFAULT_PORTFOLIO_ID:
+        raise ValueError("Il portafoglio principale main non puo essere eliminato.")
+
+    registry = load_registry()
+    entries = registry.get("portfolios", [])
+    if not any(item.get("id") == portfolio_id for item in entries):
+        raise FileNotFoundError(f"Portafoglio {portfolio_id} non trovato nel registro.")
+
+    root = PORTFOLIOS_ROOT.resolve()
+    target = portfolio_dir(portfolio_id).resolve()
+    if target.parent != root:
+        raise ValueError("Percorso del portafoglio non sicuro.")
+    if not target.is_dir():
+        raise FileNotFoundError(f"Cartella del portafoglio {portfolio_id} non trovata.")
+
+    removed_items = [str(path.relative_to(target)) for path in target.rglob("*")]
+    tombstone = root / f".deleting-{portfolio_id}-{uuid.uuid4().hex}"
+    original_registry = copy.deepcopy(registry)
+    target.replace(tombstone)
+    try:
+        registry["portfolios"] = [
+            item for item in entries if item.get("id") != portfolio_id
+        ]
+        save_registry(registry)
+        shutil.rmtree(tombstone)
+    except Exception:
+        if tombstone.exists() and not target.exists():
+            tombstone.replace(target)
+        save_registry(original_registry)
+        raise
+
+    verified_registry = load_registry()
+    registry_removed = not any(
+        item.get("id") == portfolio_id
+        for item in verified_registry.get("portfolios", [])
+    )
+    directory_removed = not target.exists() and not tombstone.exists()
+    if not registry_removed or not directory_removed:
+        raise RuntimeError(
+            f"Eliminazione di {portfolio_id} non verificata completamente."
+        )
+    return {
+        "status": "deleted",
+        "portfolio_id": portfolio_id,
+        "directory_removed": directory_removed,
+        "registry_removed": registry_removed,
+        "removed_items_count": len(removed_items),
+        "removed_items": sorted(removed_items),
+    }

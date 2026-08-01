@@ -3691,13 +3691,18 @@ function PortfolioManager({
   registry = {},
   selectedId = "main",
   onSelect,
+  onDeleted,
   reload,
 }) {
   const [draft, setDraft] = useState(config);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
 
-  useEffect(() => setDraft(config), [config]);
+  useEffect(() => {
+    setDraft(config);
+    setDeleteConfirmation("");
+  }, [config]);
 
   function toggleList(key, value, checked) {
     setDraft((current) => ({
@@ -3746,6 +3751,30 @@ function PortfolioManager({
       });
       setMessage(status === "active" ? "Portafoglio attivato." : "Portafoglio sospeso.");
       await reload();
+    } catch (error) {
+      setMessage(`Errore: ${error.message}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deleteSelectedPortfolio() {
+    if (selectedId === "main" || deleteConfirmation !== selectedId) return;
+    setBusy("delete");
+    setMessage("");
+    try {
+      const result = await api(`/api/portfolios/${encodeURIComponent(selectedId)}`, {
+        method: "DELETE",
+        body: JSON.stringify({ confirmation: deleteConfirmation }),
+        timeoutMs: 30000,
+      });
+      if (!result.directory_removed || !result.registry_removed) {
+        throw new Error("Il backend non ha verificato la rimozione completa.");
+      }
+      window.localStorage.removeItem(dashboardStorageKey(selectedId));
+      setDeleteConfirmation("");
+      setMessage(`Portafoglio ${selectedId} eliminato completamente (${result.removed_items_count} elementi rimossi).`);
+      await onDeleted(selectedId, result);
     } catch (error) {
       setMessage(`Errore: ${error.message}`);
     } finally {
@@ -3896,6 +3925,35 @@ function PortfolioManager({
           <button onClick={() => changeStatus("active")} disabled={!!busy}>Riattiva operativita</button>
         )}
       </div>
+      <div className="portfolioDangerZone">
+        <div>
+          <strong>Eliminazione completa</strong>
+          {selectedId === "main" ? (
+            <p>Il portafoglio principale <b>main</b> è protetto e non può essere eliminato.</p>
+          ) : (
+            <p>Rimuove definitivamente posizioni, trigger, proposte, storico, runtime, cache dashboard e impostazioni di <b>{selectedId}</b>.</p>
+          )}
+        </div>
+        {selectedId !== "main" && (
+          <div className="portfolioDeleteControls">
+            <label>
+              <span>Digita <b>{selectedId}</b> per confermare</span>
+              <input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <button
+              className="dangerButton"
+              onClick={deleteSelectedPortfolio}
+              disabled={!!busy || deleteConfirmation !== selectedId}
+            >
+              {busy === "delete" ? "Eliminazione e verifica..." : "Elimina tutto il portafoglio"}
+            </button>
+          </div>
+        )}
+      </div>
       {message && <div className={message.startsWith("Errore") ? "error" : "okBox"}>{message}</div>}
     </section>
   );
@@ -4031,6 +4089,15 @@ function App() {
     } finally {
       setPortfolioFormBusy(false);
     }
+  }
+
+  async function handlePortfolioDeleted(portfolioId, result) {
+    window.localStorage.removeItem(dashboardStorageKey(portfolioId));
+    window.localStorage.setItem("selectedPortfolioId", "main");
+    setSelectedPortfolioId("main");
+    setData(readDashboardSnapshot("main"));
+    setRunNowMessage(`Portafoglio ${portfolioId} eliminato completamente: ${result.removed_items_count} elementi rimossi e verifica completata.`);
+    await load({ portfolioId: "main", silent: true });
   }
 
   async function runNow() {
@@ -4414,6 +4481,7 @@ function App() {
               registry={data.portfolios || {}}
               selectedId={selectedPortfolioId}
               onSelect={setSelectedPortfolioId}
+              onDeleted={handlePortfolioDeleted}
               reload={load}
             />
           )}

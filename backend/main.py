@@ -57,6 +57,7 @@ from finance_tools.portfolio_store import (  # noqa: E402
 )
 from finance_tools.portfolio_registry import (  # noqa: E402
     create_portfolio,
+    delete_portfolio_completely,
     ensure_registry,
     list_portfolios,
     load_portfolio_config,
@@ -690,6 +691,10 @@ class PortfolioUpdateRequest(BaseModel):
     telegram: dict | None = None
 
 
+class PortfolioDeleteRequest(BaseModel):
+    confirmation: str
+
+
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 LOG_TAIL_CACHE = {}
 LOG_TAIL_CACHE_LOCK = threading.Lock()
@@ -938,6 +943,32 @@ def patch_portfolio(portfolio_id: str, request: PortfolioUpdateRequest):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/portfolios/{portfolio_id}")
+def delete_portfolio(portfolio_id: str, request: PortfolioDeleteRequest):
+    if request.confirmation.strip() != portfolio_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Conferma non valida: digita esattamente {portfolio_id}.",
+        )
+    try:
+        state_path = portfolio_state_path(portfolio_id)
+        run_state = load_agent_run_state(state_path.parent / "agent_run_state.json")
+        if run_state.get("status") == "running":
+            raise HTTPException(
+                status_code=409,
+                detail="Il portafoglio ha una run in corso. Attendi il completamento prima di eliminarlo.",
+            )
+        return json_safe(delete_portfolio_completely(portfolio_id))
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Eliminazione incompleta: {exc}") from exc
 
 
 @app.get("/api/portfolios/{portfolio_id}/status")

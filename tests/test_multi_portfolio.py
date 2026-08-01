@@ -86,6 +86,43 @@ class MultiPortfolioTestCase(unittest.TestCase):
         self.assertEqual(config["risk_limits"]["max_position_pct"], 18.0)
         self.assertEqual(created["portfolio"]["portfolio_id"], "dynamic-test")
 
+    def test_delete_portfolio_removes_directory_cache_and_registry_entry(self):
+        self.write_legacy()
+        registry.ensure_registry()
+        registry.create_portfolio(
+            "delete-test",
+            "Da eliminare",
+            5000,
+            profile_name="balanced",
+        )
+        target = self.portfolios_root / "delete-test"
+        (target / "dashboard_cache.json").write_text("{}", encoding="utf-8")
+        (target / "nested-cache").mkdir()
+        (target / "nested-cache" / "anything.tmp").write_text("cache", encoding="utf-8")
+
+        result = registry.delete_portfolio_completely("delete-test")
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertTrue(result["directory_removed"])
+        self.assertTrue(result["registry_removed"])
+        self.assertFalse(target.exists())
+        self.assertFalse(any(self.portfolios_root.glob(".deleting-delete-test-*")))
+        self.assertNotIn(
+            "delete-test",
+            [item["id"] for item in registry.list_portfolios(include_archived=True)["items"]],
+        )
+        self.assertIn("dashboard_cache.json", result["removed_items"])
+        self.assertIn("nested-cache/anything.tmp", [item.replace("\\", "/") for item in result["removed_items"]])
+
+    def test_main_portfolio_cannot_be_deleted(self):
+        self.write_legacy()
+        registry.ensure_registry()
+
+        with self.assertRaisesRegex(ValueError, "main non puo essere eliminato"):
+            registry.delete_portfolio_completely("main")
+
+        self.assertTrue((self.portfolios_root / "main").is_dir())
+
     def test_same_analysis_is_evaluated_differently_by_profile(self):
         self.write_legacy()
         registry.ensure_registry()
