@@ -4001,8 +4001,9 @@ function App() {
         `/api/dashboard?portfolio_id=${encodeURIComponent(portfolioId)}&refresh=${refresh ? "true" : "false"}`,
         { timeoutMs: refresh ? 120000 : 10000 },
       );
-      setData(result);
-      saveDashboardSnapshot(portfolioId, result);
+      const normalizedResult = normalizeDashboardPayload(result);
+      setData(normalizedResult);
+      saveDashboardSnapshot(portfolioId, normalizedResult);
     } catch (err) {
       const message = err.name === "AbortError"
         ? "Timeout nel caricamento dei dati. Il backend sta impiegando troppo tempo a rispondere."
