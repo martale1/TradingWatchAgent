@@ -17,6 +17,8 @@ from finance_tools.commodity_scanner import load_commodity_tickers_json, scan_co
 from finance_tools.common import PROJECT_ROOT, load_env_file
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
 from finance_tools.etf_scanner import load_etf_tickers_json, scan_etf_candidates_json
+from finance_tools.exit_executor import enforce_triggered_exits
+from finance_tools.exit_view import build_exit_conditions
 from finance_tools.mib30_scanner import propose_virtual_allocation_json, scan_mib30_candidates_json
 from finance_tools.monitoring_rules import (
     ensure_candidate_conditions,
@@ -438,6 +440,10 @@ def fmt_eur(value):
         return f"{float(value):,.2f} EUR"
     except (TypeError, ValueError):
         return "n/d"
+
+
+def scheduled_telegram_tools_suppressed():
+    return os.getenv("SUPPRESS_AGENT_TELEGRAM_TOOLS") == "1"
 
 
 def log_operational_snapshot(label):
@@ -1250,6 +1256,18 @@ def send_monitoring_telegram_summary(extra_note: str = "") -> str:
         extra_note: Optional short note to include at the end of the Telegram message.
     """
     log_step("Tool send_monitoring_telegram_summary chiamato")
+    if scheduled_telegram_tools_suppressed():
+        log_step(
+            "Invio Telegram intermedio soppresso: "
+            "il runner schedulato inviera il riepilogo consolidato finale"
+        )
+        return json.dumps(
+            {
+                "status": "skipped",
+                "reason": "scheduled_consolidated_summary_pending",
+            },
+            ensure_ascii=False,
+        )
     return json.dumps(send_monitoring_summary(extra_note=extra_note), ensure_ascii=False, indent=2)
 
 
@@ -1264,6 +1282,18 @@ def get_portfolio_performance() -> str:
 def send_portfolio_performance_telegram(extra_note: str = "") -> str:
     """Send a Telegram message with current virtual portfolio performance."""
     log_step("Tool send_portfolio_performance_telegram chiamato")
+    if scheduled_telegram_tools_suppressed():
+        log_step(
+            "Invio performance Telegram intermedio soppresso: "
+            "il runner schedulato inviera il riepilogo consolidato finale"
+        )
+        return json.dumps(
+            {
+                "status": "skipped",
+                "reason": "scheduled_consolidated_summary_pending",
+            },
+            ensure_ascii=False,
+        )
     return json.dumps(send_performance_summary(extra_note=extra_note), ensure_ascii=False, indent=2)
 
 
@@ -1420,7 +1450,12 @@ def reject_portfolio_proposal_tool(proposal_id: str) -> str:
     return json.dumps(reject_portfolio_proposal(proposal_id), ensure_ascii=False, indent=2)
 
 
-def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT):
+def build_agent(
+    model=DEFAULT_MODEL,
+    auto_apply_virtual=False,
+    max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT,
+    periodic=False,
+):
     autonomy_mode = load_autonomy_settings()["portfolio_action_mode"]
     mode = "AUTO-VIRTUAL" if auto_apply_virtual and autonomy_mode != "confirmation" else "CONFIRMATION"
     log_step(
@@ -1459,8 +1494,9 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
             "Applica automaticamente soltanto le azioni autorizzate dalla configurazione Controlli. "
             "In modalita protective, acquisti e incrementi devono restare proposte pending da confermare, "
             "mentre riduzioni e vendite protettive possono essere applicate automaticamente. "
-            "In modalita full_auto non chiedere conferma: applica se tutte le regole sono rispettate e notifica l'utente via Telegram. "
-            "Dopo ogni operazione autonoma devi chiamare send_monitoring_telegram_summary e dichiarare proposal_id, ticker, importo e motivo. "
+            "In modalita full_auto non chiedere conferma: applica se tutte le regole sono rispettate. "
+            "Dopo ogni operazione autonoma dichiara proposal_id, ticker, importo e motivo nel risultato; "
+            "il runner gestisce la notifica Telegram evitando riepiloghi duplicati. "
         )
     else:
         operation_policy = (
@@ -1502,10 +1538,51 @@ def build_agent(model=DEFAULT_MODEL, auto_apply_virtual=False, max_auto_trade_pc
         tools.append(auto_apply_virtual_proposal_tool)
     else:
         tools.append(confirm_portfolio_proposal_tool)
+    if periodic:
+        tools = [
+            get_portfolio_operating_status,
+            get_portfolio_performance,
+            analyze_stock_chart,
+            analyze_stock_news,
+            evaluate_entry_scenarios,
+            confirm_candidate_chart_with_playwright,
+            list_manual_watchlist,
+            scan_mib30_for_candidates,
+            scan_commodities_for_candidates,
+            scan_etf_for_candidates,
+            record_monitored_condition,
+            create_buy_proposal,
+            create_position_action_proposal,
+            auto_apply_virtual_proposal_tool
+            if auto_apply_virtual and autonomy_mode != "confirmation"
+            else confirm_portfolio_proposal_tool,
+        ]
+    periodic_instructions = (
+        "Sei il monitor schedulato compatto di un portafoglio virtuale. Rispondi in italiano. "
+        "Usa solo i tool necessari e termina appena hai deciso le azioni operative. "
+        "Prima leggi stato operativo e performance. Non caricare mai il portafoglio completo. "
+        "Analizza al massimo tre posizioni per ciclo, scelte solo tra alert performance, variazioni giornaliere anomale "
+        "o segnali concreti di uscita/protezione; non analizzare automaticamente tutte le posizioni. "
+        "Rivaluta i trigger prioritari con evaluate_entry_scenarios: Playwright/news live solo per CONFIRMING o BUY_CANDIDATE. "
+        "Non usare Playwright sui semplici risultati degli scanner. Gli scanner creano short-list e condizioni, non acquisti diretti. "
+        "Per comprare servono prezzo valido, liquidita adeguata, trigger confermato e news non negative. "
+        "Per pullback serve evidenza di tenuta/rimbalzo; la sola vicinanza al supporto non basta. "
+        f"Limite singola operazione: {max_auto_trade_pct:.1f}% del cash; esposizione commodity indicativa massima "
+        f"{DEFAULT_MAX_COMMODITY_ALLOCATION_PCT:.1f}% del portafoglio. "
+        f"Modalita autonomia: {autonomy_mode}. "
+        + (
+            "Puoi creare e applicare operazioni virtuali autorizzate usando proposta e tool di applicazione. "
+            if auto_apply_virtual and autonomy_mode != "confirmation"
+            else "Crea solo proposte; non applicare modifiche senza conferma. "
+        )
+        + "Non chiamare tool Telegram: news-evento e riepilogo consolidato sono gestiti dal runner. "
+        "Non duplicare condizioni o proposte esistenti. Se non ci sono segnali concreti, non fare operazioni. "
+        "Concludi con un risultato molto breve: azioni applicate/proposte, alert e conteggi; niente opzioni successive."
+    )
     return Agent(
         name="Portfolio Monitor Agent",
         model=model,
-        instructions=(
+        instructions=periodic_instructions if periodic else (
             "Sei un agente finanziario operativo per monitorare un portafoglio virtuale e una watchlist. "
             "Usa i tool disponibili per raccogliere dati tecnici e news. "
             "Le news non sono un accessorio: devono supportare o indebolire ogni decisione operativa. "
@@ -1625,7 +1702,16 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
     before_portfolio_state = portfolio_content_signature()
     final_output = ""
     try:
-        result = Runner.run_sync(agent, request, max_turns=run_max_turns)
+        previous_suppression = os.getenv("SUPPRESS_AGENT_TELEGRAM_TOOLS")
+        if suppress_auto_telegram_summary:
+            os.environ["SUPPRESS_AGENT_TELEGRAM_TOOLS"] = "1"
+        try:
+            result = Runner.run_sync(agent, request, max_turns=run_max_turns)
+        finally:
+            if previous_suppression is None:
+                os.environ.pop("SUPPRESS_AGENT_TELEGRAM_TOOLS", None)
+            else:
+                os.environ["SUPPRESS_AGENT_TELEGRAM_TOOLS"] = previous_suppression
         usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
         usage_event = record_token_usage(
             usage,
@@ -1666,7 +1752,7 @@ def run_agent_once(agent, request, display_request=None, suppress_auto_telegram_
     return result
 
 
-def build_periodic_monitor_request(
+def build_legacy_periodic_monitor_request(
     scan_limit=5,
     universe_limit=0,
     live_news=True,
@@ -1695,7 +1781,8 @@ def build_periodic_monitor_request(
             "Se per comprare un candidato migliore serve liberare cash o ridurre rischio, valuta un ribilanciamento virtuale con reduce/sell "
             "su posizioni aperte piu deboli prima del nuovo buy. "
             "Se il segnale non e netto, non applicare: mantieni o crea una condizione monitorata. "
-            "Dopo ogni operazione autonoma invia riepilogo Telegram. "
+            "Non chiamare direttamente i tool Telegram nel ciclo schedulato: "
+            "il runner inviera un unico riepilogo consolidato finale. "
         )
     else:
         operation_hint = "Non applicare mai operazioni al portafoglio senza conferma esplicita dell'utente. "
@@ -1748,6 +1835,54 @@ def build_periodic_monitor_request(
     )
 
 
+def build_periodic_monitor_request(
+    scan_limit=5,
+    universe_limit=0,
+    live_news=True,
+    deep_confirm_limit=3,
+    auto_apply_virtual=False,
+    max_auto_trade_pct=DEFAULT_MAX_AUTO_TRADE_PCT,
+    condition_limit=DEFAULT_PERIODIC_CONDITION_LIMIT,
+    run_market_scanners=True,
+):
+    scanner_step = (
+        f"Esegui una volta i tre scanner locali con limit={scan_limit} e universe_limit={universe_limit}: "
+        "FTSE MIB, materie prime ed ETF. Usa le short-list solo per salvare condizioni concrete; "
+        "non approfondire i candidati scanner con Playwright in questo ciclo."
+        if run_market_scanners
+        else "Non eseguire scanner in questo ciclo intermedio."
+    )
+    autonomy_step = (
+        f"Puoi applicare operazioni virtuali autorizzate, massimo {max_auto_trade_pct:.1f}% del cash per operazione."
+        if auto_apply_virtual
+        else "Crea solo proposte pending; non applicare operazioni."
+    )
+    news_step = (
+        f"Consenti massimo {deep_confirm_limit} conferme Playwright/news, esclusivamente dentro "
+        "evaluate_entry_scenarios per CONFIRMING/BUY_CANDIDATE o per una posizione con segnale concreto."
+        if live_news
+        else "Non usare Playwright; usa soltanto dati locali e news in cache."
+    )
+    return " ".join(
+        [
+            "Esegui un ciclo periodico compatto.",
+            "1) Chiama get_portfolio_operating_status e get_portfolio_performance.",
+            "2) Analizza con analyze_stock_chart al massimo tre posizioni: soltanto quelle con alert, forte variazione "
+            "giornaliera o possibile uscita/protezione. Non analizzare tutte le posizioni.",
+            "Usa analyze_stock_news solo se una di queste tre richiede davvero una decisione operativa.",
+            f"3) Rivaluta al massimo {condition_limit} trigger con evaluate_entry_scenarios "
+            f"limit={condition_limit}, use_playwright={bool(live_news)}, live_news={bool(live_news)}, "
+            f"max_playwright={deep_confirm_limit}.",
+            news_step,
+            "4) Controlla la watchlist; approfondisci al massimo un ticker soltanto se vicino a una decisione.",
+            f"5) {scanner_step}",
+            f"6) {autonomy_step}",
+            "Non chiamare tool Telegram: il runner gestisce news-evento e un solo riepilogo consolidato.",
+            "Termina con massimo otto righe: azioni, proposte, alert e conteggi. Non aggiungere opzioni successive.",
+        ]
+    )
+
+
 def run_periodic_monitor_loop(
     model,
     interval_minutes=DEFAULT_MONITOR_INTERVAL_MINUTES,
@@ -1767,6 +1902,7 @@ def run_periodic_monitor_loop(
         model=model,
         auto_apply_virtual=auto_apply_virtual,
         max_auto_trade_pct=max_auto_trade_pct,
+        periodic=True,
     )
     interval_seconds = max(1, int(interval_minutes * 60))
     cycle = 1
@@ -1819,8 +1955,22 @@ def run_periodic_monitor_loop(
                 request,
                 display_request=f"monitor periodico ciclo #{cycle}",
                 suppress_auto_telegram_summary=True,
-                max_turns=periodic_max_turns,
+                max_turns=min(int(periodic_max_turns), 14),
             )
+            exit_performance = calculate_portfolio_performance(record_history=False)
+            exit_portfolio = load_portfolio_file()
+            exit_rows = build_exit_conditions(exit_performance, exit_portfolio)
+            exit_enforcement = enforce_triggered_exits(
+                exit_rows,
+                portfolio_id=os.getenv("ACTIVE_PORTFOLIO_ID") or "main",
+            )
+            if exit_enforcement.get("decisions"):
+                log_step(
+                    "Controllo deterministico stop completato | "
+                    f"decisioni={len(exit_enforcement['decisions'])} "
+                    f"vendite_applicate={exit_enforcement.get('applied_count', 0)} "
+                    f"pending={exit_enforcement.get('pending_count', 0)}"
+                )
             if os.getenv("MULTI_PORTFOLIO_CHILD") != "1":
                 shared_evaluation = run_shared_portfolio_evaluation()
                 shared_portfolios = shared_evaluation.get("portfolios", [])

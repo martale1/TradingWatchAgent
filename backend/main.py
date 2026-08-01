@@ -22,10 +22,15 @@ if str(ROOT) not in sys.path:
 
 from finance_tools.common import load_env_file  # noqa: E402
 from finance_tools.autonomy_settings import load_autonomy_settings, save_autonomy_settings  # noqa: E402
-from finance_tools.agent_run_state import agent_schedule_status, load_agent_run_state  # noqa: E402
+from finance_tools.agent_run_state import (  # noqa: E402
+    agent_schedule_status,
+    load_agent_run_state,
+    set_windows_scheduler_enabled,
+)
 from finance_tools.commodity_scanner import load_commodity_tickers, scan_commodity_candidates  # noqa: E402
 from finance_tools.etf_scanner import load_etf_tickers, scan_etf_candidates  # noqa: E402
 from finance_tools.exit_view import build_exit_conditions  # noqa: E402
+from finance_tools.exit_executor import enforce_triggered_exits  # noqa: E402
 from finance_tools.market_universe_store import (  # noqa: E402
     add_market_instrument,
     import_market_universe_from_excel,
@@ -113,6 +118,8 @@ STATUS_RANK = {
     "waiting": 20,
     "invalidated": 5,
 }
+
+DASHBOARD_CACHE_MAX_AGE_SECONDS = 10 * 60
 
 DEEP_ANALYSIS_JOBS = {}
 DEEP_ANALYSIS_JOBS_LOCK = threading.Lock()
@@ -328,6 +335,47 @@ def dedupe_dashboard_conditions(conditions):
     return [entry[1] for entry in best_by_ticker.values()]
 
 
+def attach_condition_action_context(rows, portfolio):
+    """Expose decisions and real portfolio operations separately from live trigger state."""
+    operations = {}
+    for item in (portfolio or {}).get("closed_proposals", []):
+        if item.get("action") not in {
+            "buy_virtual_position",
+            "sell_virtual_position",
+            "reduce_virtual_position",
+        }:
+            continue
+        ticker = str(item.get("ticker") or "").strip().upper()
+        happened_at = str(
+            item.get("confirmed_at")
+            or item.get("blocked_at")
+            or item.get("created_at")
+            or ""
+        )
+        current = operations.get(ticker)
+        if ticker and (current is None or happened_at > current[0]):
+            operations[ticker] = (happened_at, item)
+
+    enriched = []
+    for row in rows:
+        item = dict(row)
+        ticker = str(item.get("ticker") or "").strip().upper()
+        operation_entry = operations.get(ticker)
+        operation = operation_entry[1] if operation_entry else None
+        item["last_portfolio_operation"] = (
+            {
+                "action": operation.get("action"),
+                "status": operation.get("status"),
+                "at": operation_entry[0],
+                "reason": operation.get("reason"),
+            }
+            if operation
+            else None
+        )
+        enriched.append(item)
+    return enriched
+
+
 def enrich_universe_with_scan(rows, scan_filename):
     scan_path = ROOT / "output" / "stock_ai" / scan_filename
     if not scan_path.exists():
@@ -537,6 +585,10 @@ class PlaywrightMonitorRequest(BaseModel):
     universe_limit: int = 0
     telegram: bool = True
     portfolio_id: str = "main"
+
+
+class SchedulerSettingsRequest(BaseModel):
+    enabled: bool
 
 
 class WatchlistRequest(BaseModel):
@@ -951,8 +1003,39 @@ def agent_status(portfolio_id: str = "main"):
     return json_safe(load_agent_run_state(state_path))
 
 
+def _dashboard_cache_path(state_path):
+    return state_path.parent / "dashboard_cache.json"
+
+
+def _load_dashboard_cache(state_path):
+    cache_path = _dashboard_cache_path(state_path)
+    if not cache_path.exists():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _dashboard_cache_age_seconds(payload):
+    try:
+        saved_at = datetime.fromisoformat(str(payload.get("dashboard_cache", {}).get("refreshed_at")))
+        return max(0.0, (datetime.now() - saved_at).total_seconds())
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def _save_dashboard_cache(state_path, payload):
+    cache_path = _dashboard_cache_path(state_path)
+    cache_path.write_text(
+        json.dumps(json_safe(payload), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 @app.get("/api/dashboard")
-def dashboard(portfolio_id: str = "main"):
+def dashboard(portfolio_id: str = "main", refresh: bool = False):
     try:
         config = load_portfolio_config(portfolio_id)
         state_path = portfolio_state_path(portfolio_id)
@@ -960,6 +1043,70 @@ def dashboard(portfolio_id: str = "main"):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not config or not state_path.exists():
         raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    cached = _load_dashboard_cache(state_path)
+    if cached is not None:
+        age_seconds = _dashboard_cache_age_seconds(cached)
+        if not refresh or age_seconds < DASHBOARD_CACHE_MAX_AGE_SECONDS:
+            if refresh:
+                exit_enforcement = enforce_triggered_exits(
+                    cached.get("exit_conditions") or [],
+                    path=state_path,
+                    portfolio_id=portfolio_id,
+                )
+                cached["exit_enforcement"] = exit_enforcement
+                if exit_enforcement.get("applied_count"):
+                    sold_tickers = {
+                        item.get("ticker")
+                        for item in exit_enforcement.get("decisions", [])
+                        if item.get("applied")
+                    }
+                    updated_portfolio = load_portfolio(state_path)
+                    updated_status = portfolio_status_summary(state_path)
+                    performance = dict(cached.get("performance") or {})
+                    remaining = [
+                        item for item in performance.get("positions", [])
+                        if item.get("ticker") not in sold_tickers
+                    ]
+                    positions_value = sum(float(item.get("market_value") or 0) for item in remaining)
+                    invested_amount = sum(float(item.get("invested_amount") or 0) for item in remaining)
+                    cash = float((updated_portfolio or {}).get("cash") or 0)
+                    initial_capital = float((updated_portfolio or {}).get("initial_capital") or 0)
+                    total_value = cash + positions_value
+                    performance.update({
+                        "positions": remaining,
+                        "positions_count": len(remaining),
+                        "positions_value": round(positions_value, 2),
+                        "invested_amount": round(invested_amount, 2),
+                        "cash": round(cash, 2),
+                        "total_value": round(total_value, 2),
+                        "total_pnl": round(total_value - initial_capital, 2),
+                        "total_pnl_pct": round(
+                            ((total_value - initial_capital) / initial_capital * 100.0)
+                            if initial_capital else 0.0,
+                            2,
+                        ),
+                        "exposure_pct": round((positions_value / total_value * 100.0) if total_value else 0.0, 2),
+                        "cash_pct": round((cash / total_value * 100.0) if total_value else 0.0, 2),
+                    })
+                    cached["portfolio"] = updated_status
+                    cached["performance"] = performance
+                    cached["exit_conditions"] = [
+                        item for item in cached.get("exit_conditions", [])
+                        if item.get("ticker") not in sold_tickers
+                    ]
+                    cached["recent_actions"] = list(
+                        reversed((updated_portfolio or {}).get("closed_proposals", []))
+                    )[:20]
+                    _save_dashboard_cache(state_path, cached)
+            cached.setdefault("dashboard_cache", {})["age_seconds"] = round(age_seconds, 1)
+            cached["dashboard_cache"]["source"] = "cache"
+            cached["dashboard_cache"]["refresh_skipped_recent"] = bool(refresh)
+            return json_safe(cached)
+    elif not refresh:
+        raise HTTPException(
+            status_code=404,
+            detail="Nessuno snapshot dashboard disponibile. Premi Aggiorna dati per interrogare Yahoo Finance.",
+        )
     portfolio = load_portfolio(state_path)
     status = portfolio_status_summary(state_path)
     performance_history_path = state_path.parent / "performance_history.json"
@@ -976,10 +1123,26 @@ def dashboard(portfolio_id: str = "main"):
         if item.get("status") in {"waiting", "met"}
     ]
     active_conditions = dedupe_dashboard_conditions(active_conditions)
-    monitored = enrich_monitored_conditions(active_conditions)
+    monitored = attach_condition_action_context(
+        enrich_monitored_conditions(active_conditions),
+        portfolio,
+    )
     exits = build_exit_conditions(performance, portfolio)
+    exit_enforcement = enforce_triggered_exits(
+        exits,
+        path=state_path,
+        portfolio_id=portfolio_id,
+    )
+    if exit_enforcement.get("applied_count"):
+        portfolio = load_portfolio(state_path)
+        status = portfolio_status_summary(state_path)
+        performance = calculate_portfolio_performance(
+            state_path,
+            history_path=performance_history_path,
+        )
+        exits = build_exit_conditions(performance, portfolio)
     closed = list(reversed((portfolio or {}).get("closed_proposals", [])))[:20]
-    return json_safe({
+    payload = json_safe({
         "portfolio": status,
         "portfolio_config": config,
         "portfolio_id": portfolio_id,
@@ -988,6 +1151,7 @@ def dashboard(portfolio_id: str = "main"):
         "performance_history": performance_history,
         "monitored": monitored,
         "exit_conditions": exits,
+        "exit_enforcement": exit_enforcement,
         "agent_run_state": agent_schedule_status(portfolio_id),
         "playwright_health": load_playwright_health(),
         "token_usage": token_usage_summary(portfolio_id=portfolio_id),
@@ -995,7 +1159,16 @@ def dashboard(portfolio_id: str = "main"):
         "ftse_mib": enrich_universe_with_scan(load_mib30_tickers(), "mib30_scan.json"),
         "commodities": enrich_universe_with_scan(load_commodity_tickers(), "commodity_scan.json"),
         "etfs": enrich_universe_with_scan(load_etf_tickers(), "etf_scan.json"),
+        "dashboard_cache": {
+            "refreshed_at": datetime.now().isoformat(timespec="seconds"),
+            "age_seconds": 0,
+            "source": "yahoo_refresh",
+            "refresh_skipped_recent": False,
+            "max_age_seconds": DASHBOARD_CACHE_MAX_AGE_SECONDS,
+        },
     })
+    _save_dashboard_cache(state_path, payload)
+    return payload
 
 
 @app.get("/api/token-usage")
@@ -1406,6 +1579,21 @@ def etfs_scan(request: EtfScanRequest):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Errore scanner ETF: {exc}") from exc
+
+
+@app.post("/api/scheduler/settings")
+def update_scheduler_settings(request: SchedulerSettingsRequest):
+    try:
+        scheduler = set_windows_scheduler_enabled(request.enabled)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    action = "abilitato" if request.enabled else "disabilitato"
+    append_agent_logs(f"Scheduler automatico {action} dalla GUI.")
+    return {
+        "status": "ok",
+        "message": f"Scheduler automatico {action}.",
+        **scheduler,
+    }
 
 
 @app.get("/api/run-logs")

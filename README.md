@@ -845,6 +845,23 @@ Questo flusso:
 
 Serve Chrome aperto con debug remoto e ChatGPT loggato.
 
+## Ottimizzazione token del monitor schedulato
+
+Il monitor periodico usa un agente specializzato e separato dalla chat
+interattiva:
+
+- espone solo i 14 tool necessari al ciclo, invece dell'intero set;
+- non espone `load_virtual_portfolio`, che includerebbe tutto lo storico;
+- analizza al massimo tre posizioni per ciclo, selezionate da alert o movimenti
+  anomali, invece di analizzare sempre tutte le posizioni;
+- usa un prompt operativo compatto e massimo 14 turni SDK;
+- lascia scanner, filtri, trigger e calcoli deterministici al codice locale;
+- registra anche il consumo di ogni singola richiesta SDK, inclusi input,
+  cache, output e reasoning token.
+
+La dashboard mostra media input per richiesta e picco giornaliero non appena
+sono disponibili eventi registrati con la nuova telemetria.
+
 ## Comandi utili
 
 Grafici locali:

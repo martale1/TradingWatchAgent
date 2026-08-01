@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, Bot, LineChart, MessageSquare, Newspaper, RefreshCw, Send, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
+import { Activity, Bot, LineChart, MessageSquare, Newspaper, PauseCircle, PlayCircle, RefreshCw, Send, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import "./styles.css";
 
 const API = "http://127.0.0.1:8000";
@@ -247,6 +247,27 @@ async function api(path, options = {}) {
   return normalizeData(data);
 }
 
+function dashboardStorageKey(portfolioId) {
+  return `dashboardSnapshot:${String(portfolioId || "main")}`;
+}
+
+function readDashboardSnapshot(portfolioId) {
+  try {
+    const value = window.localStorage.getItem(dashboardStorageKey(portfolioId));
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDashboardSnapshot(portfolioId, payload) {
+  try {
+    window.localStorage.setItem(dashboardStorageKey(portfolioId), JSON.stringify(payload));
+  } catch {
+    // The backend cache remains available if browser storage is disabled or full.
+  }
+}
+
 function normalizeData(value) {
   if (typeof value === "string") return cleanText(value);
   if (Array.isArray(value)) return value.map(normalizeData);
@@ -487,6 +508,14 @@ function AgentRunStatus({ state = {}, stats = {}, tokenUsage = {}, playwrightHea
             Di cui input in cache: {Number(tokenUsage.today.cached_input_tokens).toLocaleString("it-IT")}
           </small>
         )}
+        {tokenUsage.today?.avg_input_tokens_per_request > 0 && (
+          <small className="agentScheduleDetail">
+            Media input/richiesta: {Number(tokenUsage.today.avg_input_tokens_per_request).toLocaleString("it-IT")}
+            {tokenUsage.today?.max_request_input_tokens > 0
+              ? ` · picco ${Number(tokenUsage.today.max_request_input_tokens).toLocaleString("it-IT")}`
+              : ""}
+          </small>
+        )}
       </div>
       {playwrightHealth.status === "error" && (
         <div className="agentStatusError">
@@ -704,22 +733,45 @@ function ExitConditions({ rows = [], onChart }) {
         <span>Stop, target e segnali operativi sulle posizioni gia in portafoglio</span>
       </div>
       <div className="exitGrid">
-        {rows.map((row) => (
+        {rows.map((row) => {
+          const stopDistance = Number(row.distance_to_stop_pct);
+          const targetDistance = Number(row.distance_to_take_profit_pct);
+          const hasStopDistance = row.distance_to_stop_pct !== null && row.distance_to_stop_pct !== undefined;
+          const hasTargetDistance = row.distance_to_take_profit_pct !== null && row.distance_to_take_profit_pct !== undefined;
+          const stopText = !hasStopDistance
+            ? "Distanza non disponibile"
+            : stopDistance >= 0
+              ? `Lo stop e ${pct(stopDistance, false)} sotto il prezzo attuale`
+              : `STOP VIOLATO: prezzo ${pct(Math.abs(stopDistance), false)} sotto il livello`;
+          const targetText = !hasTargetDistance
+            ? "Target non definito"
+            : targetDistance < 0
+              ? `Il target e ${pct(Math.abs(targetDistance), false)} sopra il prezzo attuale`
+              : `Target superato di ${pct(targetDistance, false)}`;
+          return (
           <div className="exitCard" key={row.ticker}>
             <div className="triggerHeader">
               <strong>{row.ticker}</strong>
               <span className={`status ${row.status_kind}`}>{row.status}</span>
             </div>
-            <div className="exitSummary">
-              Prezzo e P/L sono nella tabella portafoglio. Qui trovi solo i livelli decisionali.
+            <div className="exitPositionSnapshot">
+              <div><span>Prezzo attuale</span><strong>{price(row.current_price)}</strong><small>Oggi {pct(row.daily_change_pct)}</small></div>
+              <div><span>Prezzo medio</span><strong>{price(row.entry_price)}</strong><small>Prezzo di carico</small></div>
+              <div><span>P/L posizione</span><strong className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</strong><small>Dal prezzo medio</small></div>
             </div>
             <div className="triggerGrid exitLevelGrid">
-              <div><span>Stop uscita</span><b>{price(row.stop_level)}</b></div>
-              <div><span>Distanza stop</span><b className={signedClass(row.distance_to_stop_pct)}>{pct(row.distance_to_stop_pct)}</b></div>
-              <div><span>Take profit</span><b>{price(row.take_profit_level)}</b></div>
-              <div><span>Distanza target</span><b className={signedClass(row.distance_to_take_profit_pct)}>{pct(row.distance_to_take_profit_pct)}</b></div>
+              <div className={stopDistance < 0 ? "levelViolated" : ""}>
+                <span>Stop / prima uscita</span><b>{price(row.stop_level)}</b><small>{stopText}</small>
+              </div>
+              <div><span>Take profit</span><b>{price(row.take_profit_level)}</b><small>{targetText}</small></div>
             </div>
-            <p className="exitAction">{row.primary_action}</p>
+            <div className={`exitDecision ${row.status_kind}`}>
+              <span>Azione adesso</span>
+              <strong>{row.primary_action}</strong>
+              <small>{stopDistance < 0
+                ? "Il livello di protezione e gia stato oltrepassato: serve una decisione operativa."
+                : `Se il prezzo scende a ${price(row.stop_level)}, il sistema rivaluta riduzione o vendita.`}</small>
+            </div>
             <p className="condition">{row.explanation}</p>
             <div className="sourceLine">Fonte: {row.source}</div>
             <div className="cardActions">
@@ -739,7 +791,8 @@ function ExitConditions({ rows = [], onChart }) {
               <NewsButton ticker={row.ticker} />
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -750,9 +803,33 @@ function TriggerCard({ item, onChart, isInPortfolio = false }) {
   const missing = item.trigger_distance_pct === null || item.trigger_distance_pct === undefined ? null : -item.trigger_distance_pct;
   const triggerLabel = isInPortfolio ? "Trigger incremento" : "Trigger ingresso";
   const actionLabel = isInPortfolio ? "Incremento/ribilanciamento" : "Ingresso";
-  const expectedAction = isInPortfolio
-    ? "INCREMENTO / RIBILANCIAMENTO se confermato"
-    : "ACQUISTO se confermato";
+  const priceThresholdMet = Number(item.trigger_distance_pct) >= 0;
+  const scenarioState = String(item.scenario_state || "WAIT").toUpperCase();
+  const operationLabels = {
+    buy_virtual_position: "ACQUISTO ESEGUITO",
+    reduce_virtual_position: "VENDITA PARZIALE ESEGUITA",
+    sell_virtual_position: "VENDITA TOTALE ESEGUITA",
+  };
+  const evaluationText = scenarioState === "BUY_CANDIDATE"
+    ? "Confermata: controlli tecnici, grafico e news superati"
+    : scenarioState === "CONFIRMING"
+      ? "In corso: servono grafico e news"
+      : scenarioState === "NEAR_TRIGGER"
+        ? "Parziale: condizioni non ancora sufficienti"
+        : priceThresholdMet
+          ? "NON ESEGUITA dopo il superamento del prezzo"
+          : "In attesa del trigger";
+  const decisionText = item.last_decision_reason
+    || (scenarioState === "BUY_CANDIDATE" ? "Da trasformare in una decisione operativa" : "Nessuna decisione presa");
+  const nextStep = priceThresholdMet && scenarioState === "WAIT"
+    ? "Al prossimo ciclo: verificare chiusura e volumi; se validi, analizzare grafico e news e decidere HOLD, INCREMENTO, RIDUZIONE o VENDITA."
+    : scenarioState === "CONFIRMING"
+      ? "Completare grafico e news, poi registrare una decisione esplicita."
+      : scenarioState === "BUY_CANDIDATE"
+        ? isInPortfolio
+          ? "Decidere esplicitamente se mantenere o incrementare, applicando i limiti di rischio."
+          : "Creare e validare la proposta di acquisto con il risk manager."
+        : "Continuare il monitoraggio fino al verificarsi delle condizioni complete.";
   const scenarioKind = item.scenario_state === "BUY_CANDIDATE"
     ? "positive"
     : item.scenario_state === "CONFIRMING" || item.scenario_state === "NEAR_TRIGGER"
@@ -798,10 +875,16 @@ function TriggerCard({ item, onChart, isInPortfolio = false }) {
             ? `Mancano ${pct(missing, false)} al trigger di ${actionLabel.toLowerCase()}.`
             : "Distanza dal trigger non disponibile."}
       </p>
-      <div className="triggerAction">
-        <span>Azione prevista</span>
-        <strong>{expectedAction}</strong>
-        {item.action_if_met && <small>{item.action_if_met}</small>}
+      <div className="conditionAudit">
+        <div><span>1 · Evento rilevato</span><strong>{priceThresholdMet ? "SOGLIA PREZZO SUPERATA" : "TRIGGER NON RAGGIUNTO"}</strong></div>
+        <div><span>2 · Verifica completa</span><strong>{evaluationText}</strong><small>Ultima valutazione: {dateTime(item.last_entry_scenario_eval_at)}</small></div>
+        <div><span>3 · Decisione su questa condizione</span><strong>{decisionText}</strong></div>
+        <div>
+          <span>4 · Ultima operazione reale sul titolo</span>
+          <strong>{item.last_portfolio_operation ? operationLabels[item.last_portfolio_operation.action] || item.last_portfolio_operation.action : "NESSUNA OPERAZIONE"}</strong>
+          {item.last_portfolio_operation && <small>{dateTime(item.last_portfolio_operation.at)} · Non necessariamente causata dal trigger corrente.</small>}
+        </div>
+        <div className="nextStep"><span>5 · Cosa farà il sistema</span><strong>{nextStep}</strong></div>
       </div>
       <p className="condition">{item.condition}</p>
       {item.scenario_reason && <p className="small scenarioReason">{item.scenario_reason}</p>}
@@ -854,50 +937,91 @@ function MonitoringGroup({ title, subtitle, rows, onChart, positionTickers }) {
   );
 }
 
+function CompactTriggerTable({ rows, onChart, positionTickers }) {
+  if (!rows.length) return <div className="emptyState">Nessun trigger in attesa.</div>;
+  return (
+    <div className="tableWrap compactTriggerTable">
+      <table>
+        <thead><tr><th>Ticker</th><th>Contesto</th><th>Prezzo</th><th>Trigger</th><th>Distanza</th><th>Stato</th><th /></tr></thead>
+        <tbody>
+          {rows.map((item) => {
+            const held = positionTickers.has(String(item.ticker || "").toUpperCase());
+            return (
+              <tr key={item.id || item.ticker}>
+                <td className="ticker">{item.ticker}</td>
+                <td>{held ? "Gia in portafoglio" : marketGroupForCondition(item).toUpperCase()}</td>
+                <td>{price(item.current_price)}</td>
+                <td>{price(item.trigger_level)}</td>
+                <td className={signedClass(item.trigger_distance_pct)}>{pct(item.trigger_distance_pct)}</td>
+                <td><span className={`pill ${item.trigger_status_kind || "neutral"}`}>{item.trigger_status}</span></td>
+                <td><button className="miniButton" onClick={() => onChart(item)}><LineChart size={14} /> Grafico</button></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Monitoring({ rows = [], positions = [], onChart }) {
   const uniqueRows = uniqueConditionsByTicker(rows);
   const positionTickers = new Set(positions.map((row) => String(row.ticker || "").toUpperCase()));
-  const near = uniqueRows.filter((row) => row.trigger_distance_pct !== null && Math.abs(row.trigger_distance_pct) <= 3);
-  const groups = {
-    ftse: uniqueRows.filter((row) => marketGroupForCondition(row) === "ftse"),
-    commodities: uniqueRows.filter((row) => marketGroupForCondition(row) === "commodities"),
-    etf: uniqueRows.filter((row) => marketGroupForCondition(row) === "etf"),
-    other: uniqueRows.filter((row) => marketGroupForCondition(row) === "other"),
+  const isHeld = (row) => positionTickers.has(String(row.ticker || "").toUpperCase());
+  const needsDecision = (row) => {
+    const state = String(row.scenario_state || "").toUpperCase();
+    const hasDistance = row.trigger_distance_pct !== null && row.trigger_distance_pct !== undefined;
+    return (hasDistance && Number(row.trigger_distance_pct) >= 0) || ["CONFIRMING", "BUY_CANDIDATE"].includes(state);
   };
+  const needsAttention = (row) => {
+    const distance = Number(row.trigger_distance_pct);
+    const state = String(row.scenario_state || "").toUpperCase();
+    return needsDecision(row) || state === "NEAR_TRIGGER" || (Number.isFinite(distance) && Math.abs(distance) <= 1);
+  };
+  const decisionRows = uniqueRows.filter(needsDecision).sort((a, b) => Number(b.trigger_distance_pct || 0) - Number(a.trigger_distance_pct || 0));
+  const heldAttention = uniqueRows.filter((row) => isHeld(row) && needsAttention(row) && !needsDecision(row));
+  const entryAttention = uniqueRows.filter((row) => !isHeld(row) && needsAttention(row) && !needsDecision(row));
+  const waiting = uniqueRows.filter((row) => !needsAttention(row)).sort((a, b) => Number(b.trigger_distance_pct || -999) - Number(a.trigger_distance_pct || -999));
   return (
     <section className="panel">
       <div className="sectionHeader">
-        <h2>Monitoraggio trigger</h2>
-        <span>{near.length} vicini entro +/-3%</span>
+        <div>
+          <h2>Coda decisionale</h2>
+          <span>Qui compaiono prima le condizioni che richiedono una verifica o una decisione reale.</span>
+        </div>
+        <span>{decisionRows.length} da decidere · {heldAttention.length + entryAttention.length} vicini · {waiting.length} in attesa</span>
+      </div>
+      <div className="decisionSummary">
+        <div className={decisionRows.length ? "urgent" : "ok"}><span>Decisione richiesta</span><strong>{decisionRows.length}</strong><small>Soglia superata o conferma avanzata</small></div>
+        <div><span>Posizioni da sorvegliare</span><strong>{heldAttention.length}</strong><small>Possibile gestione della posizione</small></div>
+        <div><span>Nuovi ingressi vicini</span><strong>{entryAttention.length}</strong><small>Non ancora acquistabili</small></div>
       </div>
       <MonitoringGroup
-        title="FTSE MIB"
-        subtitle="Azioni italiane e condizioni operative sul listino principale."
-        rows={groups.ftse}
+        title="Da verificare e decidere ora"
+        subtitle="Il prezzo ha superato la soglia o la conferma e gia in corso. Nessuna operazione e implicita: ogni scheda mostra cosa e stato davvero fatto."
+        rows={decisionRows}
         onChart={onChart}
         positionTickers={positionTickers}
       />
       <MonitoringGroup
-        title="Materie prime / ETC"
-        subtitle="Strumenti commodity, ETC/ETN e sottostanti materie prime."
-        rows={groups.commodities}
+        title="Posizioni gia in portafoglio vicine a una decisione"
+        subtitle="Queste condizioni possono portare a mantenere, incrementare, ridurre o vendere; non sono segnali automatici di acquisto."
+        rows={heldAttention}
         onChart={onChart}
         positionTickers={positionTickers}
       />
       <MonitoringGroup
-        title="ETF"
-        subtitle="ETF tematici e strumenti indicizzati configurati manualmente."
-        rows={groups.etf}
+        title="Nuovi ingressi vicini"
+        subtitle="Titoli non posseduti che si stanno avvicinando alle condizioni minime di valutazione."
+        rows={entryAttention}
         onChart={onChart}
         positionTickers={positionTickers}
       />
-      <MonitoringGroup
-        title="Altri strumenti e watchlist"
-        subtitle="Ticker esteri o condizioni manuali non classificate."
-        rows={groups.other}
-        onChart={onChart}
-        positionTickers={positionTickers}
-      />
+      <details className="waitingTriggers">
+        <summary><span>Tutti gli altri trigger in attesa</span><b>{waiting.length}</b></summary>
+        <p>Vista compatta di archivio: non richiedono un'azione adesso.</p>
+        <CompactTriggerTable rows={waiting} onChart={onChart} positionTickers={positionTickers} />
+      </details>
       {!uniqueRows.length && <div className="okBox">Nessuna condizione monitorata.</div>}
     </section>
   );
@@ -3657,16 +3781,19 @@ function PortfolioManager({
 }
 
 function App() {
-  const [data, setData] = useState(null);
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState(
+    () => window.localStorage.getItem("selectedPortfolioId") || "main",
+  );
+  const [data, setData] = useState(() => readDashboardSnapshot(
+    window.localStorage.getItem("selectedPortfolioId") || "main",
+  ));
   const [error, setError] = useState("");
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [chartItem, setChartItem] = useState(null);
   const [newsTicker, setNewsTicker] = useState("");
   const [runNowBusy, setRunNowBusy] = useState(false);
   const [runNowMessage, setRunNowMessage] = useState("");
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState(
-    () => window.localStorage.getItem("selectedPortfolioId") || "main",
-  );
+  const [schedulerBusy, setSchedulerBusy] = useState(false);
   const [showPortfolioForm, setShowPortfolioForm] = useState(false);
   const [portfolioFormBusy, setPortfolioFormBusy] = useState(false);
   const [portfolioFormError, setPortfolioFormError] = useState("");
@@ -3684,13 +3811,19 @@ function App() {
 
   async function load(options = {}) {
     const silent = Boolean(options.silent);
+    const refresh = Boolean(options.refresh);
     const portfolioId = options.portfolioId || selectedPortfolioId;
     if (loadingRef.current) return;
     loadingRef.current = true;
     if (!silent) setDashboardLoading(true);
     try {
       setError("");
-      setData(await api(`/api/dashboard?portfolio_id=${encodeURIComponent(portfolioId)}`, { timeoutMs: 120000 }));
+      const result = await api(
+        `/api/dashboard?portfolio_id=${encodeURIComponent(portfolioId)}&refresh=${refresh ? "true" : "false"}`,
+        { timeoutMs: refresh ? 120000 : 10000 },
+      );
+      setData(result);
+      saveDashboardSnapshot(portfolioId, result);
     } catch (err) {
       const message = err.name === "AbortError"
         ? "Timeout nel caricamento dei dati. Il backend sta impiegando troppo tempo a rispondere."
@@ -3704,15 +3837,9 @@ function App() {
 
   useEffect(() => {
     window.localStorage.setItem("selectedPortfolioId", selectedPortfolioId);
-    setData(null);
-    load({ portfolioId: selectedPortfolioId });
-  }, [selectedPortfolioId]);
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => load({ silent: true, portfolioId: selectedPortfolioId }),
-      15000,
-    );
-    return () => window.clearInterval(timer);
+    const snapshot = readDashboardSnapshot(selectedPortfolioId);
+    setData(snapshot);
+    setError("");
   }, [selectedPortfolioId]);
   useEffect(() => {
     async function loadAgentStatus() {
@@ -3799,11 +3926,43 @@ function App() {
         timeoutMs: 900000,
       });
       setRunNowMessage("Esecuzione manuale completata. Dashboard aggiornata.");
-      await load();
+      await load({ refresh: true });
     } catch (err) {
       setRunNowMessage(`Errore esecuzione manuale: ${err.message}. Dettagli completi nel tab Run log.`);
     } finally {
       setRunNowBusy(false);
+    }
+  }
+
+  async function toggleScheduler() {
+    const currentlyEnabled = data?.agent_run_state?.scheduler_enabled !== false;
+    const enabled = !currentlyEnabled;
+    setSchedulerBusy(true);
+    setRunNowMessage(enabled
+      ? "Riattivazione dell'esecuzione automatica..."
+      : "Disattivazione delle prossime esecuzioni automatiche...");
+    try {
+      const result = await api("/api/scheduler/settings", {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+        timeoutMs: 15000,
+      });
+      setData((current) => current
+        ? {
+            ...current,
+            agent_run_state: {
+              ...(current.agent_run_state || {}),
+              ...result,
+            },
+          }
+        : current);
+      setRunNowMessage(enabled
+        ? "Esecuzione automatica riattivata."
+        : "Esecuzione automatica disattivata. Un'eventuale run gia avviata puo terminare normalmente.");
+    } catch (err) {
+      setRunNowMessage(`Errore scheduler: ${err.message}`);
+    } finally {
+      setSchedulerBusy(false);
     }
   }
 
@@ -3818,8 +3977,6 @@ function App() {
     ["chat", "Chat"],
     ["watchlist", "Watchlist"],
     ["actions", "Azioni"],
-    ["logs", "Run log"],
-    ["controls", "Controlli"],
   ], []);
   const [tab, setTab] = useState("dashboard");
   const riskProfileLabel = {
@@ -3832,7 +3989,7 @@ function App() {
     active: "Attivo",
     paused: "Sospeso",
     archived: "Archiviato",
-  }[portfolioConfig.status] || portfolioConfig.status || "In caricamento";
+  }[portfolioConfig.status] || portfolioConfig.status || "Dati non caricati";
 
   return (
     <main>
@@ -3852,45 +4009,40 @@ function App() {
                 <i /> {portfolioStatusLabel}
               </span>
             </div>
-            <select
-              aria-label="Portafoglio attivo"
-              value={selectedPortfolioId}
-              onChange={(event) => setSelectedPortfolioId(event.target.value)}
-            >
-              {portfolioOptions.map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.name}
-                </option>
-              ))}
-              {!portfolioOptions.some((item) => item.id === selectedPortfolioId) && (
-                <option value={selectedPortfolioId}>{selectedPortfolioId}</option>
-              )}
-            </select>
+            <div className="activePortfolioSelector">
+              <select aria-label="Portafoglio attivo" value={selectedPortfolioId} onChange={(event) => setSelectedPortfolioId(event.target.value)}>
+                {portfolioOptions.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+                {!portfolioOptions.some((item) => item.id === selectedPortfolioId) && <option value={selectedPortfolioId}>{selectedPortfolioId}</option>}
+              </select>
+              <button className="portfolioAddButton" onClick={() => setShowPortfolioForm((value) => !value)} title="Crea un nuovo portafoglio" aria-label="Crea un nuovo portafoglio">+</button>
+            </div>
             <div className="activePortfolioMeta">
-              <span>{riskProfileLabel}</span>
-              {portfolioConfig.initial_capital != null && (
-                <span>{eur(portfolioConfig.initial_capital)} iniziali</span>
-              )}
+              <div>
+                <span>{riskProfileLabel}</span>
+                {portfolioConfig.initial_capital != null && <span>{eur(portfolioConfig.initial_capital)} iniziali</span>}
+              </div>
+              <button
+                className={`schedulerCompact ${data?.agent_run_state?.scheduler_enabled === false ? "schedulerOff" : ""}`}
+                onClick={toggleScheduler}
+                disabled={schedulerBusy || !data?.agent_run_state?.scheduler_task_name}
+                title="Attiva o disattiva le esecuzioni automatiche ogni 30 minuti"
+              >
+                {data?.agent_run_state?.scheduler_enabled === false ? <PlayCircle size={13} /> : <PauseCircle size={13} />}
+                {schedulerBusy ? "Aggiorno" : data?.agent_run_state?.scheduler_enabled === false ? "Auto OFF" : "Auto ON"}
+              </button>
             </div>
           </div>
-          <button
-            className="iconButton secondaryHeaderAction"
-            onClick={() => setShowPortfolioForm((value) => !value)}
-            title="Crea un nuovo portafoglio"
-          >
-            <span className="buttonPlus">+</span> Nuovo
-          </button>
           <button className="iconButton primaryHeaderAction" onClick={runNow} disabled={runNowBusy}>
             <Activity size={18} /> {runNowBusy ? "Avvio..." : "Esegui ora"}
           </button>
           <button
-            className="iconButton refreshHeaderAction"
-            onClick={load}
+            className="iconButton refreshHeaderAction refreshIconOnly"
+            onClick={() => load({ refresh: true })}
             disabled={dashboardLoading}
-            title="Aggiorna i dati"
+            title="Aggiorna dati Yahoo Finance (riusa la cache se ha meno di 10 minuti)"
+            aria-label="Aggiorna dati Yahoo Finance"
           >
             <RefreshCw size={18} className={dashboardLoading ? "spinning" : ""} />
-            <span>{dashboardLoading ? "Aggiorno" : "Aggiorna"}</span>
           </button>
         </div>
       </header>
@@ -4032,6 +4184,16 @@ function App() {
             {label}
           </button>
         ))}
+        <select
+          className={`systemNavSelect ${["logs", "controls"].includes(tab) ? "active" : ""}`}
+          aria-label="Pagine di sistema"
+          value={["logs", "controls"].includes(tab) ? tab : ""}
+          onChange={(event) => event.target.value && setTab(event.target.value)}
+        >
+          <option value="">Sistema</option>
+          <option value="logs">Run log</option>
+          <option value="controls">Controlli</option>
+        </select>
       </nav>
 
       {!data && tab === "logs" && <RunLogs />}
@@ -4039,14 +4201,37 @@ function App() {
       {!data && tab === "news" && <NewsReports />}
       {!data && !["logs", "controls", "news"].includes(tab) && (
         <section className="panel dashboardLoading">
-          <strong>Caricamento dashboard in corso...</strong>
-          <p>Sto aggiornando prezzi, performance e condizioni monitorate. Se il backend sta interrogando Yahoo Finance puo impiegare anche 20-60 secondi.</p>
-          <p>Puoi aprire subito <b>Run log</b> o <b>Controlli</b> dal menu sopra mentre la dashboard termina il caricamento.</p>
+          <strong>Nessun dato dashboard salvato</strong>
+          <p>L'apertura della pagina non interroga automaticamente Yahoo Finance.</p>
+          <button className="primaryHeaderAction" onClick={() => load({ refresh: true })} disabled={dashboardLoading}>
+            <RefreshCw size={16} className={dashboardLoading ? "spinning" : ""} />
+            {dashboardLoading ? "Collegamento a Yahoo Finance..." : "Aggiorna dati ora"}
+          </button>
         </section>
       )}
 
       {data && (
         <>
+          <div className="dashboardFreshness">
+            <span>
+              Dati Yahoo aggiornati: <b>{dateTime(data.dashboard_cache?.refreshed_at)}</b>
+              {data.dashboard_cache?.source === "cache" && " · visualizzati dalla cache"}
+            </span>
+            {data.dashboard_cache?.refresh_skipped_recent && <strong>Nessun nuovo collegamento: dati aggiornati meno di 10 minuti fa.</strong>}
+            {dashboardLoading && <strong>Aggiornamento Yahoo Finance in corso...</strong>}
+          </div>
+          {(data.exit_enforcement?.decisions || []).map((decision) => (
+            <div
+              className={decision.applied ? "exitExecutionBanner applied" : "exitExecutionBanner pending"}
+              key={`${decision.ticker}-${decision.proposal_id || decision.decision}`}
+            >
+              <strong>{decision.ticker}: {decision.applied ? "VENDITA TOTALE ESEGUITA" : "USCITA NON ANCORA ESEGUITA"}</strong>
+              <span>
+                Prezzo {price(decision.current_price)} · stop {price(decision.stop_level)} · proposta {decision.proposal_id || "esistente"}
+                {!decision.applied && ` · stato ${decision.decision}`}
+              </span>
+            </div>
+          ))}
           {!["summary", "portfolios"].includes(tab) && <div className="metrics">
             <AgentRunStatus
               state={data.agent_run_state || {}}

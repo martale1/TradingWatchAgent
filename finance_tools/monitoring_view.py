@@ -211,6 +211,8 @@ def enrich_monitored_conditions(conditions):
                 "price_status": price_status,
                 "scenario_state": scenario_state,
                 "scenario_reason": scenario_reason,
+                "last_decision": metadata.get("auto_decision"),
+                "last_decision_reason": metadata.get("auto_decision_reason"),
                 "entry_scenarios": scenarios,
                 "last_entry_scenario_eval_at": metadata.get("last_entry_scenario_eval_at"),
                 "volume_ratio": round(metadata.get("volume_ratio"), 2)

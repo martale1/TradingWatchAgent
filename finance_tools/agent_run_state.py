@@ -175,6 +175,38 @@ def windows_scheduler_state(task_name=None):
         return dict(value)
 
 
+def set_windows_scheduler_enabled(enabled, task_name=None):
+    """Enable or disable the fixed Windows monitor task and refresh its cached state."""
+    if os.name != "nt":
+        raise RuntimeError("La gestione dello scheduler e disponibile solo su Windows.")
+    task = task_name or os.getenv("WINDOWS_MONITOR_TASK_NAME", "TradingWatchAgentMonitor")
+    if not task or not all(char.isalnum() or char in "_- ." for char in task):
+        raise RuntimeError("Nome del task Windows non valido.")
+    escaped_task = task.replace("'", "''")
+    command = "Enable-ScheduledTask" if bool(enabled) else "Disable-ScheduledTask"
+    script = (
+        f"$task=Get-ScheduledTask -TaskName '{escaped_task}' -ErrorAction Stop; "
+        f"$task | {command} -ErrorAction Stop | Out-Null"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Impossibile aggiornare lo scheduler: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "errore Windows sconosciuto"
+        raise RuntimeError(f"Impossibile aggiornare lo scheduler: {detail}")
+    with _scheduler_cache_lock:
+        _scheduler_cache.update(task_name=None, checked_at=0.0, value={})
+    return windows_scheduler_state(task)
+
+
 def _read_windows_scheduler_state(task):
     script = (
         f"$task=Get-ScheduledTask -TaskName '{task}' -ErrorAction SilentlyContinue; "

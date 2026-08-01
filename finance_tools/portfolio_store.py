@@ -260,13 +260,17 @@ def portfolio_status_summary(path=PORTFOLIO_FILE):
     pending_other = [
         item for item in pending if item.get("action") not in {"buy_virtual_position", "create_virtual_allocation"}
     ]
+    open_positions = [
+        item for item in portfolio.get("positions", [])
+        if item.get("status", "open") == "open"
+    ]
     return {
         "status": "ok",
         "updated_at": portfolio.get("updated_at"),
         "base_currency": portfolio.get("base_currency", "EUR"),
         "initial_capital": portfolio.get("initial_capital"),
         "cash": portfolio.get("cash"),
-        "positions": portfolio.get("positions", []),
+        "positions": open_positions,
         "pending_buy_proposals": pending_buy,
         "pending_other_proposals": pending_other,
         "monitored_conditions": portfolio.get("monitored_conditions", []),
