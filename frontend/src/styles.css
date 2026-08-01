@@ -1526,6 +1526,17 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   line-height: 1.35;
   padding: 8px 10px;
 }
+.entryContext {
+  margin: -2px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e40af;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
 .triggerHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .scenarioLine {
   display: flex;

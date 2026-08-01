@@ -905,11 +905,17 @@ function TriggerCard({ item, onChart, isInPortfolio = false, entryPrice = null }
           ? "NON ESEGUITA dopo il superamento del prezzo"
           : "In attesa del trigger";
   const decisionText = item.last_decision_reason
-    || (scenarioState === "BUY_CANDIDATE" ? "Da trasformare in una decisione operativa" : "Nessuna decisione presa");
+    || (scenarioState === "BUY_CANDIDATE"
+      ? "Da trasformare in una decisione operativa"
+      : isInPortfolio ? "Nessuna decisione presa" : "Nessuna decisione di acquisto presa");
   const nextStep = priceThresholdMet && scenarioState === "WAIT"
-    ? "Al prossimo ciclo: verificare chiusura e volumi; se validi, analizzare grafico e news e decidere HOLD, INCREMENTO, RIDUZIONE o VENDITA."
+    ? isInPortfolio
+      ? "Al prossimo ciclo: verificare chiusura e volumi; se validi, analizzare grafico e news e decidere MANTIENI oppure INCREMENTA."
+      : "Al prossimo ciclo: verificare chiusura e volumi; se validi, analizzare grafico e news e decidere ACQUISTA oppure NON ACQUISTARE."
     : scenarioState === "CONFIRMING"
-      ? "Completare grafico e news, poi registrare una decisione esplicita."
+      ? isInPortfolio
+        ? "Completare grafico e news, poi decidere MANTIENI oppure INCREMENTA."
+        : "Completare grafico e news, poi decidere ACQUISTA oppure NON ACQUISTARE."
       : scenarioState === "BUY_CANDIDATE"
         ? isInPortfolio
           ? "Decidere esplicitamente se mantenere o incrementare, applicando i limiti di rischio."
@@ -931,6 +937,11 @@ function TriggerCard({ item, onChart, isInPortfolio = false, entryPrice = null }
       {isInPortfolio && (
         <div className="positionContext">
           Gia in portafoglio: questo box non e il P/L, serve per decidere se incrementare o ribilanciare.
+        </div>
+      )}
+      {!isInPortfolio && (
+        <div className="entryContext">
+          Non è in portafoglio: questa scheda può produrre soltanto ACQUISTO oppure NESSUN ACQUISTO.
         </div>
       )}
       {item.scenario_state && (
@@ -969,7 +980,7 @@ function TriggerCard({ item, onChart, isInPortfolio = false, entryPrice = null }
           <strong>{item.last_portfolio_operation ? operationLabels[item.last_portfolio_operation.action] || item.last_portfolio_operation.action : "NESSUNA OPERAZIONE"}</strong>
           {item.last_portfolio_operation && <small>{dateTime(item.last_portfolio_operation.at)} · Non necessariamente causata dal trigger corrente.</small>}
         </div>
-        <div className="nextStep"><span>5 · Cosa farà il sistema</span><strong>{nextStep}</strong></div>
+        <div className="nextStep"><span>5 · Cosa farà il sistema su questo trigger</span><strong>{nextStep}</strong></div>
       </div>
       <p className="condition">{item.condition}</p>
       {item.scenario_reason && <p className="small scenarioReason">{item.scenario_reason}</p>}
