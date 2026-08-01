@@ -256,6 +256,7 @@ def calculate_portfolio_performance(path=None, record_history=True, history_path
         rows.append(
             {
                 "ticker": ticker,
+                "name": item.get("name") or ticker,
                 "entry_price": round(entry, 4) if entry else None,
                 "current_price": round(price, 4) if price is not None else None,
                 "previous_close": round(previous_close, 4) if previous_close is not None else None,

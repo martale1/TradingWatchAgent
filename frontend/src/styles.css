@@ -977,6 +977,53 @@ th { text-align: left; color: #64748b; background: #f8fafc; }
 td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
 .ticker { font-weight: 800; color: #0f172a; }
 .tickerWithAction { display: inline-flex; align-items: center; gap: 7px; }
+.portfolioHoldingsPanel { padding: 0; overflow: hidden; }
+.portfolioHoldingsHeader {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 20px 22px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.portfolioHoldingsHeader > div:first-child { display: flex; flex-direction: column; justify-content: center; }
+.portfolioHoldingsHeader h2 { margin: 0 0 4px; }
+.portfolioHoldingsHeader > div:first-child span { color: #64748b; font-size: 12px; }
+.portfolioHoldingsTotals { display: grid; grid-template-columns: repeat(3, minmax(155px, 1fr)); }
+.portfolioHoldingsTotals > div {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  padding: 2px 22px;
+  border-left: 1px solid #e2e8f0;
+}
+.portfolioHoldingsTotals span { color: #475569; font-size: 12px; }
+.portfolioHoldingsTotals strong { font-size: 24px; letter-spacing: -.02em; white-space: nowrap; }
+.portfolioHoldingsTableWrap { border: 0; border-radius: 0; }
+.portfolioHoldingsTable { min-width: 980px; }
+.portfolioHoldingsTable th { color: #334155; background: #f8fafc; font-size: 11px; line-height: 1.1; }
+.portfolioHoldingsTable td { padding-top: 10px; padding-bottom: 10px; }
+.portfolioHoldingsTable td small { display: block; margin-top: 3px; font-size: 10px; font-weight: 700; }
+.portfolioTitleCell { display: flex; align-items: center; gap: 8px; min-width: 145px; }
+.portfolioTitleText { display: grid; gap: 1px; min-width: 0; color: #1d4ed8; }
+.portfolioTitleText strong { overflow-wrap: anywhere; font-size: 12px; }
+.portfolioTitleText small { color: #64748b; font-size: 10px; }
+.portfolioTickerMark {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-size: 12px;
+  font-weight: 900;
+}
+.portfolioVariationCell { display: grid; gap: 2px; }
+.portfolioVariationCell strong,
+.portfolioVariationCell span { font-weight: 800; white-space: nowrap; }
+.portfolioHoldingsTable .rowActions { justify-content: flex-end; }
 .reason { max-width: 560px; color: #4b5563; }
 .rowActions { display: flex; flex-wrap: wrap; gap: 8px; }
 .cardActions { display: flex; align-items: stretch; gap: 8px; margin-top: 10px; }
@@ -2772,11 +2819,17 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   .portfolioSummaryTitle button { align-self: flex-start; }
   .portfolioSummaryTotals { grid-template-columns: 1fr 1fr; }
   .portfolioSummaryGrid { grid-template-columns: 1fr; }
+  .portfolioHoldingsHeader { flex-direction: column; gap: 16px; }
+  .portfolioHoldingsTotals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .portfolioHoldingsTotals > div:first-child { border-left: 0; padding-left: 0; }
+  .portfolioHoldingsTotals strong { font-size: 19px; }
 }
 
 @media (max-width: 560px) {
   .portfolioSummaryTotals,
   .portfolioSummaryStats { grid-template-columns: 1fr; }
+  .portfolioHoldingsTotals { grid-template-columns: 1fr; gap: 10px; }
+  .portfolioHoldingsTotals > div { border-left: 0; padding: 0; }
 }
 
 /* ─── SSE Live Streaming Panel ──────────────────────────────────────── */

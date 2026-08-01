@@ -618,38 +618,71 @@ function TokenUsagePanel({ usage = {} }) {
   );
 }
 
-function Positions({ rows = [], onChart, totalValue = 0 }) {
+function Positions({ rows = [], onChart, performance = {} }) {
+  const totalValue = Number(performance.total_value || 0);
+  const positionsValue = Number(performance.positions_value || 0);
+  const totalPnl = Number(performance.total_pnl || 0);
+  const totalPnlPct = Number(performance.total_pnl_pct || 0);
   return (
-    <section className="panel">
-      <h2>Portafoglio</h2>
-      <div className="tableWrap">
-        <table>
+    <section className="panel portfolioHoldingsPanel">
+      <div className="portfolioHoldingsHeader">
+        <div>
+          <h2>Portafoglio</h2>
+          <span>{rows.length} posizioni aperte</span>
+        </div>
+        <div className="portfolioHoldingsTotals">
+          <div>
+            <span>Valore posizioni</span>
+            <strong>{eur(positionsValue)}</strong>
+          </div>
+          <div>
+            <span>P/L portafoglio</span>
+            <strong className={signedClass(totalPnl)}>{eur(totalPnl)}</strong>
+          </div>
+          <div>
+            <span>P/L %</span>
+            <strong className={signedClass(totalPnlPct)}>{pct(totalPnlPct)}</strong>
+          </div>
+        </div>
+      </div>
+      <div className="tableWrap portfolioHoldingsTableWrap">
+        <table className="portfolioHoldingsTable">
           <thead>
             <tr>
-              <th>Ticker</th>
-              <th>Investito</th>
-              <th>Valore attuale</th>
-              <th>Peso portafoglio</th>
-              <th>P/L</th>
-              <th>P/L %</th>
-              <th>Entry</th>
-              <th>Prezzo</th>
-              <th>Oggi</th>
-              <th>Quantita</th>
-              <th></th>
+              <th>Titolo</th>
+              <th>Quantità</th>
+              <th>Prezzo medio<br />di carico</th>
+              <th>Ultima<br />chiusura</th>
+              <th>Valore di mercato</th>
+              <th>Variazione</th>
+              <th>Peso</th>
+              <th aria-label="Azioni"></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.ticker}>
                 <td>
-                  <div className="tickerWithAction">
-                    <span className="ticker">{row.ticker}</span>
+                  <div className="portfolioTitleCell">
+                    <span className="portfolioTickerMark">{String(row.ticker || "?").slice(0, 1)}</span>
+                    <span className="portfolioTitleText">
+                      <strong>{row.name || row.ticker}</strong>
+                      {row.name && row.name !== row.ticker && <small>{row.ticker}</small>}
+                    </span>
                     <NewsButton ticker={row.ticker} compact />
                   </div>
                 </td>
-                <td>{eur(row.invested_amount)}</td>
-                <td>{eur(row.market_value)}</td>
+                <td>{price(row.virtual_quantity)}</td>
+                <td>{price(row.entry_price)}</td>
+                <td>
+                  <strong>{price(row.current_price)}</strong>
+                  <small className={signedClass(row.daily_change_pct)}>Seduta {pct(row.daily_change_pct)}</small>
+                </td>
+                <td><strong>{eur(row.market_value)}</strong></td>
+                <td className="portfolioVariationCell">
+                  <strong className={signedClass(row.pnl)}>{eur(row.pnl)}</strong>
+                  <span className={signedClass(row.pnl_pct)}>{pct(row.pnl_pct)}</span>
+                </td>
                 <td>
                   <span
                     className={`pill ${totalValue > 0 && (Number(row.market_value) / Number(totalValue)) * 100 > 12 ? "negative" : "neutral"}`}
@@ -658,12 +691,6 @@ function Positions({ rows = [], onChart, totalValue = 0 }) {
                     {totalValue > 0 ? pct((Number(row.market_value) / Number(totalValue)) * 100, false) : "n/d"}
                   </span>
                 </td>
-                <td className={signedClass(row.pnl)}>{eur(row.pnl)}</td>
-                <td><span className={`pill ${signedClass(row.pnl_pct)}`}>{pct(row.pnl_pct)}</span></td>
-                <td>{price(row.entry_price)}</td>
-                <td>{price(row.current_price)}</td>
-                <td><span className={`pill ${signedClass(row.daily_change_pct)}`}>{pct(row.daily_change_pct)}</span></td>
-                <td>{price(row.virtual_quantity)}</td>
                 <td className="rowActions">
                   <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, entry_price: row.entry_price, support_level: null, condition: "Posizione in portafoglio" })}><LineChart size={15} /> Grafico</button>
                 </td>
@@ -4370,7 +4397,7 @@ function App() {
             <>
               <TokenUsagePanel usage={data.token_usage || {}} />
               <PortfolioPerformanceChart data={data.performance_history || {}} />
-              <Positions rows={perf.positions || []} onChart={setChartItem} totalValue={perf.total_value || 0} />
+              <Positions rows={perf.positions || []} onChart={setChartItem} performance={perf} />
               <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
               <Monitoring rows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />
             </>
