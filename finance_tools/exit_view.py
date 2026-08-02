@@ -139,6 +139,75 @@ def should_take_profit(current, target, pnl_pct, opened_at):
     return True, ""
 
 
+def build_entry_audit(portfolio, ticker, position):
+    """Expose only persisted evidence that led to the initial automatic buy."""
+    ticker = str(ticker or "").strip().upper()
+    proposals = [
+        proposal
+        for proposal in (portfolio or {}).get("closed_proposals", [])
+        if str(proposal.get("ticker") or "").strip().upper() == ticker
+        and proposal.get("action") == "buy_virtual_position"
+        and proposal.get("status") == "confirmed"
+    ]
+    proposals.sort(key=lambda proposal: str(proposal.get("confirmed_at") or proposal.get("created_at") or ""))
+    proposal = proposals[0] if proposals else {}
+    proposal_metadata = proposal.get("metadata", {}) or {}
+    conditions = (portfolio or {}).get("monitored_conditions", []) or []
+    condition = next(
+        (
+            candidate
+            for candidate in conditions
+            if (candidate.get("metadata", {}) or {}).get("auto_proposal_id") == proposal.get("id")
+        ),
+        None,
+    )
+    if condition is None and proposal:
+        condition = next(
+            (
+                candidate
+                for candidate in conditions
+                if str(candidate.get("id") or "") in str(proposal.get("reason") or "")
+            ),
+            None,
+        )
+    condition = condition or {}
+    condition_metadata = condition.get("metadata", {}) or {}
+    scenarios = condition_metadata.get("entry_scenarios", []) or []
+    scenario = next(
+        (candidate for candidate in scenarios if str(candidate.get("state") or "").upper() == "BUY_CANDIDATE"),
+        {},
+    )
+    risk = proposal_metadata.get("risk_validation", {}) or {}
+    return {
+        "available": bool(proposal or position),
+        "proposal_id": proposal.get("id"),
+        "confirmed_at": proposal.get("confirmed_at") or position.get("opened_at"),
+        "source": proposal_metadata.get("source") or position.get("source"),
+        "reason": proposal.get("reason") or position.get("reason"),
+        "condition_id": condition.get("id"),
+        "condition": condition.get("condition"),
+        "scenario_type": scenario.get("type"),
+        "scenario_description": scenario.get("description"),
+        "scenario_reason": scenario.get("last_reason") or condition_metadata.get("scenario_reason"),
+        "entry_price": proposal_metadata.get("entry_price") or position.get("entry_price"),
+        "observed_price": condition_metadata.get("last_price") or scenario.get("last_price"),
+        "trigger": scenario.get("trigger") or proposal_metadata.get("trigger"),
+        "support": scenario.get("support") or condition_metadata.get("support_10"),
+        "entry_area_min": scenario.get("entry_area_min"),
+        "entry_area_max": scenario.get("entry_area_max"),
+        "volume_ratio": condition_metadata.get("volume_ratio") or scenario.get("last_volume_ratio"),
+        "intraday_volume_pace_ratio": condition_metadata.get("intraday_volume_pace_ratio"),
+        "required_volume_ratio": scenario.get("required_volume_ratio"),
+        "daily_bar_complete": condition_metadata.get("daily_bar_complete"),
+        "playwright_completed": scenario.get("playwright_confirmed"),
+        "chart_entry_confirmed": scenario.get("chart_entry_confirmed"),
+        "news_negative": scenario.get("news_negative"),
+        "risk_allowed": risk.get("allowed"),
+        "risk_amount": risk.get("amount"),
+        "data_note": "Dati storici registrati al momento della decisione; i campi mancanti non sono ricostruiti.",
+    }
+
+
 def build_exit_conditions(performance, portfolio):
     positions = performance.get("positions", []) if performance else []
     raw_positions = {
@@ -291,6 +360,7 @@ def build_exit_conditions(performance, portfolio):
                 "source": explanation_source,
                 "analysis_updated_at": analysis_updated_at,
                 "analysis_file": str(path) if path else "",
+                "entry_audit": build_entry_audit(portfolio, ticker, raw),
             }
         )
 

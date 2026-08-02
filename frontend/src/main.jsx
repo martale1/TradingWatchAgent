@@ -2257,6 +2257,7 @@ function TechnicalChart({ prices = [], type }) {
 
 function ChartModal({ item, onClose }) {
   const [state, setState] = useState({ loading: true, error: "", prices: [] });
+  const [auditState, setAuditState] = useState(null);
   const [period, setPeriod] = useState("6mo");
   const [mode, setMode] = useState("candles");
   const [view, setView] = useState("price");
@@ -2276,6 +2277,26 @@ function ChartModal({ item, onClose }) {
     return () => { cancelled = true; };
   }, [ticker, period]);
 
+  useEffect(() => {
+    if (!item || item.entry_audit || !item.portfolio_id || !ticker) {
+      setAuditState(item?.entry_audit || null);
+      return;
+    }
+    let cancelled = false;
+    const query = new URLSearchParams({ ticker });
+    if (item.current_price != null) query.set("current_price", item.current_price);
+    if (item.entry_price != null) query.set("entry_price", item.entry_price);
+    api(`/api/portfolios/${encodeURIComponent(item.portfolio_id)}/exit-conditions?${query.toString()}`, { timeoutMs: 4000 })
+      .then((result) => {
+        const row = (result.exit_conditions || []).find(
+          (candidate) => String(candidate.ticker || "").toUpperCase() === String(ticker).toUpperCase(),
+        );
+        if (!cancelled) setAuditState(row?.entry_audit || null);
+      })
+      .catch(() => { if (!cancelled) setAuditState(null); });
+    return () => { cancelled = true; };
+  }, [item, ticker]);
+
   if (!item) return null;
   const parsedLevels = levelsFromCondition(item.condition || "");
   const triggerLevel = numeric(item.trigger_level) || parsedLevels.trigger;
@@ -2287,6 +2308,7 @@ function ChartModal({ item, onClose }) {
   const distance = numeric(item.trigger_distance_pct)
     ?? (currentPrice && triggerLevel ? ((triggerLevel - currentPrice) / currentPrice) * 100 : null);
   const parsedNote = (!numeric(item.trigger_level) && parsedLevels.trigger) || (!numeric(item.support_level) && parsedLevels.support);
+  const entryAudit = item.entry_audit || auditState;
   return (
     <div className="modalBackdrop" onClick={onClose}>
       <div className="chartModal" onClick={(event) => event.stopPropagation()}>
@@ -2309,6 +2331,33 @@ function ChartModal({ item, onClose }) {
           <div className="chartLevelNote">
             Livelli letti dalla condizione ingresso e disegnati sul grafico prezzo.
           </div>
+        )}
+        {entryAudit?.available && (
+          <details className="entryAudit">
+            <summary>Perché è stato acquistato · verifica condizioni registrate</summary>
+            <div className="entryAuditBody">
+              <p className="entryAuditCondition"><strong>Condizione originale</strong>{entryAudit.condition || "Condizione non registrata"}</p>
+              <div className="entryAuditGrid">
+                <span><small>Decisione</small><b>{entryAudit.scenario_type || "n/d"}</b></span>
+                <span><small>Data ordine</small><b>{dateTime(entryAudit.confirmed_at)}</b></span>
+                <span><small>Prezzo osservato</small><b>{price(entryAudit.observed_price)}</b></span>
+                <span><small>Prezzo eseguito</small><b>{price(entryAudit.entry_price)}</b></span>
+                <span><small>Trigger</small><b>{price(entryAudit.trigger)}</b></span>
+                <span><small>Supporto</small><b>{price(entryAudit.support)}</b></span>
+                <span><small>Area ingresso</small><b>{entryAudit.entry_area_min != null || entryAudit.entry_area_max != null ? `${price(entryAudit.entry_area_min)} – ${price(entryAudit.entry_area_max)}` : "n/d"}</b></span>
+                <span><small>Volume effettivo</small><b>{entryAudit.volume_ratio != null ? `${Number(entryAudit.volume_ratio).toFixed(3)}× MA10` : "n/d"}</b></span>
+                <span><small>Ritmo intraday</small><b>{entryAudit.intraday_volume_pace_ratio != null ? `${Number(entryAudit.intraday_volume_pace_ratio).toFixed(3)}× MA10` : "n/d"}</b></span>
+                <span><small>Volume richiesto</small><b>{entryAudit.required_volume_ratio != null ? `${Number(entryAudit.required_volume_ratio).toFixed(2)}× MA10` : "n/d"}</b></span>
+                <span><small>Grafico confermava ingresso</small><b>{entryAudit.chart_entry_confirmed === true ? "Sì" : entryAudit.chart_entry_confirmed === false ? "No" : "Non registrato"}</b></span>
+                <span><small>News negative</small><b>{entryAudit.news_negative === true ? "Sì" : entryAudit.news_negative === false ? "No" : "Non registrato"}</b></span>
+                <span><small>Controllo rischio</small><b>{entryAudit.risk_allowed === true ? `Superato${entryAudit.risk_amount != null ? ` · ${eur(entryAudit.risk_amount)}` : ""}` : entryAudit.risk_allowed === false ? "Bloccato" : "Non registrato"}</b></span>
+                <span><small>ID proposta</small><b>{entryAudit.proposal_id || "n/d"}</b></span>
+              </div>
+              <p><strong>Esito tecnico registrato</strong>{entryAudit.scenario_reason || "n/d"}</p>
+              <p><strong>Motivazione ordine</strong>{entryAudit.reason || "n/d"}</p>
+              <em>{entryAudit.data_note}</em>
+            </div>
+          </details>
         )}
         <div className="chartToolbar">
           <div className="segmented">
@@ -3602,6 +3651,7 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
   async function openPositionChart(portfolio, position) {
     const fallback = {
       ticker: position.ticker,
+      portfolio_id: portfolio.portfolio_id,
       current_price: position.current_price,
       entry_price: position.entry_price,
       opened_at: position.opened_at,
@@ -4250,6 +4300,11 @@ function App() {
     archived: "Archiviato",
   }[portfolioConfig.status] || portfolioConfig.status || "Dati non caricati";
 
+  const openChart = (chartData) => setChartItem({
+    ...chartData,
+    portfolio_id: chartData?.portfolio_id || selectedPortfolioId,
+  });
+
   return (
     <main>
       <header className="appHeader">
@@ -4535,16 +4590,16 @@ function App() {
             <>
               <TokenUsagePanel usage={data.token_usage || {}} />
               <PortfolioPerformanceChart data={data.performance_history || {}} />
-              <Positions rows={perf.positions || []} onChart={setChartItem} performance={perf} />
-              <ExitConditions rows={data.exit_conditions || []} onChart={setChartItem} />
-              <Monitoring rows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />
+              <Positions rows={perf.positions || []} onChart={openChart} performance={perf} />
+              <ExitConditions rows={data.exit_conditions || []} onChart={openChart} />
+              <Monitoring rows={data.monitored || []} positions={perf.positions || []} onChart={openChart} />
             </>
           )}
           {tab === "summary" && (
             <PortfoliosSummary
               selectedId={selectedPortfolioId}
               onSelect={setSelectedPortfolioId}
-              onChart={setChartItem}
+              onChart={openChart}
             />
           )}
           {tab === "portfolios" && (
@@ -4557,16 +4612,16 @@ function App() {
               reload={load}
             />
           )}
-          {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
-          {tab === "commodities" && <Commodities rows={data.commodities || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
-          {tab === "etfs" && <Etfs rows={data.etfs || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={setChartItem} />}
+          {tab === "ftse-mib" && <FtseMib rows={data.ftse_mib || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={openChart} />}
+          {tab === "commodities" && <Commodities rows={data.commodities || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={openChart} />}
+          {tab === "etfs" && <Etfs rows={data.etfs || []} monitoredRows={data.monitored || []} positions={perf.positions || []} onChart={openChart} />}
           {tab === "news" && <NewsReports />}
           {tab === "chat" && <Chat portfolioId={selectedPortfolioId} />}
           {tab === "watchlist" && (
             <Watchlist
               rows={portfolio.watchlist || []}
               reload={load}
-              onChart={setChartItem}
+              onChart={openChart}
               portfolioId={selectedPortfolioId}
             />
           )}

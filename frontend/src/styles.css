@@ -2301,6 +2301,21 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   font-weight: 700;
   margin: -4px 0 14px;
 }
+.entryAudit {
+  margin: 12px 0;
+  border: 1px solid #c4b5fd;
+  border-radius: 9px;
+  background: #faf8ff;
+}
+.entryAudit summary { cursor: pointer; padding: 12px 14px; color: #5b21b6; font-weight: 800; }
+.entryAuditBody { display: grid; gap: 12px; border-top: 1px solid #ddd6fe; padding: 14px; }
+.entryAuditBody p { display: grid; gap: 4px; margin: 0; color: #334155; }
+.entryAuditCondition { border-left: 4px solid #7c3aed; padding-left: 10px; }
+.entryAuditGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.entryAuditGrid span { min-width: 0; border: 1px solid #e2e8f0; border-radius: 7px; background: white; padding: 9px; }
+.entryAuditGrid small { display: block; color: #64748b; }
+.entryAuditGrid b { display: block; overflow-wrap: anywhere; margin-top: 3px; color: #0f172a; }
+.entryAuditBody em { color: #64748b; font-size: 12px; }
 .chartToolbar {
   display: flex;
   justify-content: space-between;
