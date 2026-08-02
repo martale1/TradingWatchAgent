@@ -2432,10 +2432,13 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .entryLine .levelLabelConnector { stroke: #7c3aed; stroke-width: 1.5; stroke-dasharray: none; }
 .hoverLayer > line { stroke: #64748b; stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
 .hoverLayer circle { fill: #111827; stroke: white; stroke-width: 2; }
-.hoverLayer rect { fill: #111827; opacity: .92; }
-.hoverLayer text { fill: white; font-size: 12px; font-weight: 700; }
-.hoverLayer text.tooltipPositive { fill: #86efac; }
-.hoverLayer text.tooltipNegative { fill: #fca5a5; }
+.priceChartWithReadout { display: grid; gap: 7px; }
+.chartHoverReadout { display: flex; flex-wrap: wrap; gap: 8px; min-height: 48px; }
+.chartHoverReadout span { min-width: 145px; border: 1px solid #e2e8f0; border-radius: 7px; background: #f8fafc; padding: 7px 10px; }
+.chartHoverReadout small { display: block; color: #64748b; }
+.chartHoverReadout b { display: block; margin-top: 2px; color: #0f172a; }
+.chartHoverReadout b.positive { color: #15803d; }
+.chartHoverReadout b.negative { color: #b91c1c; }
 .technicalChart .chartTitle {
   fill: #111827;
   font-size: 14px;

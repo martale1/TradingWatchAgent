@@ -1976,18 +1976,19 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, entry
   if (!prices.length) return <div className="chartEmpty">Nessun dato prezzo disponibile.</div>;
 
   return (
-    <svg
-      className="priceChart"
-      viewBox={`0 0 ${width} ${height}`}
-      role="img"
-      onMouseMove={(event) => {
-        const box = event.currentTarget.getBoundingClientRect();
-        const localX = ((event.clientX - box.left) / box.width) * width;
-        const ratio = Math.max(0, Math.min(1, (localX - pad.left) / plotW));
-        setHoverIndex(Math.round(ratio * (prices.length - 1)));
-      }}
-      onMouseLeave={() => setHoverIndex(null)}
-    >
+    <div className="priceChartWithReadout">
+      <svg
+        className="priceChart"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        onMouseMove={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          const localX = ((event.clientX - box.left) / box.width) * width;
+          const ratio = Math.max(0, Math.min(1, (localX - pad.left) / plotW));
+          setHoverIndex(Math.round(ratio * (prices.length - 1)));
+        }}
+        onMouseLeave={() => setHoverIndex(null)}
+      >
       <defs>
         <linearGradient id="priceArea" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="#2563eb" stopOpacity="0.22" />
@@ -2088,21 +2089,21 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, entry
         <g className="hoverLayer">
           <line x1={hoverX} x2={hoverX} y1={pad.top} y2={plotBottom} />
           <circle cx={hoverX} cy={y(Number(hover.close))} r="4" />
-          <g transform={`translate(${Math.min(hoverX + 12, width - 190)} ${pad.top + 12})`}>
-            <rect width="170" height="76" rx="8" />
-            <text x="10" y="22">{hover.date}</text>
-            <text x="10" y="44">Close {price(hover.close)}</text>
-            <text x="10" y="64" className={hoverDailyPct !== null && hoverDailyPct >= 0 ? "tooltipPositive" : "tooltipNegative"}>
-              Giorno {pct(hoverDailyPct)}
-            </text>
-          </g>
         </g>
       )}
       <g className="axisLabels">
         <text x={pad.left} y={height - 8}>{first?.date}</text>
         <text x={pad.left + plotW} y={height - 8} textAnchor="end">{last?.date}</text>
       </g>
-    </svg>
+      </svg>
+      {hover && (
+        <div className="chartHoverReadout">
+          <span><small>Data</small><b>{hover.date}</b></span>
+          <span><small>Chiusura</small><b>{price(hover.close)}</b></span>
+          <span><small>Variazione giorno</small><b className={hoverDailyPct !== null && hoverDailyPct >= 0 ? "positive" : "negative"}>{pct(hoverDailyPct)}</b></span>
+        </div>
+      )}
+    </div>
   );
 }
 
