@@ -3584,6 +3584,39 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
     loadSummary();
   }, []);
 
+  async function openPositionChart(portfolio, position) {
+    const fallback = {
+      ticker: position.ticker,
+      current_price: position.current_price,
+      entry_price: position.entry_price,
+      condition: `Posizione nel portafoglio ${portfolio.name}`,
+    };
+    try {
+      const dashboard = await api(
+        `/api/dashboard?portfolio_id=${encodeURIComponent(portfolio.portfolio_id)}&refresh=false`,
+        { timeoutMs: 10000 },
+      );
+      const exitRow = (dashboard.exit_conditions || []).find(
+        (item) => String(item.ticker || "").toUpperCase() === String(position.ticker || "").toUpperCase(),
+      );
+      if (exitRow) {
+        onChart({
+          ...fallback,
+          current_price: exitRow.current_price ?? position.current_price,
+          entry_price: exitRow.entry_price ?? position.entry_price,
+          trigger_level: exitRow.take_profit_level,
+          support_level: exitRow.stop_level,
+          trigger_distance_pct: exitRow.distance_to_take_profit_pct,
+          condition: `Uscita: stop ${price(exitRow.stop_level)} / take profit ${price(exitRow.take_profit_level)}. ${exitRow.primary_action || "Nessun trigger di uscita immediato."}`,
+        });
+        return;
+      }
+    } catch (_error) {
+      // Il grafico resta comunque disponibile con i dati presenti nel riepilogo.
+    }
+    onChart(fallback);
+  }
+
   const data = state.data || {};
   const totals = data.totals || {};
   const rows = data.items || [];
@@ -3661,13 +3694,7 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
                       className="portfolioSummaryPosition"
                       key={position.ticker}
                       title={`Apri grafico ${position.ticker}`}
-                      onClick={() => onChart({
-                        ticker: position.ticker,
-                        current_price: position.current_price,
-                        entry_price: position.entry_price,
-                        support_level: null,
-                        condition: `Posizione nel portafoglio ${row.name}`,
-                      })}
+                      onClick={() => openPositionChart(row, position)}
                     >
                       <div>
                         <strong>{position.ticker}</strong>
