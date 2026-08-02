@@ -273,6 +273,7 @@ def build_entry_audit(portfolio, ticker, position):
     )
     return {
         "available": bool(proposal or position),
+        "audit_type": "monitored_condition" if condition and scenario else "unlinked_historical_entry",
         "proposal_id": proposal.get("id"),
         "confirmed_at": proposal.get("confirmed_at") or position.get("opened_at"),
         "source": proposal_metadata.get("source") or position.get("source"),

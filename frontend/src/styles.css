@@ -2291,6 +2291,10 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   background: #f8fafc;
 }
 .chartSummary b { display: block; margin-top: 4px; color: #111827; font-size: 18px; }
+.chartSummary small { display: block; margin-top: 3px; color: #64748b; font-size: 11px; }
+.chartOperationalMessage { margin: 10px 0; border-left: 5px solid #64748b; border-radius: 8px; background: #f8fafc; padding: 11px 13px; color: #334155; font-weight: 750; }
+.chartOperationalMessage.negative { border-left-color: #dc2626; background: #fef2f2; color: #991b1b; }
+.chartOperationalMessage.warning { border-left-color: #f59e0b; background: #fffbeb; color: #92400e; }
 .chartLevelNote {
   border: 1px solid #bfdbfe;
   border-radius: 8px;
@@ -2314,6 +2318,8 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .entryAuditDecision small { color: #6d28d9; font-weight: 800; }
 .entryAuditDecision strong { color: #3b0764; font-size: 18px; }
 .entryAuditWarning { border: 1px solid #f59e0b; border-left-width: 5px; border-radius: 8px; background: #fffbeb; padding: 11px; color: #92400e; font-weight: 700; }
+.entryAuditUnavailable { border: 1px solid #f59e0b; border-left-width: 5px; border-radius: 8px; background: #fffbeb; padding: 11px; }
+.entryAuditUnavailable strong { color: #92400e; }
 .entryAuditCondition { border-left: 4px solid #7c3aed; padding-left: 10px; }
 .entryAuditChecks { display: grid; gap: 8px; }
 .entryAuditCheck { display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: start; border: 1px solid #e2e8f0; border-left-width: 5px; border-radius: 8px; background: white; padding: 10px; }

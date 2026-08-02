@@ -2324,7 +2324,27 @@ function ChartModal({ item, onClose }) {
   const chartDailyChange = lastOpen && lastClose ? ((lastClose - lastOpen) / lastOpen) * 100 : null;
   const dailyChange = numeric(item.daily_change_pct) ?? chartDailyChange;
   const distance = numeric(item.trigger_distance_pct)
-    ?? (currentPrice && triggerLevel ? ((triggerLevel - currentPrice) / currentPrice) * 100 : null);
+    ?? (currentPrice && triggerLevel ? ((currentPrice - triggerLevel) / triggerLevel) * 100 : null);
+  const stopDistance = currentPrice && supportLevel ? ((currentPrice - supportLevel) / supportLevel) * 100 : null;
+  const isPortfolioPosition = Boolean(entryPrice || entryDate);
+  const triggerName = isPortfolioPosition ? "Take profit / trigger uscita" : "Trigger ingresso";
+  const triggerDistanceText = triggerLevel && currentPrice
+    ? currentPrice >= triggerLevel
+      ? `Livello raggiunto o superato del ${Math.abs(distance).toFixed(2)}%`
+      : `Manca il ${Math.abs(distance).toFixed(2)}% al livello`
+    : "Nessun livello definito";
+  const stopDistanceText = supportLevel && stopDistance != null
+    ? currentPrice >= supportLevel
+      ? `Lo stop è ${Math.abs(stopDistance).toFixed(2)}% sotto il prezzo`
+      : `Il prezzo è ${Math.abs(stopDistance).toFixed(2)}% sotto lo stop`
+    : "Nessuna distanza calcolabile";
+  const operationalMessage = isPortfolioPosition
+    ? supportLevel && currentPrice <= supportLevel
+      ? `STOP VIOLATO: prezzo ${price(currentPrice)} sotto il livello ${price(supportLevel)}. Il sistema deve vendere tutta la posizione.`
+      : triggerLevel && currentPrice >= triggerLevel
+        ? `TRIGGER DI USCITA RAGGIUNTO a ${price(triggerLevel)}. Verifica l'azione automatica indicata nel piano di uscita.`
+        : `NESSUNA OPERAZIONE ORA. Posizione mantenuta${supportLevel ? `; lo stop è ${Math.abs(stopDistance).toFixed(2)}% sotto il prezzo` : "; stop non registrato"}${triggerLevel ? ` e manca ${Math.abs(distance).toFixed(2)}% al take profit` : "; take profit non definito"}.`
+    : `Nessuna operazione implicita: questo grafico mostra livelli da verificare prima di una decisione.`;
   const parsedNote = (!numeric(item.trigger_level) && parsedLevels.trigger) || (!numeric(item.support_level) && parsedLevels.support);
   const entryAudit = item.entry_audit || auditState;
   const auditScenarioLabel = entryAudit?.scenario_type === "PULLBACK_SUPPORTO"
@@ -2347,9 +2367,11 @@ function ChartModal({ item, onClose }) {
           <span>Variazione ultimo giorno <b className={signedClass(dailyChange)}>{pct(dailyChange)}</b></span>
           {entryPrice && <span>Prezzo ingresso <b>{price(entryPrice)}</b></span>}
           {entryDate && <span>Data ingresso <b>{dateTime(entryDate)}</b></span>}
-          <span>Trigger <b>{price(triggerLevel)}</b></span>
-          <span>Supporto/stop <b>{price(supportLevel)}</b></span>
-          <span>Distanza trigger <b className={signedClass(distance)}>{pct(distance)}</b></span>
+          <span>{triggerName} <b>{triggerLevel ? price(triggerLevel) : "Non definito"}</b><small>{triggerDistanceText}</small></span>
+          <span>{isPortfolioPosition ? "Stop / supporto uscita" : "Supporto tecnico"} <b>{supportLevel ? price(supportLevel) : "Non registrato"}</b><small>{stopDistanceText}</small></span>
+        </div>
+        <div className={`chartOperationalMessage ${supportLevel && currentPrice <= supportLevel ? "negative" : triggerLevel && currentPrice >= triggerLevel ? "warning" : "neutral"}`}>
+          {operationalMessage}
         </div>
         {parsedNote && (
           <div className="chartLevelNote">
@@ -2369,15 +2391,21 @@ function ChartModal({ item, onClose }) {
                 </p>
               </div>
               {entryAudit.legacy_warning && <div className="entryAuditWarning">{entryAudit.legacy_warning}</div>}
+              {entryAudit.audit_type === "unlinked_historical_entry" && (
+                <div className="entryAuditUnavailable">
+                  <strong>Condizioni di acquisto non verificabili</strong>
+                  <p>Esiste l'ordine, ma non è collegato a una condizione monitorata completa. Posso mostrare soltanto la motivazione salvata e il controllo rischio; prezzo, volumi e conferma tecnica originari non devono essere ricostruiti o inventati.</p>
+                </div>
+              )}
               <p className="entryAuditCondition"><strong>Condizione originale</strong>{entryAudit.condition || "Condizione non registrata"}</p>
-              <div className="entryAuditChecks">
+              {entryAudit.audit_type !== "unlinked_historical_entry" && <div className="entryAuditChecks">
                 {(entryAudit.checks || []).map((check, index) => (
                   <div className={`entryAuditCheck ${check.status}`} key={`${check.label}-${index}`}>
                     <span>{check.status === "passed" ? "SUPERATO" : check.status === "failed" ? "NON SUPERATO" : "NON VERIFICABILE"}</span>
                     <div><strong>{check.label}</strong><p>{check.actual}</p><small>Regola: {check.rule}</small></div>
                   </div>
                 ))}
-              </div>
+              </div>}
               <details className="entryAuditRaw">
                 <summary>Dati tecnici e identificativi dell'ordine</summary>
                 <div className="entryAuditGrid">

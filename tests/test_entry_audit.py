@@ -53,6 +53,7 @@ def test_entry_audit_links_position_proposal_and_condition():
     assert audit["scenario_type"] == "PULLBACK_SUPPORTO"
     assert audit["support"] == 7.219
     assert audit["risk_allowed"] is True
+    assert audit["audit_type"] == "monitored_condition"
 
 
 def test_entry_audit_recovers_legacy_condition_by_evaluation_time():
@@ -98,3 +99,4 @@ def test_entry_audit_recovers_legacy_condition_by_evaluation_time():
     assert audit["checks"][1]["status"] == "passed"
     assert audit["checks"][2]["status"] == "unknown"
     assert audit["legacy_warning"]
+    assert audit["audit_type"] == "monitored_condition"
