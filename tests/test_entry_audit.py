@@ -100,3 +100,32 @@ def test_entry_audit_recovers_legacy_condition_by_evaluation_time():
     assert audit["checks"][2]["status"] == "unknown"
     assert audit["legacy_warning"]
     assert audit["audit_type"] == "monitored_condition"
+
+
+def test_entry_audit_uses_standardized_snapshot_without_reconstruction():
+    snapshot = {
+        "schema_version": 1,
+        "captured_at": "2026-08-02T10:00:00",
+        "decision_kind": "langgraph_automatic",
+        "score": 8.2,
+        "reasons": ["trend positivo", "liquidita sufficiente"],
+        "risks": ["volatilita moderata"],
+        "liquidity_ok": True,
+        "chart_entry_confirmed": True,
+        "risk_validation": {"allowed": True, "amount": 500},
+        "audit_complete": True,
+    }
+    position = {
+        "ticker": "ENI.MI",
+        "entry_price": 23.9,
+        "opened_at": "2026-08-02T10:00:01",
+        "entry_audit_snapshot": snapshot,
+    }
+
+    audit = build_entry_audit({"positions": [position]}, "ENI.MI", position)
+
+    assert audit["audit_type"] == "standardized_snapshot"
+    assert audit["decision_kind"] == "langgraph_automatic"
+    assert audit["score"] == 8.2
+    assert audit["reasons"] == snapshot["reasons"]
+    assert [item["status"] for item in audit["checks"]] == ["passed", "passed", "passed", "passed"]

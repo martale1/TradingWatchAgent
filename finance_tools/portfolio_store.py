@@ -180,6 +180,23 @@ def add_buy_proposal(ticker, reason, amount=None, entry_price=None, metadata=Non
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste. Inizializza prima il portafoglio.")
     proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    proposal_metadata = {
+        "amount": amount,
+        "entry_price": entry_price,
+        **(metadata or {}),
+    }
+    proposal_metadata.setdefault(
+        "entry_audit_snapshot",
+        {
+            "schema_version": 1,
+            "captured_at": now_iso(),
+            "decision_kind": "manual_or_agent_proposal",
+            "source": proposal_metadata.get("source") or "unspecified",
+            "reason": reason,
+            "entry_price": entry_price,
+            "audit_complete": False,
+        },
+    )
     proposal = {
         "id": proposal_id,
         "created_at": now_iso(),
@@ -187,11 +204,7 @@ def add_buy_proposal(ticker, reason, amount=None, entry_price=None, metadata=Non
         "action": "buy_virtual_position",
         "ticker": ticker.strip().upper(),
         "reason": reason,
-        "metadata": {
-            "amount": amount,
-            "entry_price": entry_price,
-            **(metadata or {}),
-        },
+        "metadata": proposal_metadata,
     }
     portfolio.setdefault("pending_proposals", []).append(proposal)
     save_portfolio(portfolio, path)
@@ -488,6 +501,35 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
         from finance_tools.portfolio_registry import load_portfolio_config
 
         metadata = match.setdefault("metadata", {})
+        automatic_sources = {"autonomous_met_entry_condition", "langgraph_autonomous"}
+        audit_snapshot = metadata.get("entry_audit_snapshot", {}) or {}
+        automatic_audit_valid = audit_snapshot.get("audit_complete") is True
+        if metadata.get("source") == "autonomous_met_entry_condition":
+            automatic_audit_valid = automatic_audit_valid and all(
+                (
+                    audit_snapshot.get("condition_id"),
+                    isinstance(audit_snapshot.get("scenario"), dict) and audit_snapshot.get("scenario"),
+                    audit_snapshot.get("observed_price") is not None,
+                    audit_snapshot.get("entry_price") is not None,
+                )
+            )
+        elif metadata.get("source") == "langgraph_autonomous":
+            automatic_audit_valid = automatic_audit_valid and all(
+                (
+                    audit_snapshot.get("score") is not None,
+                    audit_snapshot.get("liquidity_ok") is not None,
+                    audit_snapshot.get("chart_entry_confirmed") is not None,
+                    audit_snapshot.get("entry_price") is not None,
+                )
+            )
+        if metadata.get("source") in automatic_sources and not automatic_audit_valid:
+            pending.remove(match)
+            match["status"] = "blocked"
+            match["blocked_at"] = now_iso()
+            match["failure_reason"] = "snapshot audit ingresso automatico mancante o incompleto"
+            portfolio.setdefault("closed_proposals", []).append(match)
+            save_portfolio(portfolio, path)
+            return {"status": "blocked", "reason": match["failure_reason"], "proposal": match, "portfolio": portfolio}
         try:
             entry_price = float(metadata.get("entry_price") or 0)
         except (TypeError, ValueError):
@@ -516,6 +558,7 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
             risk_limits=config.get("risk_limits"),
         )
         metadata["risk_validation"] = risk
+        metadata.setdefault("entry_audit_snapshot", {})["risk_validation"] = risk
         if not risk.get("allowed"):
             pending.remove(match)
             match["status"] = "blocked"
@@ -622,6 +665,7 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
                     "added_quantity": quantity,
                     "reference_price": entry_price,
                     "reason": match.get("reason", ""),
+                    "entry_audit_snapshot": metadata.get("entry_audit_snapshot"),
                 }
             )
         else:
@@ -638,6 +682,7 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
                     "status": "open",
                     "source": "confirmed_agent_buy_proposal",
                     "reason": match.get("reason", ""),
+                    "entry_audit_snapshot": metadata.get("entry_audit_snapshot"),
                 }
             )
     elif match["action"] in {"sell_virtual_position", "reduce_virtual_position"}:

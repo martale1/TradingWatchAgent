@@ -2347,11 +2347,17 @@ function ChartModal({ item, onClose }) {
     : `Nessuna operazione implicita: questo grafico mostra livelli da verificare prima di una decisione.`;
   const parsedNote = (!numeric(item.trigger_level) && parsedLevels.trigger) || (!numeric(item.support_level) && parsedLevels.support);
   const entryAudit = item.entry_audit || auditState;
-  const auditScenarioLabel = entryAudit?.scenario_type === "PULLBACK_SUPPORTO"
-    ? "Ingresso su tenuta/rimbalzo del supporto"
-    : entryAudit?.scenario_type === "BREAKOUT"
-      ? "Ingresso sulla rottura della resistenza"
-      : "Scenario non identificato nei dati storici";
+  const auditScenarioLabel = entryAudit?.decision_kind === "langgraph_automatic"
+    ? "Acquisto automatico da scanner, liquidità e conferma grafica"
+    : entryAudit?.decision_kind === "explicit_user_override"
+      ? "Acquisto richiesto esplicitamente dall'utente"
+      : entryAudit?.decision_kind === "agent_proposal_requiring_confirmation"
+        ? "Proposta dell'agente sottoposta a conferma"
+        : entryAudit?.scenario_type === "PULLBACK_SUPPORTO"
+          ? "Ingresso su tenuta/rimbalzo del supporto"
+          : entryAudit?.scenario_type === "BREAKOUT"
+            ? "Ingresso sulla rottura della resistenza"
+            : "Scenario non identificato nei dati storici";
   return (
     <div className="modalBackdrop" onClick={onClose}>
       <div className="chartModal" onClick={(event) => event.stopPropagation()}>
@@ -2397,8 +2403,14 @@ function ChartModal({ item, onClose }) {
                   <p>Esiste l'ordine, ma non è collegato a una condizione monitorata completa. Posso mostrare soltanto la motivazione salvata e il controllo rischio; prezzo, volumi e conferma tecnica originari non devono essere ricostruiti o inventati.</p>
                 </div>
               )}
+              {entryAudit.audit_type === "manual_or_explicit" && (
+                <div className="entryAuditUnavailable">
+                  <strong>Decisione non automatica</strong>
+                  <p>L'ordine deriva da una richiesta esplicita o da una proposta confermata manualmente. I controlli automatici di scenario non vengono presentati come se avessero autorizzato l'acquisto.</p>
+                </div>
+              )}
               <p className="entryAuditCondition"><strong>Condizione originale</strong>{entryAudit.condition || "Condizione non registrata"}</p>
-              {entryAudit.audit_type !== "unlinked_historical_entry" && <div className="entryAuditChecks">
+              {!['unlinked_historical_entry', 'manual_or_explicit'].includes(entryAudit.audit_type) && <div className="entryAuditChecks">
                 {(entryAudit.checks || []).map((check, index) => (
                   <div className={`entryAuditCheck ${check.status}`} key={`${check.label}-${index}`}>
                     <span>{check.status === "passed" ? "SUPERATO" : check.status === "failed" ? "NON SUPERATO" : "NON VERIFICABILE"}</span>

@@ -663,6 +663,23 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
                     "market_scope": item.get("market_scope"),
                     "score": score,
                     "deep_analysis_file": deep.get("analysis_file"),
+                    "entry_audit_snapshot": {
+                        "schema_version": 1,
+                        "captured_at": datetime.now().replace(microsecond=0).isoformat(),
+                        "decision_kind": "langgraph_automatic",
+                        "source": "langgraph_autonomous",
+                        "observed_price": close,
+                        "entry_price": close,
+                        "market_scope": item.get("market_scope"),
+                        "score": score,
+                        "reasons": item.get("reasons") or [],
+                        "risks": item.get("risks") or [],
+                        "liquidity_ok": item.get("liquidity_ok") is not False,
+                        "deep_status": deep_status,
+                        "chart_entry_confirmed": deep_confirms,
+                        "deep_analysis_file": deep.get("analysis_file"),
+                        "audit_complete": True,
+                    },
                 },
             )
             created.append(proposal)

@@ -446,6 +446,26 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
                 "execution_key": audit_metadata["execution_key"],
                 "amount": amount,
                 "entry_price": price,
+                "condition_id": condition.get("id"),
+                "entry_audit_snapshot": {
+                    "schema_version": 1,
+                    "captured_at": datetime.now().replace(microsecond=0).isoformat(),
+                    "decision_kind": "automatic_monitored_condition",
+                    "source": "autonomous_met_entry_condition",
+                    "condition_id": condition.get("id"),
+                    "condition": condition_text,
+                    "scenario": scenario,
+                    "scenario_state": state,
+                    "scenario_reason": reason_base,
+                    "observed_price": price,
+                    "entry_price": price,
+                    "trigger": trigger,
+                    "volume_ratio": volume_ratio,
+                    "intraday_volume_pace_ratio": metadata.get("intraday_volume_pace_ratio"),
+                    "daily_bar_complete": metadata.get("daily_bar_complete"),
+                    "liquidity_ok": liquidity_ok,
+                    "audit_complete": True,
+                },
             },
         )
         result = confirm_portfolio_proposal(proposal["id"])
@@ -1268,7 +1288,18 @@ def create_buy_proposal(
         "Tool create_buy_proposal chiamato | "
         f"ticker={ticker} amount={amount} entry_price={entry_price} market={market} asset_class={asset_class}"
     )
-    metadata = {}
+    metadata = {
+        "source": "agent_created_proposal",
+        "entry_audit_snapshot": {
+            "schema_version": 1,
+            "captured_at": datetime.now().replace(microsecond=0).isoformat(),
+            "decision_kind": "agent_proposal_requiring_confirmation",
+            "source": "agent_created_proposal",
+            "reason": reason,
+            "entry_price": entry_price,
+            "audit_complete": False,
+        },
+    }
     if market:
         metadata["market"] = market
     if asset_class:
@@ -2473,7 +2504,22 @@ def handle_local_interactive_command(user_text):
             "Forzatura consapevole: la proposta puo essere creata anche se il filtro prudenziale non e confermato. "
             "Richiede conferma esplicita del proposal_id."
         )
-        proposal = add_buy_proposal(ticker=ticker, reason=reason, amount=amount)
+        proposal = add_buy_proposal(
+            ticker=ticker,
+            reason=reason,
+            amount=amount,
+            metadata={
+                "source": "explicit_user_request",
+                "entry_audit_snapshot": {
+                    "schema_version": 1,
+                    "captured_at": datetime.now().replace(microsecond=0).isoformat(),
+                    "decision_kind": "explicit_user_override",
+                    "source": "explicit_user_request",
+                    "reason": reason,
+                    "audit_complete": False,
+                },
+            },
+        )
         print()
         print("Proposta pending creata su richiesta esplicita.")
         print(f"- proposal_id: {proposal['id']}")

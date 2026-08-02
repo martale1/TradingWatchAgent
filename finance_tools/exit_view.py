@@ -152,6 +152,7 @@ def build_entry_audit(portfolio, ticker, position):
     proposals.sort(key=lambda proposal: str(proposal.get("confirmed_at") or proposal.get("created_at") or ""))
     proposal = proposals[0] if proposals else {}
     proposal_metadata = proposal.get("metadata", {}) or {}
+    snapshot = position.get("entry_audit_snapshot") or proposal_metadata.get("entry_audit_snapshot") or {}
     conditions = (portfolio or {}).get("monitored_conditions", []) or []
     condition = next(
         (
@@ -161,6 +162,11 @@ def build_entry_audit(portfolio, ticker, position):
         ),
         None,
     )
+    if condition is None and snapshot.get("condition_id"):
+        condition = next(
+            (candidate for candidate in conditions if candidate.get("id") == snapshot.get("condition_id")),
+            None,
+        )
     if condition is None and proposal:
         condition = next(
             (
@@ -199,16 +205,18 @@ def build_entry_audit(portfolio, ticker, position):
     scenario = next(
         (candidate for candidate in scenarios if str(candidate.get("state") or "").upper() == "BUY_CANDIDATE"),
         {},
-    )
-    risk = proposal_metadata.get("risk_validation", {}) or {}
-    observed_price = safe_float(condition_metadata.get("last_price") or scenario.get("last_price"))
+    ) or snapshot.get("scenario", {}) or {}
+    risk = snapshot.get("risk_validation") or proposal_metadata.get("risk_validation") or {}
+    observed_price = safe_float(condition_metadata.get("last_price") or scenario.get("last_price") or snapshot.get("observed_price"))
     entry_min = safe_float(scenario.get("entry_area_min"))
     entry_max = safe_float(scenario.get("entry_area_max"))
-    trigger = safe_float(scenario.get("trigger") or proposal_metadata.get("trigger"))
-    volume_ratio = safe_float(condition_metadata.get("volume_ratio") or scenario.get("last_volume_ratio"))
-    pace_ratio = safe_float(condition_metadata.get("intraday_volume_pace_ratio"))
+    trigger = safe_float(scenario.get("trigger") or snapshot.get("trigger") or proposal_metadata.get("trigger"))
+    volume_ratio = safe_float(snapshot.get("volume_ratio") or condition_metadata.get("volume_ratio") or scenario.get("last_volume_ratio"))
+    pace_ratio = safe_float(snapshot.get("intraday_volume_pace_ratio") or condition_metadata.get("intraday_volume_pace_ratio"))
     required_volume = safe_float(scenario.get("required_volume_ratio"))
-    daily_complete = condition_metadata.get("daily_bar_complete")
+    daily_complete = snapshot.get("daily_bar_complete")
+    if daily_complete is None:
+        daily_complete = condition_metadata.get("daily_bar_complete")
     effective_volume = volume_ratio if daily_complete is True else pace_ratio
     scenario_type = str(scenario.get("type") or "").upper()
     if scenario_type == "PULLBACK_SUPPORTO" and None not in {observed_price, entry_min, entry_max}:
@@ -226,6 +234,8 @@ def build_entry_audit(portfolio, ticker, position):
         else None
     )
     chart_confirmed = scenario.get("chart_entry_confirmed")
+    if chart_confirmed is None:
+        chart_confirmed = snapshot.get("chart_entry_confirmed")
     playwright_completed = scenario.get("playwright_confirmed")
     news_negative = scenario.get("news_negative")
     checks = [
@@ -265,6 +275,30 @@ def build_entry_audit(portfolio, ticker, position):
             "rule": "Rispetto dei limiti del profilo del portafoglio",
         },
     ]
+    if snapshot.get("decision_kind") == "langgraph_automatic":
+        score = safe_float(snapshot.get("score"))
+        liquidity_ok = snapshot.get("liquidity_ok")
+        checks = [
+            {
+                "label": "Punteggio scanner",
+                "status": "passed" if score is not None and score >= 8 else "failed" if score is not None else "unknown",
+                "actual": f"Score {score:.0f}" if score is not None else "Score non registrato",
+                "rule": "Score minimo 8 per candidato automatico",
+            },
+            {
+                "label": "Liquidità dello strumento",
+                "status": "passed" if liquidity_ok is True else "failed" if liquidity_ok is False else "unknown",
+                "actual": "Liquidità sufficiente" if liquidity_ok is True else "Liquidità insufficiente" if liquidity_ok is False else "Liquidità non registrata",
+                "rule": "Il filtro di liquidità deve essere superato",
+            },
+            {
+                "label": "Conferma operativa del grafico",
+                "status": "passed" if chart_confirmed is True else "failed" if chart_confirmed is False else "unknown",
+                "actual": "Ingresso confermato" if chart_confirmed is True else "Ingresso non confermato" if chart_confirmed is False else "Esito non registrato",
+                "rule": "Il report deve confermare esplicitamente l'ingresso",
+            },
+            checks[-1],
+        ]
     legacy_warning = (
         "ATTENZIONE: questo acquisto e precedente alla correzione del controllo grafico. "
         "Il vecchio codice considerava l'analisi Playwright completata come conferma dell'ingresso, "
@@ -273,13 +307,19 @@ def build_entry_audit(portfolio, ticker, position):
     )
     return {
         "available": bool(proposal or position),
-        "audit_type": "monitored_condition" if condition and scenario else "unlinked_historical_entry",
+        "audit_type": (
+            "standardized_snapshot" if snapshot.get("audit_complete") is True
+            else "monitored_condition" if condition and scenario
+            else "manual_or_explicit" if snapshot.get("decision_kind") in {"explicit_user_override", "agent_proposal_requiring_confirmation", "manual_or_agent_proposal"}
+            else "unlinked_historical_entry"
+        ),
+        "decision_kind": snapshot.get("decision_kind"),
         "proposal_id": proposal.get("id"),
         "confirmed_at": proposal.get("confirmed_at") or position.get("opened_at"),
         "source": proposal_metadata.get("source") or position.get("source"),
         "reason": proposal.get("reason") or position.get("reason"),
         "condition_id": condition.get("id"),
-        "condition": condition.get("condition"),
+        "condition": condition.get("condition") or snapshot.get("condition"),
         "scenario_type": scenario.get("type"),
         "scenario_description": scenario.get("description"),
         "scenario_reason": scenario.get("last_reason") or condition_metadata.get("scenario_reason"),
@@ -298,6 +338,9 @@ def build_entry_audit(portfolio, ticker, position):
         "news_negative": news_negative,
         "risk_allowed": risk.get("allowed"),
         "risk_amount": risk.get("amount"),
+        "score": snapshot.get("score"),
+        "reasons": snapshot.get("reasons") or [],
+        "risks": snapshot.get("risks") or [],
         "checks": checks,
         "legacy_warning": legacy_warning,
         "data_note": "Dati storici registrati al momento della decisione; i campi mancanti non sono ricostruiti.",
