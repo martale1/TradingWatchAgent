@@ -170,6 +170,29 @@ def build_entry_audit(portfolio, ticker, position):
             ),
             None,
         )
+    if condition is None and proposal:
+        proposal_time = str(proposal.get("confirmed_at") or proposal.get("created_at") or "")
+
+        def time_distance(candidate):
+            evaluated_at = str((candidate.get("metadata", {}) or {}).get("last_entry_scenario_eval_at") or "")
+            try:
+                return abs((datetime.fromisoformat(proposal_time) - datetime.fromisoformat(evaluated_at)).total_seconds())
+            except (TypeError, ValueError):
+                return float("inf")
+
+        historical_candidates = [
+            candidate
+            for candidate in conditions
+            if str(candidate.get("ticker") or "").strip().upper() == ticker
+            and any(
+                str(entry_scenario.get("state") or "").upper() == "BUY_CANDIDATE"
+                for entry_scenario in ((candidate.get("metadata", {}) or {}).get("entry_scenarios", []) or [])
+            )
+        ]
+        if historical_candidates:
+            nearest = min(historical_candidates, key=time_distance)
+            if time_distance(nearest) <= 15 * 60:
+                condition = nearest
     condition = condition or {}
     condition_metadata = condition.get("metadata", {}) or {}
     scenarios = condition_metadata.get("entry_scenarios", []) or []
@@ -178,6 +201,76 @@ def build_entry_audit(portfolio, ticker, position):
         {},
     )
     risk = proposal_metadata.get("risk_validation", {}) or {}
+    observed_price = safe_float(condition_metadata.get("last_price") or scenario.get("last_price"))
+    entry_min = safe_float(scenario.get("entry_area_min"))
+    entry_max = safe_float(scenario.get("entry_area_max"))
+    trigger = safe_float(scenario.get("trigger") or proposal_metadata.get("trigger"))
+    volume_ratio = safe_float(condition_metadata.get("volume_ratio") or scenario.get("last_volume_ratio"))
+    pace_ratio = safe_float(condition_metadata.get("intraday_volume_pace_ratio"))
+    required_volume = safe_float(scenario.get("required_volume_ratio"))
+    daily_complete = condition_metadata.get("daily_bar_complete")
+    effective_volume = volume_ratio if daily_complete is True else pace_ratio
+    scenario_type = str(scenario.get("type") or "").upper()
+    if scenario_type == "PULLBACK_SUPPORTO" and None not in {observed_price, entry_min, entry_max}:
+        price_passed = entry_min <= observed_price <= entry_max
+        price_rule = f"Prezzo compreso tra {entry_min:.4f} e {entry_max:.4f}"
+    elif scenario_type == "BREAKOUT" and observed_price is not None and trigger is not None:
+        price_passed = observed_price >= trigger
+        price_rule = f"Prezzo almeno {trigger:.4f}"
+    else:
+        price_passed = None
+        price_rule = "Regola prezzo non ricostruibile"
+    volume_passed = (
+        effective_volume >= required_volume
+        if effective_volume is not None and required_volume is not None
+        else None
+    )
+    chart_confirmed = scenario.get("chart_entry_confirmed")
+    playwright_completed = scenario.get("playwright_confirmed")
+    news_negative = scenario.get("news_negative")
+    checks = [
+        {
+            "label": "Prezzo nella configurazione richiesta",
+            "status": "passed" if price_passed is True else "failed" if price_passed is False else "unknown",
+            "actual": f"Prezzo osservato {observed_price:.4f}" if observed_price is not None else "Prezzo non registrato",
+            "rule": price_rule,
+        },
+        {
+            "label": "Conferma volumi",
+            "status": "passed" if volume_passed is True else "failed" if volume_passed is False else "unknown",
+            "actual": f"{'Ritmo intraday' if daily_complete is False else 'Volume finale'} {effective_volume:.3f}x MA10" if effective_volume is not None else "Volume confrontabile non registrato",
+            "rule": f"Richiesto almeno {required_volume:.2f}x MA10" if required_volume is not None else "Soglia non registrata",
+        },
+        {
+            "label": "Conferma operativa del grafico",
+            "status": "passed" if chart_confirmed is True else "failed" if chart_confirmed is False else "unknown",
+            "actual": (
+                "Ingresso esplicitamente confermato"
+                if chart_confirmed is True else "Ingresso esplicitamente respinto"
+                if chart_confirmed is False else "Analisi completata, esito operativo non registrato"
+                if playwright_completed is True else "Analisi grafica non registrata"
+            ),
+            "rule": "Il report deve confermare esplicitamente l'ingresso",
+        },
+        {
+            "label": "Controllo news",
+            "status": "passed" if news_negative is False else "failed" if news_negative is True else "unknown",
+            "actual": "Nessuna news negativa" if news_negative is False else "News negative rilevate" if news_negative is True else "Esito news non registrato",
+            "rule": "Nessuna notizia negativa rilevante",
+        },
+        {
+            "label": "Controllo rischio e dimensione",
+            "status": "passed" if risk.get("allowed") is True else "failed" if risk.get("allowed") is False else "unknown",
+            "actual": f"Ordine consentito per EUR {safe_float(risk.get('amount')):.2f}" if safe_float(risk.get("amount")) is not None else "Esito rischio non registrato",
+            "rule": "Rispetto dei limiti del profilo del portafoglio",
+        },
+    ]
+    legacy_warning = (
+        "ATTENZIONE: questo acquisto e precedente alla correzione del controllo grafico. "
+        "Il vecchio codice considerava l'analisi Playwright completata come conferma dell'ingresso, "
+        "anche senza un esito operativo esplicito nel report."
+        if playwright_completed is True and chart_confirmed is None else None
+    )
     return {
         "available": bool(proposal or position),
         "proposal_id": proposal.get("id"),
@@ -190,20 +283,22 @@ def build_entry_audit(portfolio, ticker, position):
         "scenario_description": scenario.get("description"),
         "scenario_reason": scenario.get("last_reason") or condition_metadata.get("scenario_reason"),
         "entry_price": proposal_metadata.get("entry_price") or position.get("entry_price"),
-        "observed_price": condition_metadata.get("last_price") or scenario.get("last_price"),
-        "trigger": scenario.get("trigger") or proposal_metadata.get("trigger"),
+        "observed_price": observed_price,
+        "trigger": trigger,
         "support": scenario.get("support") or condition_metadata.get("support_10"),
-        "entry_area_min": scenario.get("entry_area_min"),
-        "entry_area_max": scenario.get("entry_area_max"),
-        "volume_ratio": condition_metadata.get("volume_ratio") or scenario.get("last_volume_ratio"),
-        "intraday_volume_pace_ratio": condition_metadata.get("intraday_volume_pace_ratio"),
-        "required_volume_ratio": scenario.get("required_volume_ratio"),
-        "daily_bar_complete": condition_metadata.get("daily_bar_complete"),
-        "playwright_completed": scenario.get("playwright_confirmed"),
-        "chart_entry_confirmed": scenario.get("chart_entry_confirmed"),
-        "news_negative": scenario.get("news_negative"),
+        "entry_area_min": entry_min,
+        "entry_area_max": entry_max,
+        "volume_ratio": volume_ratio,
+        "intraday_volume_pace_ratio": pace_ratio,
+        "required_volume_ratio": required_volume,
+        "daily_bar_complete": daily_complete,
+        "playwright_completed": playwright_completed,
+        "chart_entry_confirmed": chart_confirmed,
+        "news_negative": news_negative,
         "risk_allowed": risk.get("allowed"),
         "risk_amount": risk.get("amount"),
+        "checks": checks,
+        "legacy_warning": legacy_warning,
         "data_note": "Dati storici registrati al momento della decisione; i campi mancanti non sono ricostruiti.",
     }
 

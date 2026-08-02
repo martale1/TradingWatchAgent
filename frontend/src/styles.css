@@ -2310,7 +2310,26 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
 .entryAudit summary { cursor: pointer; padding: 12px 14px; color: #5b21b6; font-weight: 800; }
 .entryAuditBody { display: grid; gap: 12px; border-top: 1px solid #ddd6fe; padding: 14px; }
 .entryAuditBody p { display: grid; gap: 4px; margin: 0; color: #334155; }
+.entryAuditDecision { display: grid; gap: 5px; border-radius: 8px; background: #ede9fe; padding: 12px; }
+.entryAuditDecision small { color: #6d28d9; font-weight: 800; }
+.entryAuditDecision strong { color: #3b0764; font-size: 18px; }
+.entryAuditWarning { border: 1px solid #f59e0b; border-left-width: 5px; border-radius: 8px; background: #fffbeb; padding: 11px; color: #92400e; font-weight: 700; }
 .entryAuditCondition { border-left: 4px solid #7c3aed; padding-left: 10px; }
+.entryAuditChecks { display: grid; gap: 8px; }
+.entryAuditCheck { display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: start; border: 1px solid #e2e8f0; border-left-width: 5px; border-radius: 8px; background: white; padding: 10px; }
+.entryAuditCheck > span { border-radius: 999px; padding: 4px 7px; text-align: center; font-size: 11px; font-weight: 900; }
+.entryAuditCheck div { display: grid; gap: 3px; }
+.entryAuditCheck p { display: block; }
+.entryAuditCheck small { color: #64748b; }
+.entryAuditCheck.passed { border-left-color: #16a34a; }
+.entryAuditCheck.passed > span { background: #dcfce7; color: #166534; }
+.entryAuditCheck.failed { border-left-color: #dc2626; }
+.entryAuditCheck.failed > span { background: #fee2e2; color: #991b1b; }
+.entryAuditCheck.unknown { border-left-color: #f59e0b; }
+.entryAuditCheck.unknown > span { background: #fef3c7; color: #92400e; }
+.entryAuditRaw { border: 1px solid #e2e8f0; border-radius: 8px; background: white; }
+.entryAuditRaw summary { padding: 9px 11px; color: #334155; }
+.entryAuditRaw .entryAuditGrid { padding: 0 10px 10px; }
 .entryAuditGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .entryAuditGrid span { min-width: 0; border: 1px solid #e2e8f0; border-radius: 7px; background: white; padding: 9px; }
 .entryAuditGrid small { display: block; color: #64748b; }

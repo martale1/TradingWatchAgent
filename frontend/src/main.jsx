@@ -2321,6 +2321,11 @@ function ChartModal({ item, onClose }) {
     ?? (currentPrice && triggerLevel ? ((triggerLevel - currentPrice) / currentPrice) * 100 : null);
   const parsedNote = (!numeric(item.trigger_level) && parsedLevels.trigger) || (!numeric(item.support_level) && parsedLevels.support);
   const entryAudit = item.entry_audit || auditState;
+  const auditScenarioLabel = entryAudit?.scenario_type === "PULLBACK_SUPPORTO"
+    ? "Ingresso su tenuta/rimbalzo del supporto"
+    : entryAudit?.scenario_type === "BREAKOUT"
+      ? "Ingresso sulla rottura della resistenza"
+      : "Scenario non identificato nei dati storici";
   return (
     <div className="modalBackdrop" onClick={onClose}>
       <div className="chartModal" onClick={(event) => event.stopPropagation()}>
@@ -2348,25 +2353,38 @@ function ChartModal({ item, onClose }) {
           <details className="entryAudit">
             <summary>Perché è stato acquistato · verifica condizioni registrate</summary>
             <div className="entryAuditBody">
-              <p className="entryAuditCondition"><strong>Condizione originale</strong>{entryAudit.condition || "Condizione non registrata"}</p>
-              <div className="entryAuditGrid">
-                <span><small>Decisione</small><b>{entryAudit.scenario_type || "n/d"}</b></span>
-                <span><small>Data ordine</small><b>{dateTime(entryAudit.confirmed_at)}</b></span>
-                <span><small>Prezzo osservato</small><b>{price(entryAudit.observed_price)}</b></span>
-                <span><small>Prezzo eseguito</small><b>{price(entryAudit.entry_price)}</b></span>
-                <span><small>Trigger</small><b>{price(entryAudit.trigger)}</b></span>
-                <span><small>Supporto</small><b>{price(entryAudit.support)}</b></span>
-                <span><small>Area ingresso</small><b>{entryAudit.entry_area_min != null || entryAudit.entry_area_max != null ? `${price(entryAudit.entry_area_min)} – ${price(entryAudit.entry_area_max)}` : "n/d"}</b></span>
-                <span><small>Volume effettivo</small><b>{entryAudit.volume_ratio != null ? `${Number(entryAudit.volume_ratio).toFixed(3)}× MA10` : "n/d"}</b></span>
-                <span><small>Ritmo intraday</small><b>{entryAudit.intraday_volume_pace_ratio != null ? `${Number(entryAudit.intraday_volume_pace_ratio).toFixed(3)}× MA10` : "n/d"}</b></span>
-                <span><small>Volume richiesto</small><b>{entryAudit.required_volume_ratio != null ? `${Number(entryAudit.required_volume_ratio).toFixed(2)}× MA10` : "n/d"}</b></span>
-                <span><small>Grafico confermava ingresso</small><b>{entryAudit.chart_entry_confirmed === true ? "Sì" : entryAudit.chart_entry_confirmed === false ? "No" : "Non registrato"}</b></span>
-                <span><small>News negative</small><b>{entryAudit.news_negative === true ? "Sì" : entryAudit.news_negative === false ? "No" : "Non registrato"}</b></span>
-                <span><small>Controllo rischio</small><b>{entryAudit.risk_allowed === true ? `Superato${entryAudit.risk_amount != null ? ` · ${eur(entryAudit.risk_amount)}` : ""}` : entryAudit.risk_allowed === false ? "Bloccato" : "Non registrato"}</b></span>
-                <span><small>ID proposta</small><b>{entryAudit.proposal_id || "n/d"}</b></span>
+              <div className="entryAuditDecision">
+                <small>DECISIONE PRESA DAL SISTEMA</small>
+                <strong>{auditScenarioLabel}</strong>
+                <p>
+                  Il sistema ha autorizzato l'ordine dopo i controlli elencati sotto.
+                  Ogni riga distingue ciò che risulta superato da ciò che non è verificabile nei dati storici.
+                </p>
               </div>
-              <p><strong>Esito tecnico registrato</strong>{entryAudit.scenario_reason || "n/d"}</p>
-              <p><strong>Motivazione ordine</strong>{entryAudit.reason || "n/d"}</p>
+              {entryAudit.legacy_warning && <div className="entryAuditWarning">{entryAudit.legacy_warning}</div>}
+              <p className="entryAuditCondition"><strong>Condizione originale</strong>{entryAudit.condition || "Condizione non registrata"}</p>
+              <div className="entryAuditChecks">
+                {(entryAudit.checks || []).map((check, index) => (
+                  <div className={`entryAuditCheck ${check.status}`} key={`${check.label}-${index}`}>
+                    <span>{check.status === "passed" ? "SUPERATO" : check.status === "failed" ? "NON SUPERATO" : "NON VERIFICABILE"}</span>
+                    <div><strong>{check.label}</strong><p>{check.actual}</p><small>Regola: {check.rule}</small></div>
+                  </div>
+                ))}
+              </div>
+              <details className="entryAuditRaw">
+                <summary>Dati tecnici e identificativi dell'ordine</summary>
+                <div className="entryAuditGrid">
+                  <span><small>Scenario</small><b>{entryAudit.scenario_type || "n/d"}</b></span>
+                  <span><small>Data ordine</small><b>{dateTime(entryAudit.confirmed_at)}</b></span>
+                  <span><small>Prezzo osservato / eseguito</small><b>{price(entryAudit.observed_price)} / {price(entryAudit.entry_price)}</b></span>
+                  <span><small>Trigger / supporto</small><b>{price(entryAudit.trigger)} / {price(entryAudit.support)}</b></span>
+                  <span><small>Area ingresso</small><b>{entryAudit.entry_area_min != null || entryAudit.entry_area_max != null ? `${price(entryAudit.entry_area_min)} – ${price(entryAudit.entry_area_max)}` : "n/d"}</b></span>
+                  <span><small>ID condizione</small><b>{entryAudit.condition_id || "n/d"}</b></span>
+                  <span><small>ID proposta</small><b>{entryAudit.proposal_id || "n/d"}</b></span>
+                </div>
+              </details>
+              <p><strong>Esito tecnico salvato</strong>{entryAudit.scenario_reason || "Non registrato"}</p>
+              <p><strong>Testo che accompagnava l'ordine</strong>{entryAudit.reason || "Non registrato"}</p>
               <em>{entryAudit.data_note}</em>
             </div>
           </details>
