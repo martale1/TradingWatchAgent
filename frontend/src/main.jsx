@@ -692,7 +692,7 @@ function Positions({ rows = [], onChart, performance = {} }) {
                   </span>
                 </td>
                 <td className="rowActions">
-                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, entry_price: row.entry_price, opened_at: row.opened_at, support_level: null, condition: "Posizione in portafoglio" })}><LineChart size={15} /> Grafico</button>
+                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, daily_change_pct: row.daily_change_pct, entry_price: row.entry_price, opened_at: row.opened_at, support_level: null, condition: "Posizione in portafoglio" })}><LineChart size={15} /> Grafico</button>
                 </td>
               </tr>
             ))}
@@ -864,6 +864,7 @@ function ExitConditions({ rows = [], onChart }) {
                 onClick={() => onChart({
                   ticker: row.ticker,
                   current_price: row.current_price,
+                  daily_change_pct: row.daily_change_pct,
                   entry_price: row.entry_price,
                   opened_at: row.opened_at,
                   trigger_level: row.take_profit_level,
@@ -2317,6 +2318,11 @@ function ChartModal({ item, onClose }) {
   const entryDate = item.opened_at;
   const lastPrice = state.prices.length ? numeric(state.prices[state.prices.length - 1]?.close) : null;
   const currentPrice = numeric(item.current_price) || lastPrice;
+  const lastCandle = state.prices.length ? state.prices[state.prices.length - 1] : null;
+  const lastOpen = numeric(lastCandle?.open);
+  const lastClose = numeric(lastCandle?.close);
+  const chartDailyChange = lastOpen && lastClose ? ((lastClose - lastOpen) / lastOpen) * 100 : null;
+  const dailyChange = numeric(item.daily_change_pct) ?? chartDailyChange;
   const distance = numeric(item.trigger_distance_pct)
     ?? (currentPrice && triggerLevel ? ((triggerLevel - currentPrice) / currentPrice) * 100 : null);
   const parsedNote = (!numeric(item.trigger_level) && parsedLevels.trigger) || (!numeric(item.support_level) && parsedLevels.support);
@@ -2338,6 +2344,7 @@ function ChartModal({ item, onClose }) {
         </div>
         <div className="chartSummary">
           <span>Prezzo attuale <b>{price(currentPrice)}</b></span>
+          <span>Variazione ultimo giorno <b className={signedClass(dailyChange)}>{pct(dailyChange)}</b></span>
           {entryPrice && <span>Prezzo ingresso <b>{price(entryPrice)}</b></span>}
           {entryDate && <span>Data ingresso <b>{dateTime(entryDate)}</b></span>}
           <span>Trigger <b>{price(triggerLevel)}</b></span>
@@ -3683,6 +3690,7 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
       ticker: position.ticker,
       portfolio_id: portfolio.portfolio_id,
       current_price: position.current_price,
+      daily_change_pct: position.daily_change_pct,
       entry_price: position.entry_price,
       opened_at: position.opened_at,
       condition: `Posizione nel portafoglio ${portfolio.name}`,
