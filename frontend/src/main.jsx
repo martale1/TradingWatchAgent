@@ -3591,12 +3591,17 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
       entry_price: position.entry_price,
       condition: `Posizione nel portafoglio ${portfolio.name}`,
     };
+    onChart(fallback);
     try {
-      const dashboard = await api(
-        `/api/dashboard?portfolio_id=${encodeURIComponent(portfolio.portfolio_id)}&refresh=false`,
-        { timeoutMs: 10000 },
+      const query = new URLSearchParams({ ticker: position.ticker });
+      if (position.current_price != null) query.set("current_price", position.current_price);
+      if (position.entry_price != null) query.set("entry_price", position.entry_price);
+      if (position.pnl_pct != null) query.set("pnl_pct", position.pnl_pct);
+      const levels = await api(
+        `/api/portfolios/${encodeURIComponent(portfolio.portfolio_id)}/exit-conditions?${query.toString()}`,
+        { timeoutMs: 4000 },
       );
-      const exitRow = (dashboard.exit_conditions || []).find(
+      const exitRow = (levels.exit_conditions || []).find(
         (item) => String(item.ticker || "").toUpperCase() === String(position.ticker || "").toUpperCase(),
       );
       if (exitRow) {
@@ -3609,12 +3614,10 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
           trigger_distance_pct: exitRow.distance_to_take_profit_pct,
           condition: `Uscita: stop ${price(exitRow.stop_level)} / take profit ${price(exitRow.take_profit_level)}. ${exitRow.primary_action || "Nessun trigger di uscita immediato."}`,
         });
-        return;
       }
     } catch (_error) {
       // Il grafico resta comunque disponibile con i dati presenti nel riepilogo.
     }
-    onChart(fallback);
   }
 
   const data = state.data || {};

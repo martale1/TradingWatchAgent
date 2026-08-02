@@ -1065,6 +1065,49 @@ def _save_dashboard_cache(state_path, payload):
     )
 
 
+@app.get("/api/portfolios/{portfolio_id}/exit-conditions")
+def get_cached_exit_conditions(
+    portfolio_id: str,
+    ticker: str = "",
+    current_price: float | None = None,
+    entry_price: float | None = None,
+    pnl_pct: float | None = None,
+):
+    """Return chart levels from the saved dashboard without refreshing market data."""
+    try:
+        config = load_portfolio_config(portfolio_id)
+        state_path = portfolio_state_path(portfolio_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not config or not state_path.exists():
+        raise HTTPException(status_code=404, detail=f"Portafoglio {portfolio_id} non trovato.")
+    cached = _load_dashboard_cache(state_path)
+    portfolio = load_portfolio(state_path)
+    performance = dict((cached or {}).get("performance") or {})
+    performance_positions = list(performance.get("positions") or [])
+    normalized_ticker = ticker.strip().upper()
+    if normalized_ticker:
+        matching = next(
+            (row for row in performance_positions if str(row.get("ticker") or "").strip().upper() == normalized_ticker),
+            None,
+        )
+        if matching is None:
+            matching = {"ticker": normalized_ticker}
+            performance_positions.append(matching)
+        if current_price is not None:
+            matching["current_price"] = current_price
+        if entry_price is not None:
+            matching["entry_price"] = entry_price
+        if pnl_pct is not None:
+            matching["pnl_pct"] = pnl_pct
+    performance["positions"] = performance_positions
+    return json_safe({
+        "portfolio_id": portfolio_id,
+        "exit_conditions": build_exit_conditions(performance, portfolio),
+        "refreshed_at": ((cached or {}).get("dashboard_cache") or {}).get("refreshed_at"),
+    })
+
+
 @app.get("/api/dashboard")
 def dashboard(portfolio_id: str = "main", refresh: bool = False):
     try:
