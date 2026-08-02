@@ -123,6 +123,7 @@ def build_portfolios_summary(include_archived=False):
                         if position.get("entry_price") is not None
                         else None
                     ),
+                    "opened_at": position.get("opened_at"),
                     "market_value": round(market_value, 2),
                     "pnl": round(position_pnl, 2),
                     "pnl_pct": round(position_pnl_pct, 2),

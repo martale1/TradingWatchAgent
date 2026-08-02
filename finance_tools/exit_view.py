@@ -260,6 +260,7 @@ def build_exit_conditions(performance, portfolio):
                 "price_as_of": item.get("price_as_of"),
                 "price_currency": item.get("price_currency"),
                 "entry_price": item.get("entry_price"),
+                "opened_at": item.get("opened_at") or opened_at,
                 "pnl_pct": item.get("pnl_pct"),
                 "stop_level": round(stop_level, 4) if stop_level is not None else None,
                 "stop_source": stop_source,

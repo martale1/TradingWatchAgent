@@ -2402,6 +2402,10 @@ td, th { padding: 11px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: t
   font-size: 13px;
   font-weight: 800;
 }
+.entryDateMarker > line { stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 5 5; opacity: .9; }
+.entryDateMarker circle { fill: #7c3aed; stroke: white; stroke-width: 2; }
+.entryDateMarker rect { fill: #ede9fe; stroke: #7c3aed; stroke-width: 1; }
+.entryDateMarker text { fill: #5b21b6; font-size: 11px; font-weight: 800; }
 .lastPoint circle { fill: #2563eb; stroke: white; stroke-width: 2; }
 .lastPoint text { fill: #1d4ed8; font-size: 13px; font-weight: 800; }
 .lastPoint .levelLabelConnector { stroke: #2563eb; stroke-width: 1.5; }

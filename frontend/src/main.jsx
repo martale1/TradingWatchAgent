@@ -692,7 +692,7 @@ function Positions({ rows = [], onChart, performance = {} }) {
                   </span>
                 </td>
                 <td className="rowActions">
-                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, entry_price: row.entry_price, support_level: null, condition: "Posizione in portafoglio" })}><LineChart size={15} /> Grafico</button>
+                  <button className="miniButton" onClick={() => onChart({ ticker: row.ticker, current_price: row.current_price, entry_price: row.entry_price, opened_at: row.opened_at, support_level: null, condition: "Posizione in portafoglio" })}><LineChart size={15} /> Grafico</button>
                 </td>
               </tr>
             ))}
@@ -865,6 +865,7 @@ function ExitConditions({ rows = [], onChart }) {
                   ticker: row.ticker,
                   current_price: row.current_price,
                   entry_price: row.entry_price,
+                  opened_at: row.opened_at,
                   trigger_level: row.take_profit_level,
                   support_level: row.stop_level,
                   trigger_distance_pct: row.distance_to_take_profit_pct,
@@ -1877,7 +1878,7 @@ function Etfs({ rows = [], monitoredRows = [], positions = [], onChart }) {
   );
 }
 
-function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, mode = "candles" }) {
+function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, entryDate, mode = "candles" }) {
   const [hoverIndex, setHoverIndex] = useState(null);
   const width = 1040;
   const height = 500;
@@ -1951,6 +1952,10 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, mode 
       if (prices.length <= 45) return index % 5 === 0;
       return String(row.date || "").slice(0, 7) !== String(previous.date || "").slice(0, 7);
     });
+  const entryDay = String(entryDate || "").slice(0, 10);
+  const entryIndex = entryDay
+    ? prices.findIndex((row) => String(row.date || "").slice(0, 10) === entryDay)
+    : -1;
 
   function LevelLine({ value, label, className, layoutKey }) {
     const level = Number(value);
@@ -2010,6 +2015,14 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, mode 
           width={plotW}
           height={Math.abs(bandBottom - bandTop)}
         />
+      )}
+      {entryIndex >= 0 && (
+        <g className="entryDateMarker">
+          <line x1={x(entryIndex)} x2={x(entryIndex)} y1={pad.top} y2={plotBottom} />
+          <circle cx={x(entryIndex)} cy={y(Number(entryPrice))} r="5" />
+          <rect x={Math.min(x(entryIndex) + 8, pad.left + plotW - 142)} y={pad.top + 8} width="142" height="25" rx="6" />
+          <text x={Math.min(x(entryIndex) + 16, pad.left + plotW - 134)} y={pad.top + 25}>INGRESSO {shortDate(entryDay)}</text>
+        </g>
       )}
       {mode === "line" ? (
         <>
@@ -2268,6 +2281,7 @@ function ChartModal({ item, onClose }) {
   const triggerLevel = numeric(item.trigger_level) || parsedLevels.trigger;
   const supportLevel = numeric(item.support_level) || parsedLevels.support;
   const entryPrice = numeric(item.entry_price);
+  const entryDate = item.opened_at;
   const lastPrice = state.prices.length ? numeric(state.prices[state.prices.length - 1]?.close) : null;
   const currentPrice = numeric(item.current_price) || lastPrice;
   const distance = numeric(item.trigger_distance_pct)
@@ -2286,6 +2300,7 @@ function ChartModal({ item, onClose }) {
         <div className="chartSummary">
           <span>Prezzo attuale <b>{price(currentPrice)}</b></span>
           {entryPrice && <span>Prezzo ingresso <b>{price(entryPrice)}</b></span>}
+          {entryDate && <span>Data ingresso <b>{dateTime(entryDate)}</b></span>}
           <span>Trigger <b>{price(triggerLevel)}</b></span>
           <span>Supporto/stop <b>{price(supportLevel)}</b></span>
           <span>Distanza trigger <b className={signedClass(distance)}>{pct(distance)}</b></span>
@@ -2325,7 +2340,7 @@ function ChartModal({ item, onClose }) {
             <div className="allChartsStack">
               <div>
                 <h3>Prezzo</h3>
-                <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} mode={mode} />
+                <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} entryDate={entryDate} mode={mode} />
               </div>
               <div>
                 <h3>Volumi</h3>
@@ -2345,7 +2360,7 @@ function ChartModal({ item, onClose }) {
               </div>
             </div>
           ) : view === "price"
-            ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} mode={mode} />
+            ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} entryDate={entryDate} mode={mode} />
             : <TechnicalChart prices={state.prices} type={view} />
         )}
       </div>
@@ -3589,6 +3604,7 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
       ticker: position.ticker,
       current_price: position.current_price,
       entry_price: position.entry_price,
+      opened_at: position.opened_at,
       condition: `Posizione nel portafoglio ${portfolio.name}`,
     };
     onChart(fallback);
@@ -3609,6 +3625,7 @@ function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
           ...fallback,
           current_price: exitRow.current_price ?? position.current_price,
           entry_price: exitRow.entry_price ?? position.entry_price,
+          opened_at: exitRow.opened_at ?? position.opened_at,
           trigger_level: exitRow.take_profit_level,
           support_level: exitRow.stop_level,
           trigger_distance_pct: exitRow.distance_to_take_profit_pct,
