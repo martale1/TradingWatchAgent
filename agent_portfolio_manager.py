@@ -197,6 +197,47 @@ def _condition_reference_values(condition):
     return scenario, price, trigger, volume_ratio
 
 
+def _confirmed_entry_guard(condition):
+    """Revalidate the saved scenario before creating an automatic buy proposal."""
+    metadata = condition.get("metadata", {}) or {}
+    scenario, price, trigger, volume_ratio = _condition_reference_values(condition)
+    scenario_type = str(scenario.get("type") or "BREAKOUT").upper()
+    scenario_state = str(scenario.get("state") or "").upper()
+    if scenario_state != "BUY_CANDIDATE":
+        return False, f"scenario selezionato non BUY_CANDIDATE ({scenario_state or 'mancante'})"
+    if scenario.get("chart_entry_confirmed") is not True:
+        return False, "conferma operativa del grafico assente"
+    if price is None or price <= 0:
+        return False, "prezzo di riferimento assente"
+
+    required_volume = float(scenario.get("required_volume_ratio") or 0.8)
+    daily_complete = bool(metadata.get("daily_bar_complete"))
+    effective_volume = volume_ratio
+    if not daily_complete:
+        try:
+            effective_volume = float(metadata.get("intraday_volume_pace_ratio"))
+        except (TypeError, ValueError):
+            effective_volume = None
+    if effective_volume is None or effective_volume < required_volume:
+        return False, (
+            f"conferma volumi insufficiente ({effective_volume if effective_volume is not None else 'n/d'}x, "
+            f"richiesto {required_volume:.2f}x)"
+        )
+
+    if scenario_type == "PULLBACK_SUPPORTO":
+        try:
+            support = float(scenario.get("support"))
+            entry_max = float(scenario.get("entry_area_max"))
+        except (TypeError, ValueError):
+            return False, "area pullback incompleta"
+        if not support <= price <= entry_max:
+            return False, f"prezzo {price:.4f} fuori area pullback {support:.4f}-{entry_max:.4f}"
+    else:
+        if trigger is None or price < trigger:
+            return False, f"prezzo {price:.4f} sotto trigger breakout {trigger if trigger is not None else 'n/d'}"
+    return True, "scenario numerico e grafico confermato"
+
+
 def _record_auto_entry_decision(condition, decision, reason, status="logged", metadata=None):
     portfolio = load_portfolio_file()
     if portfolio is None:
@@ -306,6 +347,25 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
             f"{ticker}: state={state} price={price} trigger={trigger} vol_ratio={volume_ratio} "
             f"held={held} pending={pending} cash={cash:.2f} max_amount={max_amount:.2f} liquidity_ok={liquidity_ok}"
         )
+
+        entry_allowed, entry_guard_reason = _confirmed_entry_guard(condition)
+        if not entry_allowed:
+            reason = f"{ticker}: acquisto automatico bloccato dal controllo finale: {entry_guard_reason}."
+            _record_auto_entry_decision(condition, "skip_failed_entry_guard", reason, status="blocked", metadata=audit_metadata)
+            update_monitored_condition(
+                condition_id=condition.get("id"),
+                status="waiting",
+                note=reason,
+                metadata={
+                    **metadata,
+                    "scenario_state": "NEAR_TRIGGER",
+                    "auto_decision": "skip_failed_entry_guard",
+                    "auto_decision_reason": reason,
+                },
+            )
+            log_step(f"Post-check autonomia ingressi | {ticker}: BLOCCATO, {entry_guard_reason}")
+            decisions.append({"ticker": ticker, "decision": "skip_failed_entry_guard", "reason": reason})
+            continue
 
         if pending:
             reason = f"{ticker}: setup ingresso confermato, ma esiste gia una proposta buy pending."

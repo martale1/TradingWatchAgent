@@ -44,6 +44,35 @@ NEGATIVE_NEWS_TERMS = {
 }
 
 
+def chart_report_confirms_entry(report):
+    """True only when the completed chart analysis explicitly confirms an entry."""
+    text = str(report or "").lower()
+    blockers = (
+        "attendere conferme",
+        "manca una conferma",
+        "manca di partecipazione",
+        "non fornisce ancora conferme",
+        "volumi molto bassi",
+        "volumi nettamente inferiori",
+        "momentum in indebolimento",
+        "evitare ingresso",
+        "non comprare",
+    )
+    confirmations = (
+        "ingresso confermato",
+        "setup confermato",
+        "buy_candidate",
+        "buy candidate",
+        "breakout confermato",
+        "rimbalzo confermato",
+        "supporto confermato",
+        "segnale di acquisto",
+    )
+    return bool(text) and not any(marker in text for marker in blockers) and any(
+        marker in text for marker in confirmations
+    )
+
+
 def _commodity_tickers():
     try:
         return {str(item.get("ticker", "")).strip().upper() for item in load_commodity_tickers() if item.get("ticker")}
@@ -397,8 +426,11 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
             flush=True,
         )
         chart_confirmation = confirm_candidate_with_chart_ai(ticker, no_telegram=True)
-        chart_ok = chart_confirmation.get("status") == "ok"
-        if chart_ok:
+        chart_tool_ok = chart_confirmation.get("status") == "ok"
+        chart_entry_confirmed = chart_tool_ok and chart_report_confirms_entry(
+            chart_confirmation.get("report", "")
+        )
+        if chart_tool_ok:
             news_confirmation = get_news_report(ticker, live=live_news)
         else:
             print(
@@ -409,17 +441,26 @@ def evaluate_condition_entry_scenarios(item, use_playwright=False, live_news=Tru
             )
         news_report = (news_confirmation or {}).get("report", "")
         news_negative = _has_negative_news(news_report)
-        if chart_ok and not news_negative:
+        if chart_entry_confirmed and not news_negative:
             best_state = SCENARIO_BUY_CANDIDATE
             best_reason = "scenario confermato da grafico Playwright e news non negative"
             for scenario in evaluated:
                 if scenario.get("state") == SCENARIO_CONFIRMING:
                     scenario["state"] = SCENARIO_BUY_CANDIDATE
                     scenario["playwright_confirmed"] = True
+                    scenario["chart_entry_confirmed"] = True
                     scenario["news_negative"] = False
         else:
             best_state = SCENARIO_NEAR_TRIGGER
-            best_reason = "conferma Playwright/news non sufficiente per comprare"
+            best_reason = (
+                "analisi grafica completata ma senza conferma operativa esplicita dell'ingresso"
+                if chart_tool_ok and not chart_entry_confirmed
+                else "conferma Playwright/news non sufficiente per comprare"
+            )
+            for scenario in evaluated:
+                if scenario.get("state") == SCENARIO_CONFIRMING:
+                    scenario["playwright_confirmed"] = chart_tool_ok
+                    scenario["chart_entry_confirmed"] = False
     elif needs_playwright:
         print(
             "[scenario] SALTO PLAYWRIGHT "

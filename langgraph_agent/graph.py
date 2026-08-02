@@ -14,6 +14,7 @@ from finance_tools.commodity_scanner import scan_commodity_candidates
 from finance_tools.deep_chart_tool import confirm_candidate_with_chart_ai
 from finance_tools.etf_scanner import scan_etf_candidates
 from finance_tools.mib30_scanner import scan_mib30_candidates
+from finance_tools.monitoring_rules import chart_report_confirms_entry
 from finance_tools.performance_tool import calculate_portfolio_performance
 from finance_tools.portfolio_store import (
     add_buy_proposal,
@@ -115,27 +116,7 @@ def _performance_by_ticker(performance: dict[str, Any]) -> dict[str, dict[str, A
 
 
 def _deep_report_confirms_buy(report: str) -> bool:
-    text = (report or "").lower()
-    negative_markers = [
-        "non comprare",
-        "evitare acquisti",
-        "evitare ingresso",
-        "sell",
-        "vendere",
-        "rischio elevato",
-    ]
-    positive_markers = [
-        "buy_candidate",
-        "buy candidate",
-        "ingresso",
-        "comprare",
-        "acquisto",
-        "breakout",
-        "supporto confermato",
-    ]
-    if any(marker in text for marker in negative_markers):
-        return False
-    return any(marker in text for marker in positive_markers)
+    return chart_report_confirms_entry(report)
 
 
 def _has_position_action_today(position: dict[str, Any], action_prefix: str) -> bool:

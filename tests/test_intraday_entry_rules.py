@@ -8,6 +8,7 @@ from finance_tools.monitoring_rules import (
     SCENARIO_NEAR_TRIGGER,
     _evaluate_breakout,
     _evaluate_pullback,
+    chart_report_confirms_entry,
 )
 
 
@@ -69,6 +70,21 @@ class IntradayEntryRulesTestCase(unittest.TestCase):
 
         self.assertEqual(state, SCENARIO_CONFIRMING)
         self.assertIn("pullback intraday", reason)
+
+    def test_completed_analysis_is_not_automatically_a_buy_confirmation(self):
+        report = (
+            "Volumi molto bassi e momentum in indebolimento. "
+            "Attendere conferme prima di interpretare il consolidamento come ripartenza."
+        )
+
+        self.assertFalse(chart_report_confirms_entry(report))
+
+    def test_chart_requires_explicit_operational_confirmation(self):
+        self.assertTrue(
+            chart_report_confirms_entry(
+                "Rimbalzo confermato sul supporto con volumi adeguati: ingresso confermato."
+            )
+        )
 
 
 if __name__ == "__main__":
