@@ -359,7 +359,25 @@ def run_deep_portfolio_analysis(
                 percent=decision["percent"],
                 reference_price=decision["reference_price"],
                 reason=f"Analisi approfondita on demand: {decision['reason']}",
-                metadata={"source": "portfolio_deep_on_demand", "priority": decision["priority"]},
+                metadata={
+                    "source": "portfolio_deep_on_demand",
+                    "priority": decision["priority"],
+                    "action_audit_snapshot": {
+                        "schema_version": 1,
+                        "captured_at": datetime.now().replace(microsecond=0).isoformat(),
+                        "decision_kind": "deep_portfolio_analysis",
+                        "source": "portfolio_deep_on_demand",
+                        "action": "sell_all" if decision["action"] == "vendi" else "reduce_position",
+                        "percent": decision["percent"],
+                        "trigger_type": "deep_analysis_decision",
+                        "trigger_level": decision["reference_price"],
+                        "observed_price": decision["reference_price"],
+                        "comparison": "analysis_recommends_action",
+                        "condition_met": True,
+                        "rule": decision["reason"],
+                        "audit_complete": True,
+                    },
+                },
                 path=resolved_path,
             )
             _log(f"{ticker} - proposta creata {proposal.get('id')} action={proposal.get('action')}")
@@ -372,6 +390,7 @@ def run_deep_portfolio_analysis(
                     applied = confirm_proposal(
                         proposal["id"],
                         path=resolved_path,
+                        confirmation_context="automatic",
                     )
                     _log(
                         f"{ticker} - proposta applicata automaticamente {proposal.get('id')} "

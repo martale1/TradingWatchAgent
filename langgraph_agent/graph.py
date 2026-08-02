@@ -567,7 +567,26 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
                 reason=reason,
                 percent=percent,
                 reference_price=price,
-                metadata={"source": "langgraph_policy", "run_id": state.get("run_id")},
+                metadata={
+                    "source": "langgraph_policy",
+                    "run_id": state.get("run_id"),
+                    "action_audit_snapshot": {
+                        "schema_version": 1,
+                        "captured_at": datetime.now().replace(microsecond=0).isoformat(),
+                        "decision_kind": "pnl_policy",
+                        "source": "langgraph_policy",
+                        "action": "sell_all" if action == "sell" else "reduce_position",
+                        "percent": percent,
+                        "trigger_type": "pnl_threshold",
+                        "trigger_level": -6.0 if action == "sell" else (-3.0 if pnl_pct <= -3 else 5.0),
+                        "observed_price": price,
+                        "observed_pnl_pct": pnl_pct,
+                        "comparison": "pnl_lte_threshold" if pnl_pct < 0 else "pnl_gte_threshold",
+                        "condition_met": True,
+                        "rule": reason,
+                        "audit_complete": True,
+                    },
+                },
             )
             created.append(proposal)
             pending_tickers.add(ticker)
@@ -582,7 +601,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
                     )
                 )
                 continue
-            result = confirm_proposal(proposal["id"])
+            result = confirm_proposal(proposal["id"], confirmation_context="automatic")
             applied.append(
                 {
                     "ticker": ticker,
@@ -695,7 +714,7 @@ def apply_virtual_decisions(state: TradingGraphState) -> TradingGraphState:
                     )
                 )
                 continue
-            result = confirm_proposal(proposal["id"])
+            result = confirm_proposal(proposal["id"], confirmation_context="automatic")
             cash = max(0.0, cash - amount)
             applied.append(
                 {

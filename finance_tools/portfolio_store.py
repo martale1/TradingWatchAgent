@@ -33,6 +33,13 @@ def now_iso():
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+def _float_or_none(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def default_portfolio(initial_capital):
     return {
         "version": 1,
@@ -228,6 +235,25 @@ def add_position_action_proposal(
         raise ValueError("action_type deve essere sell oppure reduce.")
     percent = max(0.0, min(100.0, float(percent)))
     proposal_id = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    proposal_metadata = {
+        "percent": percent,
+        "reference_price": reference_price,
+        **(metadata or {}),
+    }
+    proposal_metadata.setdefault(
+        "action_audit_snapshot",
+        {
+            "schema_version": 1,
+            "captured_at": now_iso(),
+            "decision_kind": "manual_or_agent_action",
+            "source": proposal_metadata.get("source") or "unspecified",
+            "action": "sell_all" if action_type == "sell" else "reduce_position",
+            "percent": percent,
+            "observed_price": reference_price,
+            "reason": reason,
+            "audit_complete": False,
+        },
+    )
     proposal = {
         "id": proposal_id,
         "created_at": now_iso(),
@@ -235,11 +261,7 @@ def add_position_action_proposal(
         "action": "sell_virtual_position" if action_type == "sell" else "reduce_virtual_position",
         "ticker": ticker.strip().upper(),
         "reason": reason,
-        "metadata": {
-            "percent": percent,
-            "reference_price": reference_price,
-            **(metadata or {}),
-        },
+        "metadata": proposal_metadata,
     }
     portfolio.setdefault("pending_proposals", []).append(proposal)
     save_portfolio(portfolio, path)
@@ -487,7 +509,7 @@ def update_monitored_condition(condition_id, status, note="", metadata=None, pat
     return {"status": "ok", "condition": match}
 
 
-def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
+def confirm_proposal(proposal_id, path=PORTFOLIO_FILE, confirmation_context="manual"):
     portfolio = load_portfolio(path)
     if portfolio is None:
         raise RuntimeError("portfolio.json non esiste.")
@@ -503,26 +525,65 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
         metadata = match.setdefault("metadata", {})
         automatic_sources = {"autonomous_met_entry_condition", "langgraph_autonomous"}
         audit_snapshot = metadata.get("entry_audit_snapshot", {}) or {}
-        automatic_audit_valid = audit_snapshot.get("audit_complete") is True
+        automatic_audit_valid = all(
+            (
+                audit_snapshot.get("audit_complete") is True,
+                bool(audit_snapshot.get("captured_at")),
+                bool(audit_snapshot.get("decision_kind")),
+                bool(audit_snapshot.get("source")),
+            )
+        )
         if metadata.get("source") == "autonomous_met_entry_condition":
+            scenario = audit_snapshot.get("scenario") or {}
+            daily_complete = audit_snapshot.get("daily_bar_complete") is True
+            effective_volume = _float_or_none(
+                audit_snapshot.get("volume_ratio")
+                if daily_complete
+                else audit_snapshot.get("intraday_volume_pace_ratio")
+            )
+            required_volume = _float_or_none(scenario.get("required_volume_ratio"))
+            observed_price = _float_or_none(audit_snapshot.get("observed_price"))
+            scenario_type = str(scenario.get("type") or "").upper()
+            if scenario_type == "PULLBACK_SUPPORTO":
+                support = _float_or_none(scenario.get("support"))
+                entry_max = _float_or_none(scenario.get("entry_area_max"))
+                price_condition_met = (
+                    observed_price is not None
+                    and support is not None
+                    and entry_max is not None
+                    and support <= observed_price <= entry_max
+                )
+            else:
+                trigger = _float_or_none(scenario.get("trigger") or audit_snapshot.get("trigger"))
+                price_condition_met = observed_price is not None and trigger is not None and observed_price >= trigger
             automatic_audit_valid = automatic_audit_valid and all(
                 (
                     audit_snapshot.get("condition_id"),
-                    isinstance(audit_snapshot.get("scenario"), dict) and audit_snapshot.get("scenario"),
+                    isinstance(scenario, dict) and scenario,
                     audit_snapshot.get("observed_price") is not None,
                     audit_snapshot.get("entry_price") is not None,
+                    scenario.get("state") == "BUY_CANDIDATE",
+                    scenario.get("chart_entry_confirmed") is True,
+                    scenario.get("news_negative") is False,
+                    required_volume is not None,
+                    effective_volume is not None and effective_volume >= required_volume,
+                    price_condition_met,
+                    audit_snapshot.get("liquidity_ok") is True,
                 )
             )
         elif metadata.get("source") == "langgraph_autonomous":
+            score = audit_snapshot.get("score")
             automatic_audit_valid = automatic_audit_valid and all(
                 (
-                    audit_snapshot.get("score") is not None,
-                    audit_snapshot.get("liquidity_ok") is not None,
-                    audit_snapshot.get("chart_entry_confirmed") is not None,
+                    isinstance(score, (int, float)) and score >= 8,
+                    audit_snapshot.get("liquidity_ok") is True,
+                    audit_snapshot.get("chart_entry_confirmed") is True,
+                    bool(audit_snapshot.get("deep_status")),
                     audit_snapshot.get("entry_price") is not None,
                 )
             )
-        if metadata.get("source") in automatic_sources and not automatic_audit_valid:
+        is_automatic_confirmation = confirmation_context == "automatic" or metadata.get("source") in automatic_sources
+        if is_automatic_confirmation and not automatic_audit_valid:
             pending.remove(match)
             match["status"] = "blocked"
             match["blocked_at"] = now_iso()
@@ -530,6 +591,16 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
             portfolio.setdefault("closed_proposals", []).append(match)
             save_portfolio(portfolio, path)
             return {"status": "blocked", "reason": match["failure_reason"], "proposal": match, "portfolio": portfolio}
+        if not is_automatic_confirmation and audit_snapshot.get("audit_complete") is not True:
+            audit_snapshot.update(
+                {
+                    "decision_kind": "explicit_manual_confirmation",
+                    "verification_mode": "explicit_confirmation",
+                    "entry_price": metadata.get("entry_price"),
+                    "reason": match.get("reason"),
+                    "audit_complete": True,
+                }
+            )
         try:
             entry_price = float(metadata.get("entry_price") or 0)
         except (TypeError, ValueError):
@@ -568,6 +639,50 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
             save_portfolio(portfolio, path)
             return {"status": "blocked", "reason": risk.get("reason"), "proposal": match, "portfolio": portfolio}
         metadata["amount"] = risk["amount"]
+
+    if match.get("action") in {"sell_virtual_position", "reduce_virtual_position"}:
+        metadata = match.setdefault("metadata", {})
+        snapshot = metadata.get("action_audit_snapshot", {}) or {}
+        automatic_sources = {
+            "deterministic_exit_stop",
+            "deterministic_take_profit",
+            "langgraph_policy",
+            "portfolio_deep_on_demand",
+        }
+        source = metadata.get("source")
+        required = (
+            snapshot.get("audit_complete") is True,
+            bool(snapshot.get("captured_at")),
+            bool(snapshot.get("decision_kind")),
+            bool(snapshot.get("source")),
+            bool(snapshot.get("action")),
+            snapshot.get("observed_price") is not None,
+            bool(snapshot.get("trigger_type")),
+            snapshot.get("trigger_level") is not None,
+            bool(snapshot.get("comparison")),
+            snapshot.get("condition_met") is True,
+            snapshot.get("percent") is not None,
+            bool(snapshot.get("rule")),
+        )
+        is_automatic_confirmation = confirmation_context == "automatic" or source in automatic_sources
+        if is_automatic_confirmation and not all(required):
+            pending.remove(match)
+            match["status"] = "blocked"
+            match["blocked_at"] = now_iso()
+            match["failure_reason"] = "snapshot audit azione automatica mancante o incompleto"
+            portfolio.setdefault("closed_proposals", []).append(match)
+            save_portfolio(portfolio, path)
+            return {"status": "blocked", "reason": match["failure_reason"], "proposal": match, "portfolio": portfolio}
+        if not is_automatic_confirmation and snapshot.get("audit_complete") is not True:
+            snapshot.update(
+                {
+                    "decision_kind": "explicit_manual_confirmation",
+                    "verification_mode": "explicit_confirmation",
+                    "reason": match.get("reason"),
+                    "audit_complete": True,
+                }
+            )
+            metadata["action_audit_snapshot"] = snapshot
 
     pending.remove(match)
     match["status"] = "confirmed"
@@ -719,6 +834,7 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
                 "sold_quantity": sold_quantity,
                 "sold_value": sold_value,
                 "reason": match.get("reason", ""),
+                "action_audit_snapshot": metadata.get("action_audit_snapshot"),
             }
         )
         if percent >= 99.999:
@@ -727,6 +843,7 @@ def confirm_proposal(proposal_id, path=PORTFOLIO_FILE):
             position["exit_price"] = reference_price
             position["exit_value"] = sold_value
             position["exit_reason"] = match.get("reason", "")
+            position["exit_audit_snapshot"] = metadata.get("action_audit_snapshot")
         else:
             if quantity:
                 position["virtual_quantity"] = round(quantity - (sold_quantity or 0), 4)

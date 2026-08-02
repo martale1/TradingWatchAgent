@@ -4,6 +4,7 @@ from finance_tools.portfolio_store import (
     add_position_action_proposal,
     confirm_proposal,
     load_portfolio,
+    now_iso,
 )
 
 
@@ -110,13 +111,28 @@ def enforce_triggered_exits(exit_rows, path=PORTFOLIO_FILE, portfolio_id=None):
                 "take_profit_level": float(target) if target is not None else None,
                 "observed_price": float(current),
                 "exit_status": row.get("status"),
+                "action_audit_snapshot": {
+                    "schema_version": 1,
+                    "captured_at": row.get("price_as_of") or now_iso(),
+                    "decision_kind": "deterministic_trigger",
+                    "source": source,
+                    "action": "sell_all" if action_type == "sell" else "reduce_position",
+                    "percent": percent,
+                    "trigger_type": trigger_type,
+                    "trigger_level": trigger_level,
+                    "observed_price": float(current),
+                    "comparison": "price_lte_trigger" if action_type == "sell" else "price_gte_trigger",
+                    "condition_met": True,
+                    "rule": reason,
+                    "audit_complete": True,
+                },
             },
             path=path,
         )
         allowed, autonomy_mode = autonomous_action_allowed(
             proposal.get("action"), portfolio_id=portfolio_id
         )
-        result = confirm_proposal(proposal["id"], path=path) if allowed else None
+        result = confirm_proposal(proposal["id"], path=path, confirmation_context="automatic") if allowed else None
         applied = bool(result and result.get("status") == "ok")
         decisions.append({
             "ticker": ticker,

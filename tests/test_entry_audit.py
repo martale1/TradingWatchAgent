@@ -97,7 +97,7 @@ def test_entry_audit_recovers_legacy_condition_by_evaluation_time():
     assert audit["condition_id"] == "legacy-condition"
     assert audit["checks"][0]["status"] == "passed"
     assert audit["checks"][1]["status"] == "passed"
-    assert audit["checks"][2]["status"] == "unknown"
+    assert audit["checks"][2]["status"] == "missing"
     assert audit["legacy_warning"]
     assert audit["audit_type"] == "monitored_condition"
 

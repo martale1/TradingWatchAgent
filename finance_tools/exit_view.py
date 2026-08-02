@@ -241,19 +241,19 @@ def build_entry_audit(portfolio, ticker, position):
     checks = [
         {
             "label": "Prezzo nella configurazione richiesta",
-            "status": "passed" if price_passed is True else "failed" if price_passed is False else "unknown",
+            "status": "passed" if price_passed is True else "failed" if price_passed is False else "missing",
             "actual": f"Prezzo osservato {observed_price:.4f}" if observed_price is not None else "Prezzo non registrato",
             "rule": price_rule,
         },
         {
             "label": "Conferma volumi",
-            "status": "passed" if volume_passed is True else "failed" if volume_passed is False else "unknown",
+            "status": "passed" if volume_passed is True else "failed" if volume_passed is False else "missing",
             "actual": f"{'Ritmo intraday' if daily_complete is False else 'Volume finale'} {effective_volume:.3f}x MA10" if effective_volume is not None else "Volume confrontabile non registrato",
             "rule": f"Richiesto almeno {required_volume:.2f}x MA10" if required_volume is not None else "Soglia non registrata",
         },
         {
             "label": "Conferma operativa del grafico",
-            "status": "passed" if chart_confirmed is True else "failed" if chart_confirmed is False else "unknown",
+            "status": "passed" if chart_confirmed is True else "failed" if chart_confirmed is False else "missing",
             "actual": (
                 "Ingresso esplicitamente confermato"
                 if chart_confirmed is True else "Ingresso esplicitamente respinto"
@@ -264,13 +264,13 @@ def build_entry_audit(portfolio, ticker, position):
         },
         {
             "label": "Controllo news",
-            "status": "passed" if news_negative is False else "failed" if news_negative is True else "unknown",
+            "status": "passed" if news_negative is False else "failed" if news_negative is True else "missing",
             "actual": "Nessuna news negativa" if news_negative is False else "News negative rilevate" if news_negative is True else "Esito news non registrato",
             "rule": "Nessuna notizia negativa rilevante",
         },
         {
             "label": "Controllo rischio e dimensione",
-            "status": "passed" if risk.get("allowed") is True else "failed" if risk.get("allowed") is False else "unknown",
+            "status": "passed" if risk.get("allowed") is True else "failed" if risk.get("allowed") is False else "missing",
             "actual": f"Ordine consentito per EUR {safe_float(risk.get('amount')):.2f}" if safe_float(risk.get("amount")) is not None else "Esito rischio non registrato",
             "rule": "Rispetto dei limiti del profilo del portafoglio",
         },
@@ -281,19 +281,19 @@ def build_entry_audit(portfolio, ticker, position):
         checks = [
             {
                 "label": "Punteggio scanner",
-                "status": "passed" if score is not None and score >= 8 else "failed" if score is not None else "unknown",
+                "status": "passed" if score is not None and score >= 8 else "failed" if score is not None else "missing",
                 "actual": f"Score {score:.0f}" if score is not None else "Score non registrato",
                 "rule": "Score minimo 8 per candidato automatico",
             },
             {
                 "label": "Liquidità dello strumento",
-                "status": "passed" if liquidity_ok is True else "failed" if liquidity_ok is False else "unknown",
+                "status": "passed" if liquidity_ok is True else "failed" if liquidity_ok is False else "missing",
                 "actual": "Liquidità sufficiente" if liquidity_ok is True else "Liquidità insufficiente" if liquidity_ok is False else "Liquidità non registrata",
                 "rule": "Il filtro di liquidità deve essere superato",
             },
             {
                 "label": "Conferma operativa del grafico",
-                "status": "passed" if chart_confirmed is True else "failed" if chart_confirmed is False else "unknown",
+                "status": "passed" if chart_confirmed is True else "failed" if chart_confirmed is False else "missing",
                 "actual": "Ingresso confermato" if chart_confirmed is True else "Ingresso non confermato" if chart_confirmed is False else "Esito non registrato",
                 "rule": "Il report deve confermare esplicitamente l'ingresso",
             },
@@ -308,9 +308,9 @@ def build_entry_audit(portfolio, ticker, position):
     return {
         "available": bool(proposal or position),
         "audit_type": (
-            "standardized_snapshot" if snapshot.get("audit_complete") is True
+            "manual_or_explicit" if snapshot.get("decision_kind") in {"explicit_user_override", "explicit_manual_confirmation", "agent_proposal_requiring_confirmation", "manual_or_agent_proposal"}
+            else "standardized_snapshot" if snapshot.get("audit_complete") is True
             else "monitored_condition" if condition and scenario
-            else "manual_or_explicit" if snapshot.get("decision_kind") in {"explicit_user_override", "agent_proposal_requiring_confirmation", "manual_or_agent_proposal"}
             else "unlinked_historical_entry"
         ),
         "decision_kind": snapshot.get("decision_kind"),

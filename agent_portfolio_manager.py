@@ -468,7 +468,7 @@ def process_autonomous_met_entry_conditions(auto_apply_virtual, max_auto_trade_p
                 },
             },
         )
-        result = confirm_portfolio_proposal(proposal["id"])
+        result = confirm_portfolio_proposal(proposal["id"], confirmation_context="automatic")
         confirm_status = str(result.get("status") or "").lower()
         applied = confirm_status in {"ok", "confirmed", "applied"}
         update_monitored_condition(

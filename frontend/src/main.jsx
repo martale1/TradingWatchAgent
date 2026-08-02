@@ -2413,7 +2413,7 @@ function ChartModal({ item, onClose }) {
               {!['unlinked_historical_entry', 'manual_or_explicit'].includes(entryAudit.audit_type) && <div className="entryAuditChecks">
                 {(entryAudit.checks || []).map((check, index) => (
                   <div className={`entryAuditCheck ${check.status}`} key={`${check.label}-${index}`}>
-                    <span>{check.status === "passed" ? "SUPERATO" : check.status === "failed" ? "NON SUPERATO" : "NON VERIFICABILE"}</span>
+                    <span>{check.status === "passed" ? "SUPERATO" : check.status === "failed" ? "NON SUPERATO" : "DATO STORICO MANCANTE · AZIONE OGGI BLOCCATA"}</span>
                     <div><strong>{check.label}</strong><p>{check.actual}</p><small>Regola: {check.rule}</small></div>
                   </div>
                 ))}
@@ -2500,10 +2500,17 @@ function Actions({ rows = [] }) {
       <h2>Azioni agente recenti</h2>
       <div className="tableWrap">
         <table>
-          <thead><tr><th>Quando</th><th>Stato</th><th>Azione</th><th>Ticker</th><th>Motivo</th></tr></thead>
+          <thead><tr><th>Quando</th><th>Stato</th><th>Azione</th><th>Ticker</th><th>Trigger verificato</th><th>Motivo</th></tr></thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
+            {rows.map((row) => {
+              const audit = row.metadata?.entry_audit_snapshot || row.metadata?.action_audit_snapshot;
+              const trigger = audit?.condition
+                || audit?.rule
+                || audit?.scenario_reason
+                || (audit?.verification_mode === "explicit_confirmation" ? "Conferma manuale esplicita" : null);
+              const observed = audit?.observed_price ?? audit?.entry_price;
+              const threshold = audit?.trigger_level ?? audit?.trigger ?? audit?.scenario?.trigger ?? audit?.scenario?.support;
+              return <tr key={row.id}>
                 <td>{row.confirmed_at || row.rejected_at || row.created_at}</td>
                 <td><span className={`pill ${row.status === "confirmed" ? "positive" : "neutral"}`}>{row.status}</span></td>
                 <td>{row.action}</td>
@@ -2513,9 +2520,24 @@ function Actions({ rows = [] }) {
                     <NewsButton ticker={row.ticker} compact />
                   </div>
                 </td>
+                <td className="reason">
+                  {audit?.audit_complete ? (
+                    <div>
+                      <strong>VERIFICABILE · {audit.decision_kind || "decisione registrata"}</strong>
+                      <div>{trigger || "Regola salvata nello snapshot"}</div>
+                      <small>
+                        Osservato {price(observed)}
+                        {threshold !== null && threshold !== undefined ? ` · soglia ${price(threshold)}` : ""}
+                        {audit.action ? ` · ${audit.action}${audit.percent ? ` ${audit.percent}%` : ""}` : ""}
+                      </small>
+                    </div>
+                  ) : (
+                    <strong>DATO STORICO MANCANTE · oggi l'azione sarebbe bloccata</strong>
+                  )}
+                </td>
                 <td className="reason">{row.reason}</td>
-              </tr>
-            ))}
+              </tr>;
+            })}
           </tbody>
         </table>
       </div>
