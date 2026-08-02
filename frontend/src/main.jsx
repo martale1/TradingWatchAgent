@@ -3563,7 +3563,7 @@ function RunLogs() {
   );
 }
 
-function PortfoliosSummary({ selectedId = "main", onSelect }) {
+function PortfoliosSummary({ selectedId = "main", onSelect, onChart }) {
   const [state, setState] = useState({
     loading: true,
     error: "",
@@ -3656,7 +3656,19 @@ function PortfoliosSummary({ selectedId = "main", onSelect }) {
               {(row.positions || []).length ? (
                 <div className="portfolioSummaryPositionsList">
                   {(row.positions || []).map((position) => (
-                    <div className="portfolioSummaryPosition" key={position.ticker}>
+                    <button
+                      type="button"
+                      className="portfolioSummaryPosition"
+                      key={position.ticker}
+                      title={`Apri grafico ${position.ticker}`}
+                      onClick={() => onChart({
+                        ticker: position.ticker,
+                        current_price: position.current_price,
+                        entry_price: position.entry_price,
+                        support_level: null,
+                        condition: `Posizione nel portafoglio ${row.name}`,
+                      })}
+                    >
                       <div>
                         <strong>{position.ticker}</strong>
                         {position.daily_change_pct != null && (
@@ -3671,7 +3683,7 @@ function PortfoliosSummary({ selectedId = "main", onSelect }) {
                           {eur(position.pnl)} · {pct(position.pnl_pct)}
                         </small>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -4485,6 +4497,7 @@ function App() {
             <PortfoliosSummary
               selectedId={selectedPortfolioId}
               onSelect={setSelectedPortfolioId}
+              onChart={setChartItem}
             />
           )}
           {tab === "portfolios" && (

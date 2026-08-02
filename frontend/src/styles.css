@@ -457,9 +457,18 @@ main { max-width: 1480px; margin: 0 auto; padding: 24px 32px 32px; }
   background: #fbfdff;
 }
 .portfolioSummaryPosition {
+  width: 100%;
   padding: 9px 10px;
+  border: 0;
   border-bottom: 1px solid #edf2f7;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
+.portfolioSummaryPosition:hover { background: #eff6ff; }
+.portfolioSummaryPosition:focus-visible { position: relative; z-index: 1; outline: 2px solid #2563eb; outline-offset: -2px; }
 .portfolioSummaryPosition:last-child { border-bottom: 0; }
 .portfolioSummaryPosition > div {
   display: grid;

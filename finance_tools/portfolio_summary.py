@@ -118,6 +118,11 @@ def build_portfolios_summary(include_archived=False):
             position_rows.append(
                 {
                     "ticker": ticker,
+                    "entry_price": (
+                        round(safe_float(position.get("entry_price")), 4)
+                        if position.get("entry_price") is not None
+                        else None
+                    ),
                     "market_value": round(market_value, 2),
                     "pnl": round(position_pnl, 2),
                     "pnl_pct": round(position_pnl_pct, 2),
