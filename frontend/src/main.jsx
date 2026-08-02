@@ -2106,7 +2106,7 @@ function PriceChart({ prices = [], triggerLevel, supportLevel, entryPrice, entry
   );
 }
 
-function TechnicalChart({ prices = [], type }) {
+function TechnicalChart({ prices = [], type, entryDate }) {
   const width = 1040;
   const height = 430;
   const pad = { top: 34, right: 96, bottom: 66, left: 88 };
@@ -2185,6 +2185,10 @@ function TechnicalChart({ prices = [], type }) {
       if (prices.length <= 45) return index % 5 === 0;
       return String(row.date || "").slice(0, 7) !== String(previous.date || "").slice(0, 7);
     });
+  const entryDay = String(entryDate || "").slice(0, 10);
+  const entryIndex = entryDay
+    ? prices.findIndex((row) => String(row.date || "").slice(0, 10) === entryDay)
+    : -1;
 
   function linePath(serie) {
     return prices
@@ -2243,6 +2247,13 @@ function TechnicalChart({ prices = [], type }) {
         }
         return <path key={serie.key} className="indicatorLine" d={linePath(serie)} style={{ stroke: serie.color }} />;
       })}
+      {entryIndex >= 0 && (
+        <g className="indicatorEntryMarker">
+          <line x1={x(entryIndex)} x2={x(entryIndex)} y1={pad.top} y2={pad.top + plotH} />
+          <rect x={Math.min(x(entryIndex) + 8, pad.left + plotW - 142)} y={pad.top + 7} width="142" height="25" rx="6" />
+          <text x={Math.min(x(entryIndex) + 16, pad.left + plotW - 134)} y={pad.top + 24}>INGRESSO {shortDate(entryDay)}</text>
+        </g>
+      )}
       <g className="legend">
         {config.series.map((serie, index) => (
           <g key={serie.key} transform={`translate(${pad.left + index * 140} ${height - 14})`}>
@@ -2393,24 +2404,24 @@ function ChartModal({ item, onClose }) {
               </div>
               <div>
                 <h3>Volumi</h3>
-                <TechnicalChart prices={state.prices} type="volume" />
+                <TechnicalChart prices={state.prices} type="volume" entryDate={entryDate} />
               </div>
               <div>
                 <h3>RSI / Stocastico / Williams %R</h3>
-                <TechnicalChart prices={state.prices} type="oscillators" />
+                <TechnicalChart prices={state.prices} type="oscillators" entryDate={entryDate} />
               </div>
               <div>
                 <h3>MACD</h3>
-                <TechnicalChart prices={state.prices} type="macd" />
+                <TechnicalChart prices={state.prices} type="macd" entryDate={entryDate} />
               </div>
               <div>
                 <h3>ADX</h3>
-                <TechnicalChart prices={state.prices} type="adx" />
+                <TechnicalChart prices={state.prices} type="adx" entryDate={entryDate} />
               </div>
             </div>
           ) : view === "price"
             ? <PriceChart prices={state.prices} triggerLevel={triggerLevel} supportLevel={supportLevel} entryPrice={entryPrice} entryDate={entryDate} mode={mode} />
-            : <TechnicalChart prices={state.prices} type={view} />
+            : <TechnicalChart prices={state.prices} type={view} entryDate={entryDate} />
         )}
       </div>
     </div>
