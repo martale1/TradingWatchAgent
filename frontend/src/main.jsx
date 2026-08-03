@@ -4639,9 +4639,15 @@ function App() {
               className={decision.applied ? "exitExecutionBanner applied" : "exitExecutionBanner pending"}
               key={`${decision.ticker}-${decision.proposal_id || decision.decision}`}
             >
-              <strong>{decision.ticker}: {decision.applied ? "VENDITA TOTALE ESEGUITA" : "USCITA NON ANCORA ESEGUITA"}</strong>
+              <strong>
+                Portafoglio {data.portfolio_config?.name || selectedPortfolioId} · {decision.ticker}: {decision.applied
+                  ? decision.action === "reduce_virtual_position" || Number(decision.percent) < 100
+                    ? `VENDITA PARZIALE ${decision.percent}% ESEGUITA`
+                    : "VENDITA TOTALE ESEGUITA"
+                  : "USCITA NON ANCORA ESEGUITA"}
+              </strong>
               <span>
-                Prezzo {price(decision.current_price)} · stop {price(decision.stop_level)} · proposta {decision.proposal_id || "esistente"}
+                Prezzo {price(decision.current_price)} · {decision.trigger_type === "take_profit" ? "target" : "stop"} {price(decision.trigger_level)} · proposta {decision.proposal_id || "esistente"}
                 {!decision.applied && ` · stato ${decision.decision}`}
               </span>
             </div>

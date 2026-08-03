@@ -37,6 +37,9 @@ def test_breached_stop_sells_open_position_once(tmp_path):
 
     assert first["applied_count"] == 1
     assert first["decisions"][0]["decision"] == "sold"
+    assert first["decisions"][0]["action"] == "sell_virtual_position"
+    assert first["decisions"][0]["trigger_level"] == 1.95
+    assert first["decisions"][0]["stop_level"] == 1.95
     assert second["applied_count"] == 0
     assert not [item for item in portfolio["positions"] if item.get("status") == "open"]
     assert portfolio["positions"][0]["status"] == "closed"
