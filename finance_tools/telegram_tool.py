@@ -732,6 +732,47 @@ def _action_effect_brief(item):
     return "\n".join(details)
 
 
+def _portfolio_change_brief(item):
+    """Return one unambiguous portfolio mutation for the consolidated Telegram message."""
+    action = item.get("action")
+    ticker = item.get("ticker", "n/d")
+    metadata = item.get("metadata", {}) or {}
+    reason = str(item.get("reason") or "")
+    price = metadata.get("entry_price") if action == "buy_virtual_position" else metadata.get("reference_price")
+    price_text = f" @ {format_number(price)}" if price is not None else ""
+    if action == "buy_virtual_position":
+        verb = "INCREMENTATO" if "INCREMENTO" in reason.upper() else "COMPRATO"
+        return f"- {verb} {ticker}{price_text}"
+    if action == "sell_virtual_position":
+        return f"- VENDUTO {ticker}{price_text}"
+    if action == "reduce_virtual_position":
+        percent = metadata.get("percent")
+        percent_text = f" {format_number(percent)}%" if percent is not None else ""
+        if metadata.get("source") == "deterministic_take_profit":
+            return f"- TAKE PROFIT {ticker}: venduto{percent_text}{price_text}"
+        return f"- RIDOTTO {ticker}: venduto{percent_text}{price_text}"
+    return None
+
+
+def _portfolio_changes_since_last_summary(portfolio_id):
+    notification_state = load_notification_state(portfolio_id)
+    last_sent_at = parse_iso((notification_state.get("consolidated_summary") or {}).get("sent_at"))
+    cutoff = last_sent_at or (datetime.now() - timedelta(hours=24))
+    portfolio = load_portfolio(portfolio_state_path(portfolio_id)) or {}
+    actions = [
+        item
+        for item in portfolio.get("closed_proposals", [])
+        if (_action_timestamp(item) or datetime.min) > cutoff
+    ]
+    return [
+        line
+        for item in actions
+        if item.get("status") == "confirmed"
+        for line in [_portfolio_change_brief(item)]
+        if line
+    ]
+
+
 def build_readable_monitoring_summary(extra_note="", portfolio_id=None):
     resolved_id, portfolio_label = portfolio_display_label(portfolio_id)
     path = portfolio_state_path(resolved_id)
@@ -931,7 +972,15 @@ def build_all_portfolios_summary(extra_note=""):
         f"Titoli: {format_money(totals.get('positions_value'))}",
         f"Cash: {format_money(totals.get('cash'))}",
         f"P/L: {signal_dot(total_pnl_pct)} {format_signed_money(total_pnl)} ({format_pct(total_pnl_pct)})",
+        "",
+        "COSA È CAMBIATO, PORTAFOGLIO PER PORTAFOGLIO",
     ]
+
+    for row in rows:
+        portfolio_id = row.get("portfolio_id")
+        lines.append(f"{row.get('name') or portfolio_id} [{portfolio_id}]")
+        changes = _portfolio_changes_since_last_summary(portfolio_id)
+        lines.extend(changes or ["- NESSUNA MODIFICA"])
 
     for index, row in enumerate(rows, start=1):
         pnl = float(row.get("pnl") or 0)
@@ -993,6 +1042,15 @@ def send_monitoring_summary(extra_note="", portfolio_id=None):
 def send_all_portfolios_summary(extra_note=""):
     message = build_all_portfolios_summary(extra_note=extra_note)
     result = send_telegram_message(message)
+    if result.get("status") == "ok":
+        from finance_tools.portfolio_registry import list_portfolios
+
+        sent_at = now_iso()
+        for item in (list_portfolios(include_archived=False).get("items") or []):
+            portfolio_id = item.get("id")
+            state = load_notification_state(portfolio_id)
+            state["consolidated_summary"] = {"sent_at": sent_at}
+            save_notification_state(state, portfolio_id)
     return {**result, "message": message}
 
 
